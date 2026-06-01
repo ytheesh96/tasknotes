@@ -23,14 +23,8 @@ import {
 	formatBasesExportAsTsv,
 	type BasesExportTable,
 } from "./basesExport";
-import {
-	getRenderedTaskPaths,
-	planBasesTaskDeletedEvent,
-} from "./basesUpdateEvents";
-import {
-	cleanupBasesNewTaskButton,
-	injectBasesNewTaskButton,
-} from "./basesToolbar";
+import { getRenderedTaskPaths, planBasesTaskDeletedEvent } from "./basesUpdateEvents";
+import { cleanupBasesNewTaskButton, injectBasesNewTaskButton } from "./basesToolbar";
 import {
 	buildBasesVisibleProperties,
 	buildBasesVisiblePropertyLabels,
@@ -66,6 +60,11 @@ import {
 	registerBasesTaskUpdateListeners,
 } from "./basesTaskUpdateListeners";
 import type { BasesTaskUpdateSource } from "./basesUpdateEvents";
+import {
+	buildDefaultTaskCreationOptionsWithHermesTargets,
+	buildHermesTaskCreationOptions,
+	isHermesCreationContext,
+} from "../hermes/hermesTaskNotesIntegration";
 import { createTaskNotesLogger, type TaskNotesLogger } from "../utils/tasknotesLogger";
 
 type BasesEphemeralState = {
@@ -492,16 +491,22 @@ export abstract class BasesViewBase extends Component {
 			currentFileLink: () => getBasesCurrentFileLinkDefault(app),
 			frontmatterProcessor,
 		});
+		const taskCreationOptions = isHermesCreationContext(app, taskCreationData)
+			? buildHermesTaskCreationOptions(
+					app,
+					this.plugin.settings.userFields ?? [],
+					taskCreationData,
+					() => {
+						this.refresh();
+					}
+				)
+			: buildDefaultTaskCreationOptionsWithHermesTargets(app, taskCreationData, () => {
+					this.refresh();
+				});
 
 		// Open TaskNotes creation modal
 		// Use this.app if available (set by Bases), otherwise fall back to plugin.app
-		const modal = new TaskCreationModal(app, this.plugin, {
-			prePopulatedValues: taskCreationData,
-			onTaskCreated: (task: TaskInfo) => {
-				// Refresh the view after task creation so it appears immediately
-				this.refresh();
-			},
-		});
+		const modal = new TaskCreationModal(app, this.plugin, taskCreationOptions);
 
 		modal.open();
 	}
@@ -695,8 +700,7 @@ export abstract class BasesViewBase extends Component {
 	}
 
 	private getBasesExportFileName(): string {
-		const configName =
-			typeof this.config?.get === "function" ? this.config.get("name") : "";
+		const configName = typeof this.config?.get === "function" ? this.config.get("name") : "";
 		return buildBasesExportFileName(configName, this.type);
 	}
 

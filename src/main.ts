@@ -82,6 +82,13 @@ import {
 	pluginDataFileExists,
 } from "./settings/settingsPersistence";
 import { startDateChangeDetection } from "./bootstrap/dateChangeDetection";
+import {
+	buildDefaultTaskCreationOptionsWithHermesTargets,
+	buildHermesTaskCreationOptions,
+	buildHermesTaskEditOptions,
+	isHermesCreationContext,
+	isHermesTask,
+} from "./hermes/hermesTaskNotesIntegration";
 import { createTaskNotesLogger } from "./utils/tasknotesLogger";
 import {
 	createTaskNotesPerformanceProfiler,
@@ -1074,9 +1081,11 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	openTaskCreationModal(prePopulatedValues?: Partial<TaskInfo>) {
-		new TaskCreationModal(this.app, this, {
-			prePopulatedValues: this.applyParentNoteProjectDefault(prePopulatedValues),
-		}).open();
+		const values = this.applyParentNoteProjectDefault(prePopulatedValues);
+		const options = isHermesCreationContext(this.app, values)
+			? buildHermesTaskCreationOptions(this.app, this.settings.userFields ?? [], values)
+			: buildDefaultTaskCreationOptionsWithHermesTargets(this.app, values);
+		new TaskCreationModal(this.app, this, options).open();
 	}
 
 	private applyParentNoteProjectDefault(
@@ -1223,7 +1232,10 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	async openTaskEditModal(task: TaskInfo, onTaskUpdated?: (task: TaskInfo) => void) {
 		// With native cache, task data is always current - no need to refetch
-		new TaskEditModal(this.app, this, { task, onTaskUpdated }).open();
+		const options = isHermesTask(task)
+			? buildHermesTaskEditOptions(task, this.settings.userFields ?? [], onTaskUpdated)
+			: { task, onTaskUpdated };
+		new TaskEditModal(this.app, this, options).open();
 	}
 
 	/**

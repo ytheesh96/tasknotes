@@ -424,9 +424,21 @@ export abstract class TaskModal extends Modal {
 		return false;
 	}
 
+	protected getModalFieldsConfig(): ModalFieldsConfigLike | undefined {
+		return this.plugin.settings.modalFieldsConfig;
+	}
+
+	protected getPrimaryActionText(): string | undefined {
+		return undefined;
+	}
+
 	abstract initializeFormData(): Promise<void>;
 	abstract handleSave(): Promise<void>;
 	abstract getModalTitle(): string;
+
+	protected renderModalTitle(): void {
+		this.titleEl.setText(this.getModalTitle());
+	}
 
 	protected async handleSubmitShortcut(_shift: boolean): Promise<void> {
 		await this.handleSave();
@@ -440,7 +452,7 @@ export abstract class TaskModal extends Modal {
 		this.modalEl.addClass("mod-tasknotes");
 
 		// Set the modal title using the standard Obsidian approach (preserves close button)
-		this.titleEl.setText(this.getModalTitle());
+		this.renderModalTitle();
 
 		// Add global keyboard shortcut handler for CMD/Ctrl+Enter
 		this.keyboardHandler = (e: KeyboardEvent) => {
@@ -638,7 +650,7 @@ export abstract class TaskModal extends Modal {
 		}
 
 		// Check field configuration to determine which fields to show
-		const config = this.plugin.settings.modalFieldsConfig;
+		const config = this.getModalFieldsConfig();
 		const shouldShowTitle = this.shouldShowField("title", config);
 		const shouldShowDetails = this.shouldShowField("details", config);
 		this.splitContentWrapper.classList.toggle(
@@ -708,7 +720,7 @@ export abstract class TaskModal extends Modal {
 
 	protected createAdditionalFields(container: HTMLElement): void {
 		// Use field configuration (always initialized via migration in main.ts)
-		const config = this.plugin.settings.modalFieldsConfig;
+		const config = this.getModalFieldsConfig();
 		if (!config) {
 			tasknotesLogger.error(
 				"TaskModal: modalFieldsConfig is not initialized. This should never happen.",
@@ -923,6 +935,7 @@ export abstract class TaskModal extends Modal {
 		createTaskModalActionButtons(this.getActionButtonContext(), {
 			container,
 			leadingButtons,
+			saveText: this.getPrimaryActionText(),
 			onSave: () => this.handleSave(),
 			onSaved: () => {
 				this.close();

@@ -1,4 +1,4 @@
-import { App, Notice, setIcon, setTooltip, TFile } from "obsidian";
+import { App, Menu, Notice, setIcon, setTooltip, TFile } from "obsidian";
 import TaskNotesPlugin from "../main";
 import { TaskModal } from "./TaskModal";
 import { TaskInfo } from "../types";
@@ -24,12 +24,22 @@ import { NLPSuggest } from "./taskCreationSuggest";
 import { shouldShowFilenameShortenedNotice } from "../utils/filenameGenerator";
 import { setTaskModalDetailsEditorValue } from "./taskModalDetailsEditor";
 import { collapseTaskModalDetailsLayout } from "./taskModalLayout";
+import type { ModalFieldsConfigLike } from "./taskModalFieldConfig";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import type { TaskModalActionIconSpec } from "./taskModalActionBar";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationModal" });
 export type { StatusSuggestion } from "./taskCreationSuggest";
 
 const TASK_CREATION_FAILURE_PREFIX = "Failed to create task: ";
+const HERMES_SUBMIT_TAG = "hermes-submit";
+const HERMES_CUSTOM_KEYS = [
+	"hermes_submit",
+	"hermes_board",
+	"hermes_assignee",
+	"hermes_priority",
+	"hermes_created_by",
+];
 
 export function getTaskCreationFailureNoticeMessage(error: unknown): string {
 	const rawMessage = error instanceof Error && error.message ? error.message : String(error);
@@ -42,7 +52,21 @@ export interface TaskCreationOptions {
 	prePopulatedValues?: TaskCreationPrepopulatedValues;
 	onTaskCreated?: (task: TaskInfo) => void;
 	creationContext?: "manual-creation" | "modal-inline-creation"; // Folder behavior context
+	modalTitle?: string;
+	saveButtonText?: string;
+	modalFieldsConfig?: ModalFieldsConfigLike;
+	creationTargetPicker?: {
+		boards: string[];
+		selectedTarget: string;
+	};
+	hermesBoardPicker?: {
+		boards: string[];
+		selectedBoard: string;
+	};
 }
+
+const DEFAULT_CREATION_TARGET = "default";
+const HERMES_TARGET_PREFIX = "hermes:";
 
 type OpenTaskAfterCreationMode = TaskNotesPlugin["settings"]["openTaskAfterCreation"];
 type CreatedTaskOpenMode = Exclude<OpenTaskAfterCreationMode, "none">;
@@ -89,6 +113,9 @@ export class TaskCreationModal extends TaskModal {
 	private nlPreviewContainer: HTMLElement;
 	private nlButtonContainer: HTMLElement;
 	private nlpSuggest: NLPSuggest | null = null; // Will be replaced with CodeMirror autocomplete
+	private selectedHermesBoard: string | null = null;
+	private selectedCreationTarget = DEFAULT_CREATION_TARGET;
+	private nonHermesStatus: string | null = null;
 
 	// Track event listeners for cleanup
 	private eventListeners: Array<{
@@ -101,14 +128,31 @@ export class TaskCreationModal extends TaskModal {
 		super(app, plugin);
 		this.options = options;
 		this.nlParser = NaturalLanguageParser.fromPlugin(plugin);
+		this.selectedHermesBoard = options.hermesBoardPicker?.selectedBoard ?? null;
+		this.selectedCreationTarget =
+			options.creationTargetPicker?.selectedTarget ??
+			(this.selectedHermesBoard
+				? this.getHermesTargetId(this.selectedHermesBoard)
+				: DEFAULT_CREATION_TARGET);
 	}
 
 	getModalTitle(): string {
-		return this.t("modals.taskCreation.title");
+		return this.options.modalTitle ?? this.t("modals.taskCreation.title");
 	}
 
 	protected isCreationMode(): boolean {
 		return true;
+	}
+
+	protected getModalFieldsConfig(): ModalFieldsConfigLike | undefined {
+		return this.options.modalFieldsConfig ?? super.getModalFieldsConfig();
+	}
+
+	protected getPrimaryActionText(): string | undefined {
+		if (this.isHermesCreationTarget()) {
+			return "Send to triage";
+		}
+		return this.options.saveButtonText;
 	}
 
 	/**
@@ -452,6 +496,25 @@ export class TaskCreationModal extends TaskModal {
 		this.updateIconStates();
 	}
 
+	protected getCoreActionIconSpecs(): TaskModalActionIconSpec[] {
+		const specs = super.getCoreActionIconSpecs();
+		if (!this.hasHermesBoardPicker()) {
+			return specs;
+		}
+
+		return [
+			{
+				iconName: "columns-3",
+				tooltip: this.getHermesBoardTooltip(),
+				onClick: (_, event) => {
+					this.showHermesBoardContextMenu(event);
+				},
+				dataType: "hermes-board",
+			},
+			...specs,
+		];
+	}
+
 	private parseAndFillForm(input: string): void {
 		const parsed = this.nlParser.parseInput(input);
 		this.applyParsedData(parsed);
@@ -519,6 +582,8 @@ export class TaskCreationModal extends TaskModal {
 			this.updateUserFieldControls();
 		}
 
+		this.syncHermesBoardSelection();
+
 		// Update icon states
 		this.updateIconStates();
 	}
@@ -553,6 +618,9 @@ export class TaskCreationModal extends TaskModal {
 		this.scheduledDate = formState.scheduledDate;
 		this.priority = formState.priority;
 		this.status = formState.status;
+		this.nonHermesStatus = this.isHermesCreationTarget()
+			? this.plugin.settings.defaultTaskStatus
+			: formState.status;
 		this.contexts = formState.contexts;
 		this.tags = formState.tags;
 		this.timeEstimate = formState.timeEstimate;
@@ -560,6 +628,7 @@ export class TaskCreationModal extends TaskModal {
 		this.recurrenceAnchor = formState.recurrenceAnchor;
 		this.reminders = formState.reminders;
 		this.userFields = formState.userFields;
+		this.syncHermesBoardSelection();
 
 		if (formState.projectStrings.length > 0) {
 			this.initializeProjectsFromStrings(formState.projectStrings);
@@ -583,6 +652,8 @@ export class TaskCreationModal extends TaskModal {
 				this.applyParsedData(parsed);
 			}
 		}
+
+		this.syncHermesBoardSelection();
 
 		if (!this.validateForm()) {
 			new Notice(this.t("modals.taskCreation.notices.titleRequired"));
@@ -721,8 +792,199 @@ export class TaskCreationModal extends TaskModal {
 				...taskData.customFrontmatter,
 			};
 		}
+		if (!this.isHermesCreationTarget()) {
+			removeHermesCustomFrontmatter(taskData.customFrontmatter);
+		}
 
 		return taskData;
+	}
+
+	private hasHermesBoardPicker(): boolean {
+		return this.getHermesBoardOptions().length > 0;
+	}
+
+	private getHermesBoardOptions(): string[] {
+		return (
+			this.options.hermesBoardPicker?.boards ??
+			this.options.creationTargetPicker?.boards ??
+			[]
+		);
+	}
+
+	private getHermesBoardTooltip(): string {
+		const board = this.getSelectedHermesBoard();
+		if (this.isHermesCreationTarget() && board) {
+			return `Board: ${board}`;
+		}
+		return board ? `Choose Hermes board: ${board}` : "Choose Hermes board";
+	}
+
+	private getSelectedHermesBoard(): string {
+		if (this.selectedCreationTarget.startsWith(HERMES_TARGET_PREFIX)) {
+			return this.selectedCreationTarget.slice(HERMES_TARGET_PREFIX.length);
+		}
+		return this.selectedHermesBoard ?? this.options.hermesBoardPicker?.selectedBoard ?? "";
+	}
+
+	private getHermesTargetId(board: string): string {
+		return `${HERMES_TARGET_PREFIX}${board}`;
+	}
+
+	private isHermesCreationTarget(): boolean {
+		return this.selectedCreationTarget.startsWith(HERMES_TARGET_PREFIX);
+	}
+
+	private getCreationTargetLabel(): string {
+		if (this.isHermesCreationTarget()) {
+			return `Hermes/${this.getSelectedHermesBoard()}`;
+		}
+		return "Default";
+	}
+
+	private showHermesBoardContextMenu(event: UIEvent): void {
+		const boards = this.getHermesBoardOptions();
+		if (boards.length === 0) return;
+
+		const menu = new Menu();
+		menu.addItem((item) => {
+			item.setTitle("Default task");
+			item.setIcon(this.isHermesCreationTarget() ? "circle" : "check");
+			item.setChecked(!this.isHermesCreationTarget());
+			item.onClick(() => {
+				this.setCreationTarget(DEFAULT_CREATION_TARGET);
+			});
+		});
+
+		menu.addSeparator();
+		const currentBoard = this.getSelectedHermesBoard();
+		for (const board of boards) {
+			menu.addItem((item) => {
+				const isSelected = this.isHermesCreationTarget() && board === currentBoard;
+				item.setTitle(`Hermes/${board}`);
+				item.setIcon(isSelected ? "check" : "columns-3");
+				item.setChecked(isSelected);
+				item.onClick(() => {
+					this.setCreationTarget(this.getHermesTargetId(board));
+				});
+			});
+		}
+
+		this.showMenuForEvent(menu, event);
+	}
+
+	private showMenuForEvent(menu: Menu, event: UIEvent): void {
+		if (event.instanceOf(MouseEvent)) {
+			menu.showAtMouseEvent(event);
+			return;
+		}
+
+		const target =
+			event.currentTarget instanceof HTMLElement
+				? event.currentTarget
+				: event.target instanceof HTMLElement
+					? event.target
+					: null;
+		const rect = target?.getBoundingClientRect();
+		menu.showAtPosition({
+			x: rect?.left ?? window.innerWidth / 2,
+			y: rect ? rect.bottom + 4 : window.innerHeight / 2,
+		});
+	}
+
+	private setCreationTarget(target: string): void {
+		if (!target) return;
+
+		if (!this.isHermesCreationTarget()) {
+			this.nonHermesStatus = this.status;
+		}
+
+		const previousTarget = this.selectedCreationTarget;
+		this.selectedCreationTarget = target;
+		if (this.isHermesCreationTarget()) {
+			const board = this.getSelectedHermesBoard();
+			this.selectedHermesBoard = board;
+			this.applyHermesSubmissionState(board);
+		} else {
+			this.clearHermesSubmissionState();
+		}
+
+		this.renderModalTitle();
+		this.updatePrimaryActionButtonText();
+		this.updateIconStates();
+
+		if (previousTarget !== target) {
+			new Notice(`Task target set to ${this.getCreationTargetLabel()}`);
+		}
+	}
+
+	private applyHermesSubmissionState(board: string): void {
+		if (!board) return;
+
+		this.status = "triage";
+		this.contexts = withHermesBoardContext(this.contexts, this.getHermesBoardOptions(), board);
+		this.tags = addCommaListValue(this.tags, HERMES_SUBMIT_TAG);
+		this.userFields.hermes_submit = true;
+		this.userFields.hermes_board = board;
+		this.userFields.hermes_assignee = this.userFields.hermes_assignee ?? "none";
+		this.userFields.hermes_priority = this.userFields.hermes_priority ?? "3";
+		this.userFields.hermes_created_by = this.userFields.hermes_created_by ?? "tasknotes-native";
+		this.syncVisibleHermesFields();
+	}
+
+	private clearHermesSubmissionState(): void {
+		this.status = this.nonHermesStatus ?? this.plugin.settings.defaultTaskStatus;
+		this.contexts = withoutHermesBoardContext(this.contexts, this.getHermesBoardOptions());
+		this.tags = removeCommaListValues(this.tags, [HERMES_SUBMIT_TAG]);
+		for (const key of HERMES_CUSTOM_KEYS) {
+			delete this.userFields[key];
+		}
+		this.syncVisibleHermesFields();
+	}
+
+	private syncHermesBoardSelection(): void {
+		if (!this.isHermesCreationTarget()) {
+			return;
+		}
+
+		const board = this.getSelectedHermesBoard();
+		if (!board) return;
+
+		this.selectedHermesBoard = board;
+		this.applyHermesSubmissionState(board);
+	}
+
+	private syncVisibleHermesFields(): void {
+		if (this.contextsInput) {
+			this.contextsInput.value = this.contexts;
+		}
+		if (this.tagsInput) {
+			this.tagsInput.value = this.tags;
+		}
+		const hermesBoardInput = this.userFieldInputs.get("hermes_board");
+		if (hermesBoardInput) {
+			hermesBoardInput.value = this.isHermesCreationTarget()
+				? this.getSelectedHermesBoard()
+				: "";
+		}
+	}
+
+	private updatePrimaryActionButtonText(): void {
+		const saveButton = this.contentEl.querySelector<HTMLButtonElement>(
+			".tn-task-modal__button-bar .mod-cta"
+		);
+		if (!saveButton) return;
+		saveButton.setText(this.getPrimaryActionText() ?? this.t("modals.task.buttons.save"));
+	}
+
+	protected updateIconStates(): void {
+		super.updateIconStates();
+		const boardIcon = this.actionBar?.querySelector<HTMLElement>('[data-type="hermes-board"]');
+		if (!boardIcon) return;
+
+		boardIcon.toggleClass("has-value", this.isHermesCreationTarget());
+		const tooltip = this.getHermesBoardTooltip();
+		boardIcon.setAttribute("aria-label", tooltip);
+		setTooltip(boardIcon, tooltip, { placement: "top" });
 	}
 
 	// Override to prevent creating duplicate title input when NLP is enabled
@@ -773,5 +1035,60 @@ export class TaskCreationModal extends TaskModal {
 		this.removeAllEventListeners();
 
 		super.onClose();
+	}
+}
+
+export function withHermesBoardContext(
+	contexts: string,
+	knownBoards: readonly string[],
+	selectedBoard: string
+): string {
+	const boardSet = new Set(knownBoards);
+	const nextContexts = contexts
+		.split(",")
+		.map((context) => context.trim())
+		.filter((context) => context.length > 0 && !boardSet.has(context));
+
+	return [selectedBoard, ...nextContexts].join(", ");
+}
+
+export function withoutHermesBoardContext(
+	contexts: string,
+	knownBoards: readonly string[]
+): string {
+	const boardSet = new Set(knownBoards);
+	return contexts
+		.split(",")
+		.map((context) => context.trim())
+		.filter((context) => context.length > 0 && !boardSet.has(context))
+		.join(", ");
+}
+
+export function addCommaListValue(value: string, item: string): string {
+	const entries = value
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+	if (!entries.includes(item)) {
+		entries.push(item);
+	}
+	return entries.join(", ");
+}
+
+export function removeCommaListValues(value: string, items: readonly string[]): string {
+	const removeSet = new Set(items);
+	return value
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0 && !removeSet.has(entry))
+		.join(", ");
+}
+
+function removeHermesCustomFrontmatter(
+	customFrontmatter: Record<string, unknown> | undefined
+): void {
+	if (!customFrontmatter) return;
+	for (const key of HERMES_CUSTOM_KEYS) {
+		delete customFrontmatter[key];
 	}
 }

@@ -5,7 +5,13 @@
  * Jest interference issues and provide robust, reliable tests.
  */
 
-import { TaskCreationModal } from "../../../src/modals/TaskCreationModal";
+import {
+	addCommaListValue,
+	removeCommaListValues,
+	TaskCreationModal,
+	withHermesBoardContext,
+	withoutHermesBoardContext,
+} from "../../../src/modals/TaskCreationModal";
 import { TaskConversionOptions } from "../../../src/types/taskConversion";
 import { TaskInfo } from "../../../src/types";
 import { ParsedTaskData } from "../../../src/utils/TasksPluginParser";
@@ -117,6 +123,41 @@ jest.mock("../../../src/services/NaturalLanguageParser", () => {
 	return {
 		NaturalLanguageParser: MockNaturalLanguageParser,
 	};
+});
+
+describe("withHermesBoardContext", () => {
+	it("replaces the previous Hermes board while preserving other contexts", () => {
+		expect(
+			withHermesBoardContext("obsidian-os, home, review", ["obsidian-os", "hhmi"], "hhmi")
+		).toBe("hhmi, home, review");
+	});
+
+	it("adds the board when natural language parsing only found ordinary contexts", () => {
+		expect(withHermesBoardContext("home", ["default", "job-hunt"], "default")).toBe(
+			"default, home"
+		);
+	});
+
+	it("removes Hermes board contexts when returning to default creation", () => {
+		expect(withoutHermesBoardContext("hhmi, home, obsidian-os", ["hhmi", "obsidian-os"])).toBe(
+			"home"
+		);
+	});
+});
+
+describe("TaskCreationModal comma-list helpers", () => {
+	it("adds a value only once", () => {
+		expect(addCommaListValue("task, hermes-submit", "hermes-submit")).toBe(
+			"task, hermes-submit"
+		);
+		expect(addCommaListValue("task", "hermes-submit")).toBe("task, hermes-submit");
+	});
+
+	it("removes selected values", () => {
+		expect(removeCommaListValues("task, hermes-submit, review", ["hermes-submit"])).toBe(
+			"task, review"
+		);
+	});
 });
 
 describe("TaskCreationModal - Fixed Implementation", () => {

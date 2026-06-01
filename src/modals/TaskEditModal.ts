@@ -14,6 +14,7 @@ import { showTaskModalReminderContextMenu } from "./taskModalActionMenus";
 import { buildTaskEditChangesFromModalState } from "./taskEditChangeState";
 import { buildTaskEditFormStateFromTask } from "./taskEditFormState";
 import { applyTaskEditSubtaskChanges, hasTaskEditSubtaskChanges } from "./taskEditSubtasks";
+import type { ModalFieldsConfigLike } from "./taskModalFieldConfig";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskEditModal" });
@@ -21,6 +22,9 @@ const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskEditModal" });
 export interface TaskEditOptions {
 	task: TaskInfo;
 	onTaskUpdated?: (task: TaskInfo) => void;
+	modalTitle?: string;
+	saveButtonText?: string;
+	modalFieldsConfig?: ModalFieldsConfigLike;
 }
 
 export class TaskEditModal extends TaskModal {
@@ -50,11 +54,19 @@ export class TaskEditModal extends TaskModal {
 	}
 
 	getModalTitle(): string {
-		return this.t("modals.taskEdit.title");
+		return this.options.modalTitle ?? this.t("modals.taskEdit.title");
 	}
 
 	protected isEditMode(): boolean {
 		return true;
+	}
+
+	protected getModalFieldsConfig(): ModalFieldsConfigLike | undefined {
+		return this.options.modalFieldsConfig ?? super.getModalFieldsConfig();
+	}
+
+	protected getPrimaryActionText(): string | undefined {
+		return this.options.saveButtonText;
 	}
 
 	protected focusTitleInput(): void {
@@ -670,6 +682,7 @@ export class TaskEditModal extends TaskModal {
 					},
 				},
 			],
+			saveText: this.getPrimaryActionText(),
 			onSave: () => this.handleSave(),
 			onSaved: () => {
 				this.forceClose();
