@@ -168,7 +168,7 @@ function modalGroups(): HermesModalGroup[] {
 		},
 		{
 			id: "writeback",
-			displayName: "Hermes Update",
+			displayName: "Hermes Actions",
 			order: 3,
 			collapsible: true,
 			defaultCollapsed: false,
@@ -225,7 +225,7 @@ export function createHermesCreationFieldConfig(
 }
 
 export function createHermesEditFieldConfig(
-	userFields: readonly UserMappedField[] = []
+	_userFields: readonly UserMappedField[] = []
 ): ModalFieldsConfigLike {
 	const fields: HermesModalField[] = [
 		field("title", "core", "basic", 0, "Title", true, true),
@@ -234,17 +234,6 @@ export function createHermesEditFieldConfig(
 		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
 		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
 	];
-
-	for (const id of userFieldIds(userFields, [
-		"writeback_comment",
-		"writeback_reason",
-		"writeback_result",
-		"writeback_summary",
-		"handoff_to",
-		"requires_human_decision",
-	])) {
-		fields.push(field(id, "user", "writeback", fields.length, id, false, true));
-	}
 
 	return { groups: modalGroups(), fields };
 }

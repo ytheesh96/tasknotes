@@ -2,6 +2,7 @@ import type { App } from "obsidian";
 import type { TaskInfo } from "../../../src/types";
 import {
 	buildDefaultTaskCreationOptionsWithHermesTargets,
+	buildHermesTaskEditOptions,
 	buildHermesTaskCreationOptions,
 	isHermesCreationContext,
 	isHermesTask,
@@ -80,5 +81,50 @@ describe("Hermes TaskNotes integration", () => {
 		} as TaskInfo;
 
 		expect(isHermesTask(task)).toBe(true);
+	});
+
+	it("keeps raw writeback fields out of the Hermes edit modal", () => {
+		const task = {
+			title: "Synced task",
+			status: "ready",
+			priority: "normal",
+			path: "TaskNotes/Hermes/hhmi/t_123.md",
+			archived: false,
+		} as TaskInfo;
+		const options = buildHermesTaskEditOptions(task, [
+			{
+				id: "writeback_comment",
+				displayName: "Writeback Comment",
+				key: "writeback_comment",
+				type: "text",
+			},
+			{
+				id: "writeback_reason",
+				displayName: "Writeback Reason",
+				key: "writeback_reason",
+				type: "text",
+			},
+			{
+				id: "requires_human_decision",
+				displayName: "Requires Human Decision",
+				key: "requires_human_decision",
+				type: "boolean",
+			},
+		]);
+		const fieldIds = options.modalFieldsConfig?.fields?.map((field) => field.id) ?? [];
+
+		expect(fieldIds).toEqual(
+			expect.arrayContaining(["title", "details", "contexts", "blocked-by", "blocking"])
+		);
+		expect(fieldIds).not.toEqual(
+			expect.arrayContaining([
+				"writeback_comment",
+				"writeback_reason",
+				"writeback_result",
+				"writeback_summary",
+				"handoff_to",
+				"requires_human_decision",
+			])
+		);
 	});
 });

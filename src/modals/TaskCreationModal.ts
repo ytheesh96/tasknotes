@@ -27,6 +27,8 @@ import { collapseTaskModalDetailsLayout } from "./taskModalLayout";
 import type { ModalFieldsConfigLike } from "./taskModalFieldConfig";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import type { TaskModalActionIconSpec } from "./taskModalActionBar";
+import { HermesKanbanApiClient, getHermesTaskIdentity } from "../hermes/hermesApiClient";
+import { createOrUpdateHermesMirrorNote } from "../hermes/hermesMirror";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationModal" });
 export type { StatusSuggestion } from "./taskCreationSuggest";
@@ -67,6 +69,10 @@ export interface TaskCreationOptions {
 
 const DEFAULT_CREATION_TARGET = "default";
 const HERMES_TARGET_PREFIX = "hermes:";
+
+type HermesCreationTaskData = Partial<TaskInfo> & {
+	customFrontmatter?: Record<string, unknown>;
+};
 
 type OpenTaskAfterCreationMode = TaskNotesPlugin["settings"]["openTaskAfterCreation"];
 type CreatedTaskOpenMode = Exclude<OpenTaskAfterCreationMode, "none">;
@@ -661,6 +667,11 @@ export class TaskCreationModal extends TaskModal {
 		}
 
 		try {
+			if (this.isHermesCreationTarget()) {
+				await this.handleHermesApiCreate(options);
+				return;
+			}
+
 			const taskData = this.buildTaskData();
 			// Disable defaults since they were already applied to form fields in initializeFormData()
 			const result = await this.plugin.taskService.createTask(taskData, {
@@ -742,6 +753,62 @@ export class TaskCreationModal extends TaskModal {
 		}
 	}
 
+	private async handleHermesApiCreate(options: { createAnother?: boolean } = {}): Promise<void> {
+		const board = this.getSelectedHermesBoard();
+		if (!board) {
+			throw new Error("Choose a Hermes board before submitting.");
+		}
+
+		const taskData = this.buildTaskData();
+		const api = new HermesKanbanApiClient();
+		const parentResolution = await this.resolveHermesDependencyIds(this.blockedByItems, board);
+		const childResolution = await this.resolveHermesDependencyIds(this.blockingItems, board);
+		const created = await api.createTask(board, {
+			title: String(taskData.title || this.title).trim(),
+			body: typeof taskData.details === "string" ? taskData.details : undefined,
+			assignee: this.hermesAssigneeFromTaskData(taskData),
+			priority: this.hermesPriorityFromTaskData(taskData),
+			parents: parentResolution.ids,
+			triage: true,
+		});
+
+		for (const childId of childResolution.ids) {
+			await api.addLink({ board, parentId: created.id, childId });
+		}
+
+		const { file, taskInfo } = await createOrUpdateHermesMirrorNote(
+			this.plugin,
+			board,
+			created,
+			{
+				parents: parentResolution.ids,
+				children: childResolution.ids,
+			}
+		);
+
+		if (parentResolution.unresolved.length > 0 || childResolution.unresolved.length > 0) {
+			new Notice(
+				`Some dependencies were not linked in Hermes: ${[
+					...parentResolution.unresolved,
+					...childResolution.unresolved,
+				].join(", ")}`
+			);
+		}
+
+		new Notice(`Sent to Hermes triage: ${created.title}`);
+		if (this.options.onTaskCreated) {
+			this.options.onTaskCreated(taskInfo);
+		}
+		await this.openCreatedTaskIfConfigured(file, options);
+		this.close();
+
+		if (options.createAnother) {
+			window.setTimeout(() => {
+				new TaskCreationModal(this.app, this.plugin, this.options).open();
+			}, 0);
+		}
+	}
+
 	private async openCreatedTaskIfConfigured(
 		file: TFile,
 		options: { createAnother?: boolean }
@@ -763,7 +830,7 @@ export class TaskCreationModal extends TaskModal {
 		}
 	}
 
-	private buildTaskData(): Partial<TaskInfo> {
+	private buildTaskData(): HermesCreationTaskData {
 		const taskData = buildTaskCreationData({
 			title: this.title,
 			dueDate: this.dueDate,
@@ -797,6 +864,50 @@ export class TaskCreationModal extends TaskModal {
 		}
 
 		return taskData;
+	}
+
+	private hermesAssigneeFromTaskData(taskData: HermesCreationTaskData): string | undefined {
+		const raw = taskData.customFrontmatter?.hermes_assignee;
+		const assignee = typeof raw === "string" ? raw.trim() : "";
+		return assignee && assignee !== "none" ? assignee : undefined;
+	}
+
+	private hermesPriorityFromTaskData(taskData: HermesCreationTaskData): number {
+		const raw = taskData.customFrontmatter?.hermes_priority;
+		if (typeof raw === "number") return raw;
+		if (typeof raw === "string" && raw.trim()) {
+			const parsed = Number(raw);
+			if (Number.isFinite(parsed)) return parsed;
+		}
+		if (this.priority === "high") return 8;
+		if (this.priority === "normal") return 5;
+		if (this.priority === "low") return 2;
+		return 0;
+	}
+
+	private async resolveHermesDependencyIds(
+		items: Array<{ path?: string; dependency: { uid: string } }>,
+		board: string
+	): Promise<{ ids: string[]; unresolved: string[] }> {
+		const ids: string[] = [];
+		const unresolved: string[] = [];
+		for (const item of items) {
+			const directId = item.dependency.uid.match(/\b(t_[A-Za-z0-9]+)\b/)?.[1];
+			if (item.path) {
+				const task = await this.plugin.cacheManager.getTaskInfo(item.path);
+				const identity = task ? getHermesTaskIdentity(task) : null;
+				if (identity && identity.board === board) {
+					ids.push(identity.id);
+					continue;
+				}
+			}
+			if (directId) {
+				ids.push(directId);
+			} else {
+				unresolved.push(item.dependency.uid);
+			}
+		}
+		return { ids: [...new Set(ids)], unresolved };
 	}
 
 	private hasHermesBoardPicker(): boolean {

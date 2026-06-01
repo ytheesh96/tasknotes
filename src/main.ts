@@ -20,6 +20,7 @@ import { generateBasesFileTemplate } from "./templates/defaultBasesFiles";
 import {
 	MINI_CALENDAR_VIEW_TYPE,
 	TaskInfo,
+	TaskDependency,
 	EVENT_DATA_CHANGED,
 	EVENT_TASK_UPDATED,
 	EVENT_DATE_CHANGED,
@@ -89,6 +90,8 @@ import {
 	isHermesCreationContext,
 	isHermesTask,
 } from "./hermes/hermesTaskNotesIntegration";
+import { HermesKanbanApiClient, getHermesTaskIdentity } from "./hermes/hermesApiClient";
+import { createOrUpdateHermesMirrorNote } from "./hermes/hermesMirror";
 import { createTaskNotesLogger } from "./utils/tasknotesLogger";
 import {
 	createTaskNotesPerformanceProfiler,
@@ -979,6 +982,99 @@ export default class TaskNotesPlugin extends Plugin {
 		activeDocument.head.appendChild(styleEl);
 	}
 
+	private async updateHermesTaskProperty(
+		task: TaskInfo,
+		property: keyof TaskInfo,
+		value: TaskInfo[keyof TaskInfo]
+	): Promise<TaskInfo | null> {
+		if (!["status", "priority", "title", "blockedBy"].includes(String(property))) {
+			return null;
+		}
+		const identity = getHermesTaskIdentity(task);
+		if (!identity) {
+			throw new Error("Hermes task is missing board or task id");
+		}
+
+		const api = new HermesKanbanApiClient();
+		if (property === "blockedBy") {
+			const nextDependencies = Array.isArray(value) ? (value as TaskDependency[]) : [];
+			const before = new Set(
+				(task.blockedBy ?? [])
+					.map((dependency) => this.hermesIdFromDependency(dependency))
+					.filter(Boolean)
+			);
+			const after = new Set(
+				nextDependencies
+					.map((dependency) => this.hermesIdFromDependency(dependency))
+					.filter(Boolean)
+			);
+			for (const parentId of after) {
+				if (!before.has(parentId)) {
+					await api.addLink({ board: identity.board, parentId, childId: identity.id });
+				}
+			}
+			for (const parentId of before) {
+				if (!after.has(parentId)) {
+					await api.deleteLink({ board: identity.board, parentId, childId: identity.id });
+				}
+			}
+		} else {
+			const payload: {
+				status?: string;
+				priority?: number;
+				title?: string;
+				result?: string;
+				summary?: string;
+				block_reason?: string;
+			} = {};
+			if (property === "status") {
+				const status = String(value);
+				if (status === "running") {
+					throw new Error(
+						"Hermes running state is claimed by the dispatcher, not TaskNotes."
+					);
+				}
+				payload.status = status;
+				if (status === "blocked") payload.block_reason = "Blocked from TaskNotes";
+				if (status === "done") {
+					payload.result = "Completed from TaskNotes";
+					payload.summary = "Completed from TaskNotes";
+				}
+			}
+			if (property === "priority") {
+				payload.priority = this.hermesPriorityFromTaskNotesPriority(String(value));
+			}
+			if (property === "title") {
+				payload.title = String(value);
+			}
+			await api.updateTask(identity, payload);
+		}
+
+		const detail = await api.getTask(identity);
+		if (!detail.task) return task;
+		const { taskInfo } = await createOrUpdateHermesMirrorNote(
+			this,
+			identity.board,
+			detail.task,
+			{
+				parents: detail.links?.parents ?? [],
+				children: detail.links?.children ?? [],
+			}
+		);
+		return taskInfo;
+	}
+
+	private hermesPriorityFromTaskNotesPriority(priority: string): number {
+		if (priority === "high") return 8;
+		if (priority === "normal") return 5;
+		if (priority === "low") return 2;
+		return 0;
+	}
+
+	private hermesIdFromDependency(dependency: TaskDependency): string {
+		return dependency.uid.match(/\b(t_[A-Za-z0-9]+)\b/)?.[1] ?? "";
+	}
+
 	async updateTaskProperty(
 		task: TaskInfo,
 		property: keyof TaskInfo,
@@ -986,12 +1082,10 @@ export default class TaskNotesPlugin extends Plugin {
 		options: { silent?: boolean } = {}
 	): Promise<TaskInfo> {
 		try {
-			const updatedTask = await this.taskService.updateProperty(
-				task,
-				property,
-				value,
-				options
-			);
+			const updatedTask = isHermesTask(task)
+				? ((await this.updateHermesTaskProperty(task, property, value)) ??
+					(await this.taskService.updateProperty(task, property, value, options)))
+				: await this.taskService.updateProperty(task, property, value, options);
 
 			// Provide user feedback unless silent
 			if (!options.silent) {
@@ -1065,7 +1159,13 @@ export default class TaskNotesPlugin extends Plugin {
 
 	async toggleTaskStatus(task: TaskInfo): Promise<TaskInfo> {
 		try {
-			const updatedTask = await this.taskService.toggleStatus(task);
+			const updatedTask = isHermesTask(task)
+				? await this.updateTaskProperty(
+						task,
+						"status",
+						this.getNextHermesToggleStatus(task)
+					)
+				: await this.taskService.toggleStatus(task);
 			const statusConfig = this.statusManager.getStatusConfig(updatedTask.status);
 			new Notice(`Task marked as '${statusConfig?.label || updatedTask.status}'`);
 			return updatedTask;
@@ -1078,6 +1178,12 @@ export default class TaskNotesPlugin extends Plugin {
 			new Notice("Failed to update task status");
 			throw error;
 		}
+	}
+
+	private getNextHermesToggleStatus(task: TaskInfo): string {
+		return task.status === "done" || task.customProperties?.hermes_status === "done"
+			? "ready"
+			: "done";
 	}
 
 	openTaskCreationModal(prePopulatedValues?: Partial<TaskInfo>) {

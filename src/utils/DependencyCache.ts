@@ -14,6 +14,10 @@ interface DependencyStatusClassifier {
 	isCompletedStatus(statusValue: string): boolean;
 }
 
+export interface BlockedTaskPathOptions {
+	includeCompletedSource?: boolean;
+}
+
 /**
  * Minimal cache for task dependencies and project references.
  * These require relationship tracking that can't be efficiently computed on-demand.
@@ -425,7 +429,7 @@ export class DependencyCache extends Events {
 	/**
 	 * Get blocked task paths (tasks that depend on this task)
 	 */
-	getBlockedTaskPaths(taskPath: string): string[] {
+	getBlockedTaskPaths(taskPath: string, options: BlockedTaskPathOptions = {}): string[] {
 		if (!this.indexesBuilt) {
 			tasknotesLogger.warn(
 				"DependencyCache: getBlockedTaskPaths called before indexes built, building now...",
@@ -438,7 +442,7 @@ export class DependencyCache extends Events {
 			this.buildIndexesSync();
 		}
 
-		if (this.isCompletedTask(taskPath)) {
+		if (!options.includeCompletedSource && this.isCompletedTask(taskPath)) {
 			return [];
 		}
 

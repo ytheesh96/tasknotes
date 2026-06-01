@@ -9,6 +9,7 @@ import { isPathInExcludedFolder, parseExcludedFolders } from "./pathExclusions";
 import { buildTaskInfoFromMappedTask } from "./taskInfoAssembly";
 import { isTaskFrontmatter } from "./taskIdentification";
 import { createTaskNotesLogger } from "./tasknotesLogger";
+import { isHermesTask } from "../hermes/hermesTaskNotesIntegration";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Utils/TaskManager" });
 
@@ -304,7 +305,9 @@ export class TaskManager extends Events {
 			if (this._dependencyCache) {
 				// Use DependencyCache for status-aware blocking check
 				isBlocked = this._dependencyCache.isTaskBlocked(path);
-				blockingTasks = this._dependencyCache.getBlockedTaskPaths(path);
+				blockingTasks = this._dependencyCache.getBlockedTaskPaths(path, {
+					includeCompletedSource: isHermesTask({ ...mappedTask, path } as TaskInfo),
+				});
 			} else {
 				// Fallback when dependency cache not available: use simple existence check
 				isBlocked = Array.isArray(mappedTask.blockedBy) && mappedTask.blockedBy.length > 0;
@@ -815,7 +818,10 @@ export class TaskManager extends Events {
 		return this._dependencyCache.getBlockingTaskPaths(taskPath);
 	}
 
-	getBlockedTaskPaths(taskPath: string): string[] {
+	getBlockedTaskPaths(
+		taskPath: string,
+		options?: { includeCompletedSource?: boolean }
+	): string[] {
 		if (!this._dependencyCache) {
 			tasknotesLogger.warn("DependencyCache not set in TaskManager", {
 				category: "stale-data",
@@ -823,7 +829,7 @@ export class TaskManager extends Events {
 			});
 			return [];
 		}
-		return this._dependencyCache.getBlockedTaskPaths(taskPath);
+		return this._dependencyCache.getBlockedTaskPaths(taskPath, options);
 	}
 
 	isTaskBlocked(taskPath: string): boolean {

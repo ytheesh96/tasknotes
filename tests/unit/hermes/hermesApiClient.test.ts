@@ -1,0 +1,121 @@
+import { HermesKanbanApiClient, getHermesTaskIdentity } from "../../../src/hermes/hermesApiClient";
+import type { TaskInfo } from "../../../src/types";
+
+describe("HermesKanbanApiClient", () => {
+	const originalFetch = global.fetch;
+
+	beforeEach(() => {
+		global.fetch = jest.fn();
+	});
+
+	afterEach(() => {
+		global.fetch = originalFetch;
+		jest.restoreAllMocks();
+	});
+
+	it("resolves board and task id from Hermes custom properties", () => {
+		const task = {
+			title: "Example",
+			status: "triage",
+			priority: "normal",
+			path: "TaskNotes/Hermes/default/t_1234.md",
+			archived: false,
+			customProperties: {
+				hermes_board: "obsidian-os",
+				hermes_id: "t_abcd",
+			},
+		} satisfies TaskInfo;
+
+		expect(getHermesTaskIdentity(task)).toEqual({
+			board: "obsidian-os",
+			id: "t_abcd",
+		});
+	});
+
+	it("posts created tasks to the board-scoped Hermes API", async () => {
+		(global.fetch as jest.Mock).mockResolvedValue(
+			jsonResponse({
+				task: { id: "t_new", title: "New task", status: "triage" },
+			})
+		);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const created = await api.createTask("obsidian-os", {
+			title: "New task",
+			triage: true,
+			priority: 3,
+		});
+
+		expect(created.id).toBe("t_new");
+		expect(global.fetch).toHaveBeenCalledWith(
+			"http://127.0.0.1:9119/api/plugins/kanban/tasks?board=obsidian-os",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({
+					title: "New task",
+					triage: true,
+					priority: 3,
+				}),
+			})
+		);
+	});
+
+	it("surfaces Hermes API error details", async () => {
+		(global.fetch as jest.Mock).mockResolvedValue(
+			jsonResponse({ detail: "Cannot set status to running" }, 400, "Bad Request")
+		);
+		const api = new HermesKanbanApiClient();
+
+		await expect(
+			api.updateTask({ board: "default", id: "t_bad" }, { status: "running" })
+		).rejects.toThrow("Cannot set status to running");
+	});
+
+	it("discovers the dashboard session token and retries unauthorized requests", async () => {
+		(global.fetch as jest.Mock)
+			.mockResolvedValueOnce(jsonResponse({ detail: "Unauthorized" }, 401, "Unauthorized"))
+			.mockResolvedValueOnce(
+				textResponse('<script>window.__HERMES_SESSION_TOKEN__="test-token";</script>')
+			)
+			.mockResolvedValueOnce(
+				jsonResponse({
+					task: { id: "t_retry", title: "Retry", status: "blocked" },
+				})
+			);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const updated = await api.updateTask(
+			{ board: "default", id: "t_retry" },
+			{ status: "blocked" }
+		);
+
+		expect(updated.id).toBe("t_retry");
+		expect(global.fetch).toHaveBeenNthCalledWith(
+			3,
+			"http://127.0.0.1:9119/api/plugins/kanban/tasks/t_retry?board=default",
+			expect.objectContaining({
+				headers: expect.objectContaining({
+					Authorization: "Bearer test-token",
+				}),
+			})
+		);
+	});
+});
+
+function jsonResponse(body: unknown, status = 200, statusText = "OK"): Response {
+	return {
+		ok: status >= 200 && status < 300,
+		status,
+		statusText,
+		json: async () => body,
+	} as Response;
+}
+
+function textResponse(body: string, status = 200, statusText = "OK"): Response {
+	return {
+		ok: status >= 200 && status < 300,
+		status,
+		statusText,
+		text: async () => body,
+	} as Response;
+}
