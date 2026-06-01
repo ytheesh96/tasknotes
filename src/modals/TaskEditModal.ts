@@ -293,10 +293,36 @@ export class TaskEditModal extends TaskModal {
 			meta.createSpan("tn-task-modal__hermes-pill").textContent = status;
 		}
 
-		const buttons = section.createDiv("tn-task-modal__hermes-action-buttons");
-		this.createHermesActionButton(buttons, "Add comment", () => {
-			void this.handleHermesCommentAction();
+		const commentComposer = section.createDiv("tn-task-modal__hermes-comment-composer");
+		const commentInput = commentComposer.createEl("textarea", {
+			cls: "tn-task-modal__hermes-comment-input modal-form__input modal-form__input--textarea",
+			attr: {
+				placeholder: "Add a comment... (Enter to submit)",
+				rows: "3",
+			},
 		});
+		const commentFooter = commentComposer.createDiv("tn-task-modal__hermes-comment-footer");
+		const commentButton = commentFooter.createEl("button", {
+			text: "Comment",
+			cls: "tn-task-modal__hermes-comment-button mod-cta",
+		});
+		const updateCommentButtonState = () => {
+			commentButton.disabled = commentInput.value.trim().length === 0;
+		};
+		updateCommentButtonState();
+		commentInput.addEventListener("input", updateCommentButtonState);
+		commentInput.addEventListener("keydown", (event) => {
+			if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey) {
+				return;
+			}
+			event.preventDefault();
+			void this.handleHermesCommentSubmit(commentInput, commentButton);
+		});
+		commentButton.addEventListener("click", () => {
+			void this.handleHermesCommentSubmit(commentInput, commentButton);
+		});
+
+		const buttons = section.createDiv("tn-task-modal__hermes-action-buttons");
 		this.createHermesActionButton(
 			buttons,
 			"Request human review",
@@ -362,16 +388,16 @@ export class TaskEditModal extends TaskModal {
 			api: HermesKanbanApiClient,
 			identity: { board: string; id: string }
 		) => Promise<HermesTaskDetailResponse | null>
-	): Promise<void> {
+	): Promise<boolean> {
 		if (this.hasUnsavedHermesModalChanges()) {
 			new Notice("Save or cancel the current edits before sending a Hermes action.");
-			return;
+			return false;
 		}
 
 		const identity = getHermesTaskIdentity(this.task);
 		if (!identity) {
 			new Notice("This task is missing a Hermes board or task id.");
-			return;
+			return false;
 		}
 
 		try {
@@ -385,6 +411,7 @@ export class TaskEditModal extends TaskModal {
 			}
 			new Notice(`${actionLabel} sent to Hermes`);
 			this.forceClose();
+			return true;
 		} catch (error) {
 			tasknotesLogger.error("Failed to send Hermes action:", {
 				category: "persistence",
@@ -393,6 +420,7 @@ export class TaskEditModal extends TaskModal {
 			});
 			const message = error instanceof Error && error.message ? error.message : String(error);
 			new Notice(`Hermes action failed: ${message}`);
+			return false;
 		}
 	}
 
@@ -410,17 +438,23 @@ export class TaskEditModal extends TaskModal {
 		return taskInfo;
 	}
 
-	private async handleHermesCommentAction(): Promise<void> {
-		const comment = await this.promptHermesActionText({
-			title: "Add Hermes comment",
-			placeholder: "Comment",
-			confirmText: "Add comment",
-		});
+	private async handleHermesCommentSubmit(
+		input: HTMLTextAreaElement,
+		button: HTMLButtonElement
+	): Promise<void> {
+		const comment = input.value.trim();
 		if (!comment) return;
-		await this.sendHermesAction("Comment", async (api, identity) => {
+		input.disabled = true;
+		button.disabled = true;
+		const sent = await this.sendHermesAction("Comment", async (api, identity) => {
 			await api.addComment(identity, { body: comment, author: "tasknotes" });
 			return api.getTask(identity);
 		});
+		if (!sent) {
+			input.disabled = false;
+			button.disabled = input.value.trim().length === 0;
+			input.focus();
+		}
 	}
 
 	private async handleHermesHumanReviewAction(): Promise<void> {
