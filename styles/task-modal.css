@@ -360,36 +360,6 @@
     margin-top: var(--size-4-3);
 }
 
-.tn-task-modal__hermes-comment-input {
-    width: 100%;
-    min-height: 80px;
-    padding: var(--size-4-2);
-    font-family: inherit;
-    font-size: var(--font-ui-medium);
-    font-weight: 400;
-    line-height: 1.4;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s);
-    background: transparent;
-    color: var(--text-normal);
-    resize: vertical;
-    margin-bottom: var(--size-4-3);
-    transition: background-color 0.2s ease, border-color 0.2s ease;
-}
-
-.tn-task-modal__hermes-comment-input:focus,
-.tn-task-modal__hermes-comment-input:active,
-.tn-task-modal__hermes-comment-input:focus-visible {
-    outline: none;
-    box-shadow: none;
-    border-color: var(--interactive-accent);
-    background: transparent;
-}
-
-.tn-task-modal__hermes-comment-input::placeholder {
-    color: var(--text-muted);
-}
-
 .tasknotes-plugin.minimalist-task-modal .modal-content {
     padding: 0;
     border-radius: var(--radius-l);

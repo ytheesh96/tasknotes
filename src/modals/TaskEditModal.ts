@@ -24,6 +24,7 @@ import {
 import { createOrUpdateHermesMirrorNote } from "../hermes/hermesMirror";
 import type { ModalFieldsConfigLike } from "./taskModalFieldConfig";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { resizeTaskModalTitleTextarea } from "./taskModalTitleInput";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskEditModal" });
 
@@ -289,12 +290,14 @@ export class TaskEditModal extends TaskModal {
 		});
 
 		const commentInput = section.createEl("textarea", {
-			cls: "tn-task-modal__hermes-comment-input",
+			cls: "tn-task-modal__hermes-comment-input title-input-detailed",
 			attr: {
 				placeholder: "Add a comment... (Enter to submit)",
-				rows: "3",
+				rows: "1",
 			},
 		});
+		commentInput.spellcheck = true;
+		commentInput.setAttribute("aria-label", "Add a Hermes comment");
 		const updateCommentButtonState = () => {
 			const commentButtonEl = commentButtonRef.el;
 			if (commentButtonEl) {
@@ -302,7 +305,11 @@ export class TaskEditModal extends TaskModal {
 			}
 		};
 		updateCommentButtonState();
-		commentInput.addEventListener("input", updateCommentButtonState);
+		resizeTaskModalTitleTextarea(commentInput);
+		commentInput.addEventListener("input", () => {
+			updateCommentButtonState();
+			resizeTaskModalTitleTextarea(commentInput);
+		});
 		commentInput.addEventListener("keydown", (event) => {
 			if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey) {
 				return;
