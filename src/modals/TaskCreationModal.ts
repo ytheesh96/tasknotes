@@ -29,6 +29,10 @@ import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import type { TaskModalActionIconSpec } from "./taskModalActionBar";
 import { HermesKanbanApiClient, getHermesTaskIdentity } from "../hermes/hermesApiClient";
 import { createOrUpdateHermesMirrorNote } from "../hermes/hermesMirror";
+import {
+	buildHermesAssigneeUpdatePayload,
+	normalizeHermesAssignee,
+} from "../hermes/hermesAssignee";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationModal" });
 export type { StatusSuggestion } from "./taskCreationSuggest";
@@ -763,26 +767,35 @@ export class TaskCreationModal extends TaskModal {
 		const api = new HermesKanbanApiClient();
 		const parentResolution = await this.resolveHermesDependencyIds(this.blockedByItems, board);
 		const childResolution = await this.resolveHermesDependencyIds(this.blockingItems, board);
+		const assignee = this.hermesAssigneeFromTaskData(taskData);
+		const assigneePayload = buildHermesAssigneeUpdatePayload(assignee);
+		const shouldCreateBlocked = assigneePayload?.status === "blocked";
 		const created = await api.createTask(board, {
 			title: String(taskData.title || this.title).trim(),
 			body: typeof taskData.details === "string" ? taskData.details : undefined,
-			assignee: this.hermesAssigneeFromTaskData(taskData),
+			assignee: assignee ?? undefined,
 			priority: this.hermesPriorityFromTaskData(taskData),
 			parents: parentResolution.ids,
-			triage: true,
+			triage: !shouldCreateBlocked,
+			initial_status: shouldCreateBlocked ? "blocked" : undefined,
+			block_reason: shouldCreateBlocked ? assigneePayload.block_reason : undefined,
 		});
+		const identity = { board, id: created.id };
 
 		for (const childId of childResolution.ids) {
 			await api.addLink({ board, parentId: created.id, childId });
 		}
 
+		const detail = await api.getTask(identity);
+		const mirrorTask = detail.task ?? created;
+
 		const { file, taskInfo } = await createOrUpdateHermesMirrorNote(
 			this.plugin,
 			board,
-			created,
+			mirrorTask,
 			{
-				parents: parentResolution.ids,
-				children: childResolution.ids,
+				parents: detail.links?.parents ?? parentResolution.ids,
+				children: detail.links?.children ?? childResolution.ids,
 			}
 		);
 
@@ -867,9 +880,11 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	private hermesAssigneeFromTaskData(taskData: HermesCreationTaskData): string | undefined {
-		const raw = taskData.customFrontmatter?.hermes_assignee;
-		const assignee = typeof raw === "string" ? raw.trim() : "";
-		return assignee && assignee !== "none" ? assignee : undefined;
+		return (
+			normalizeHermesAssignee(taskData.customFrontmatter?.assignee) ??
+			normalizeHermesAssignee(taskData.customFrontmatter?.hermes_assignee) ??
+			undefined
+		);
 	}
 
 	private hermesPriorityFromTaskData(taskData: HermesCreationTaskData): number {
@@ -1036,7 +1051,6 @@ export class TaskCreationModal extends TaskModal {
 		this.tags = addCommaListValue(this.tags, HERMES_SUBMIT_TAG);
 		this.userFields.hermes_submit = true;
 		this.userFields.hermes_board = board;
-		this.userFields.hermes_assignee = this.userFields.hermes_assignee ?? "none";
 		this.userFields.hermes_priority = this.userFields.hermes_priority ?? "3";
 		this.userFields.hermes_created_by = this.userFields.hermes_created_by ?? "tasknotes-native";
 		this.syncVisibleHermesFields();

@@ -87,6 +87,8 @@ import {
 	buildDefaultTaskCreationOptionsWithHermesTargets,
 	buildHermesTaskCreationOptions,
 	buildHermesTaskEditOptions,
+	normalizeHermesModalFieldsConfig,
+	normalizeHermesUserFields,
 	isHermesCreationContext,
 	isHermesTask,
 } from "./hermes/hermesTaskNotesIntegration";
@@ -628,9 +630,17 @@ export default class TaskNotesPlugin extends Plugin {
 	async loadSettings() {
 		const loadedData = await this.loadSettingsData();
 		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData(loadedData);
+		const hermesUserFields = normalizeHermesUserFields(settings.userFields);
+		const hermesModalFieldsConfig = normalizeHermesModalFieldsConfig(settings.modalFieldsConfig);
+		settings.userFields = hermesUserFields.fields;
+		settings.modalFieldsConfig = hermesModalFieldsConfig.config;
 		this.settings = settings;
 
-		if (shouldPersistMigratedSettings) {
+		if (
+			shouldPersistMigratedSettings ||
+			hermesUserFields.changed ||
+			hermesModalFieldsConfig.changed
+		) {
 			// Save the migrated settings to include new field mappings (non-blocking)
 			window.setTimeout(() => {
 				void (async () => {
@@ -1181,9 +1191,7 @@ export default class TaskNotesPlugin extends Plugin {
 	}
 
 	private getNextHermesToggleStatus(task: TaskInfo): string {
-		return task.status === "done" || task.customProperties?.hermes_status === "done"
-			? "ready"
-			: "done";
+		return task.status === "done" ? "ready" : "done";
 	}
 
 	openTaskCreationModal(prePopulatedValues?: Partial<TaskInfo>) {

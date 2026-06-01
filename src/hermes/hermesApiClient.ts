@@ -1,6 +1,15 @@
+import { requestUrl } from "obsidian";
 import type { TaskInfo } from "../types";
 
 const DEFAULT_HERMES_KANBAN_API_BASE = "http://127.0.0.1:9119/api/plugins/kanban";
+
+interface HermesHttpResponse {
+	ok: boolean;
+	status: number;
+	statusText?: string;
+	json: () => Promise<unknown>;
+	text: () => Promise<string>;
+}
 
 export interface HermesTaskRecord {
 	id: string;
@@ -33,6 +42,8 @@ export interface HermesCreateTaskPayload {
 	workspace_path?: string;
 	parents?: string[];
 	triage?: boolean;
+	initial_status?: "running" | "blocked";
+	block_reason?: string;
 	idempotency_key?: string;
 	skills?: string[];
 }
@@ -69,17 +80,17 @@ export interface HermesTaskDetailResponse extends HermesTaskResponse {
 }
 
 export function getHermesTaskIdentity(task: TaskInfo): HermesTaskIdentity | null {
+	const match = task.path.match(/^TaskNotes\/Hermes\/([^/]+)\/([^/]+)\.md$/);
+	if (match) {
+		return { board: match[1], id: match[2] };
+	}
+
 	const boardFromFrontmatter = customString(task, "hermes_board");
 	const idFromFrontmatter = customString(task, "hermes_id");
 	if (boardFromFrontmatter && idFromFrontmatter) {
 		return { board: boardFromFrontmatter, id: idFromFrontmatter };
 	}
-
-	const match = task.path.match(/^TaskNotes\/Hermes\/([^/]+)\/([^/]+)\.md$/);
-	if (!match) {
-		return null;
-	}
-	return { board: match[1], id: idFromFrontmatter || match[2] };
+	return null;
 }
 
 export class HermesKanbanApiClient {
@@ -177,7 +188,7 @@ export class HermesKanbanApiClient {
 		return response.json() as Promise<T>;
 	}
 
-	private async requestOnce(path: string, init: RequestInit): Promise<Response> {
+	private async requestOnce(path: string, init: RequestInit): Promise<HermesHttpResponse> {
 		const headers: Record<string, string> = {
 			"Content-Type": "application/json",
 			...headersToRecord(init.headers),
@@ -185,26 +196,58 @@ export class HermesKanbanApiClient {
 		if (this.sessionToken) {
 			headers.Authorization = `Bearer ${this.sessionToken}`;
 		}
-		return fetch(`${this.baseUrl}${path}`, {
-			...init,
-			headers,
-		});
+		const url = `${this.baseUrl}${path}`;
+		try {
+			return await fetch(url, {
+				...init,
+				headers,
+			});
+		} catch (_error) {
+			return this.requestUrlOnce(url, init, headers);
+		}
 	}
 
 	private async loadSessionToken(): Promise<string | null> {
 		const windowToken = getWindowSessionToken();
 		if (windowToken) return windowToken;
+		const rootUrl = new URL(this.baseUrl).origin;
 		try {
-			const rootUrl = new URL(this.baseUrl).origin;
 			const response = await fetch(`${rootUrl}/`);
 			const html = await response.text();
 			return html.match(/__HERMES_SESSION_TOKEN__\s*=\s*"([^"]+)"/)?.[1] ?? null;
 		} catch (_error) {
-			return null;
+			try {
+				const response = await requestUrl({ url: `${rootUrl}/`, throw: false });
+				return response.text.match(/__HERMES_SESSION_TOKEN__\s*=\s*"([^"]+)"/)?.[1] ?? null;
+			} catch (_requestUrlError) {
+				return null;
+			}
 		}
 	}
 
-	private async errorMessage(response: Response): Promise<string> {
+	private async requestUrlOnce(
+		url: string,
+		init: RequestInit,
+		headers: Record<string, string>
+	): Promise<HermesHttpResponse> {
+		const response = await requestUrl({
+			url,
+			method: init.method ?? "GET",
+			headers,
+			body: typeof init.body === "string" ? init.body : undefined,
+			throw: false,
+		});
+		return {
+			ok: response.status >= 200 && response.status < 300,
+			status: response.status,
+			statusText: "",
+			json: async () =>
+				response.json !== undefined ? response.json : JSON.parse(response.text || "null"),
+			text: async () => response.text,
+		};
+	}
+
+	private async errorMessage(response: HermesHttpResponse): Promise<string> {
 		try {
 			const payload = (await response.json()) as { detail?: unknown };
 			if (typeof payload.detail === "string") return payload.detail;

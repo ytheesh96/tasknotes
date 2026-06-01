@@ -106,8 +106,7 @@ export class TaskService {
 			...updatedTask,
 			googleCalendarEventId: task.googleCalendarEventId,
 			googleCalendarExceptionEventId: task.googleCalendarExceptionEventId,
-			googleCalendarExceptionOriginalScheduled:
-				task.googleCalendarExceptionOriginalScheduled,
+			googleCalendarExceptionOriginalScheduled: task.googleCalendarExceptionOriginalScheduled,
 			googleCalendarMovedOriginalDates: task.googleCalendarMovedOriginalDates
 				? [...task.googleCalendarMovedOriginalDates]
 				: undefined,
@@ -312,7 +311,8 @@ export class TaskService {
 					category: "persistence",
 					operation: "task-body-template-not-found",
 				});
-				publishUserNotice(this.plugin.emitter,
+				publishUserNotice(
+					this.plugin.emitter,
 					this.translate("services.task.notices.templateNotFound", { path: templatePath })
 				);
 				return {
@@ -327,7 +327,8 @@ export class TaskService {
 				operation: "reading-task-body-template",
 				error: error,
 			});
-			publishUserNotice(this.plugin.emitter,
+			publishUserNotice(
+				this.plugin.emitter,
 				this.translate("services.task.notices.templateReadError", {
 					template: defaults.bodyTemplate,
 				})
@@ -435,9 +436,7 @@ export class TaskService {
 
 				this.writeOptionalFrontmatterField(
 					frontmatter,
-					this.plugin.fieldMapper.toUserField(
-						"googleCalendarExceptionOriginalScheduled"
-					),
+					this.plugin.fieldMapper.toUserField("googleCalendarExceptionOriginalScheduled"),
 					updatePlan.updatedTask.googleCalendarExceptionOriginalScheduled
 				);
 				this.writeOptionalFrontmatterField(
@@ -590,7 +589,8 @@ export class TaskService {
 					operation: "moving",
 					details: { value: errorMessage },
 				});
-				publishUserNotice(this.plugin.emitter,
+				publishUserNotice(
+					this.plugin.emitter,
 					this.translate("services.task.notices.moveTaskFailed", {
 						operation,
 						error: errorMessage,
@@ -673,7 +673,10 @@ export class TaskService {
 							error: error,
 						});
 					});
-			} else if (!archiveCalendarCleanupComplete && this.hasGoogleCalendarLinks(updatedTask)) {
+			} else if (
+				!archiveCalendarCleanupComplete &&
+				this.hasGoogleCalendarLinks(updatedTask)
+			) {
 				tasknotesLogger.warn(
 					"Archived task still has Google Calendar links and will need retry cleanup:",
 					{
@@ -853,7 +856,10 @@ export class TaskService {
 	 */
 	async updateTask(
 		originalTask: TaskInfo,
-		updates: Partial<TaskInfo> & { details?: string; customFrontmatter?: Record<string, unknown> }
+		updates: Partial<TaskInfo> & {
+			details?: string;
+			customFrontmatter?: Record<string, unknown>;
+		}
 	): Promise<TaskInfo> {
 		return this.taskUpdateService.updateTask(originalTask, updates);
 	}
@@ -1011,9 +1017,7 @@ export class TaskService {
 	private isHermesManagedTask(task: TaskInfo): boolean {
 		return (
 			HERMES_MANAGED_TASK_PATH.test(task.path) &&
-			(task.customProperties?.sync_origin === "tasknotes-hermes-bridge" ||
-				typeof task.customProperties?.hermes_id === "string" ||
-				task.tags?.includes("hermes-kanban") === true)
+			task.tags?.includes("hermes-kanban") === true
 		);
 	}
 
@@ -1026,9 +1030,6 @@ export class TaskService {
 
 		await this.updateTask(task, {
 			tags: [...currentTags, archiveTag],
-			customFrontmatter: {
-				writeback_reason: "TaskNotes delete requested archive in Hermes",
-			},
 		});
 	}
 

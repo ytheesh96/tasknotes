@@ -134,10 +134,7 @@ function toMenuTitle(value: unknown, fallback = ""): string {
 
 function isHermesManagedTask(task: TaskInfo): boolean {
 	return (
-		HERMES_MANAGED_TASK_PATH.test(task.path) &&
-		(task.customProperties?.sync_origin === "tasknotes-hermes-bridge" ||
-			typeof task.customProperties?.hermes_id === "string" ||
-			task.tags?.includes("hermes-kanban") === true)
+		HERMES_MANAGED_TASK_PATH.test(task.path) && task.tags?.includes("hermes-kanban") === true
 	);
 }
 

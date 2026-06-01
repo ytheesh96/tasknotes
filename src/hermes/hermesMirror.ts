@@ -1,11 +1,9 @@
 import { TFile, stringifyYaml } from "obsidian";
 import TaskNotesPlugin from "../main";
-import type { TaskInfo } from "../types";
+import type { TaskDependency, TaskInfo } from "../types";
 import { getCurrentTimestamp } from "../utils/dateUtils";
 import { ensureFolderExists, extractTaskInfo } from "../utils/helpers";
 import type { HermesTaskRecord } from "./hermesApiClient";
-
-export const HERMES_SYNC_ORIGIN = "tasknotes-hermes-api";
 
 export function hermesPriorityToTaskNotesPriority(priority: number | null | undefined): string {
 	const value = Number(priority ?? 0);
@@ -41,8 +39,13 @@ export async function createOrUpdateHermesMirrorNote(
 	const folder = `TaskNotes/Hermes/${board}`;
 	await ensureFolderExists(plugin.app.vault, folder);
 	const path = `${folder}/${task.id}.md`;
-	const content = buildHermesMirrorContent(board, task, options);
 	const existing = plugin.app.vault.getAbstractFileByPath(path);
+	const existingTaskInfo =
+		existing instanceof TFile ? await plugin.cacheManager.getTaskInfo(path) : null;
+	const content = buildHermesMirrorContent(board, task, {
+		...options,
+		existingTaskInfo: existingTaskInfo ?? undefined,
+	});
 	let file: TFile;
 	if (existing instanceof TFile) {
 		await plugin.app.vault.modify(existing, content);
@@ -73,11 +76,12 @@ export function buildHermesMirrorContent(
 	options: {
 		parents?: string[];
 		children?: string[];
+		existingTaskInfo?: Pick<TaskInfo, "dateCreated" | "completedDate">;
 	} = {}
 ): string {
 	const frontmatter = buildHermesMirrorFrontmatter(board, task, getCurrentTimestamp(), options);
-	const yaml = stringifyYaml(frontmatter);
-	return `---\n${yaml}---\n\n${buildHermesMirrorBody(board, task, options)}\n`;
+	const yaml = stringifyYaml(frontmatter).trimEnd();
+	return `---\n${yaml}\n---\n\n${buildHermesMirrorBody(task)}\n`;
 }
 
 function buildHermesMirrorFrontmatter(
@@ -86,7 +90,7 @@ function buildHermesMirrorFrontmatter(
 	now: string,
 	options: {
 		parents?: string[];
-		children?: string[];
+		existingTaskInfo?: Pick<TaskInfo, "dateCreated" | "completedDate">;
 	} = {}
 ): Record<string, unknown> {
 	const hermesPriority = task.priority ?? 0;
@@ -94,73 +98,46 @@ function buildHermesMirrorFrontmatter(
 	if (task.status === "archived") {
 		tags.push("archived");
 	}
-	return {
+	const status = task.status || "triage";
+	const frontmatter: Record<string, unknown> = {
 		type: "task",
 		tags,
 		title: task.title,
-		status: task.status || "triage",
+		status,
 		priority: hermesPriorityToTaskNotesPriority(hermesPriority),
 		projects: [`Hermes/${board}`],
 		contexts: ["hermes-kanban"],
-		hermes_id: task.id,
-		hermes_board: board,
-		hermes_status: task.status || "triage",
-		hermes_assignee: task.assignee || "none",
-		hermes_priority: String(hermesPriority),
-		hermes_tenant: task.tenant || "",
-		hermes_created_by: task.created_by || "tasknotes-native",
-		hermes_workspace_kind: task.workspace_kind || "",
-		hermes_workspace_path: task.workspace_path || "",
-		hermes_branch_name: task.branch_name || "",
-		blocked_by: options.parents ?? [],
-		blocks: options.children ?? [],
-		sync_origin: HERMES_SYNC_ORIGIN,
-		writeback_mode: "active",
-		last_synced: now,
+		assignee: task.assignee?.trim() || "none",
+		dateCreated: options.existingTaskInfo?.dateCreated ?? now,
 	};
+	if (status === "done" || status === "archived") {
+		frontmatter.completedDate = options.existingTaskInfo?.completedDate ?? now;
+	}
+	const blockedBy = buildHermesBlockedByLinks(board, options.parents ?? []);
+	if (blockedBy.length > 0) {
+		frontmatter.blockedBy = blockedBy;
+	}
+	return frontmatter;
 }
 
-function buildHermesMirrorBody(
+function buildHermesMirrorBody(task: HermesTaskRecord): string {
+	return task.body?.trim() ?? "";
+}
+
+function buildHermesBlockedByLinks(board: string, parents: readonly string[]): string[] {
+	return [...new Set(parents.map((parent) => parent.trim()).filter(Boolean))].map(
+		(parent) => `[[TaskNotes/Hermes/${board}/${parent}]]`
+	);
+}
+
+function buildHermesBlockedByDependencies(
 	board: string,
-	task: HermesTaskRecord,
-	options: {
-		parents?: string[];
-		children?: string[];
-	} = {}
-): string {
-	const body = task.body?.trim() || "No Hermes body.";
-	const parents = options.parents?.length ? options.parents.join(", ") : "None";
-	const children = options.children?.length ? options.children.join(", ") : "None";
-	const summary = task.latest_summary?.trim() || task.result?.trim() || "None";
-
-	return `${task.title}
-#task #hermes-kanban
-
-## Hermes Snapshot
-
-- Board: ${board}
-- Task ID: ${task.id}
-- Hermes status: ${task.status || "triage"}
-- Assignee: ${task.assignee || "none"}
-- Priority: ${task.priority ?? 0}
-- Workspace: ${task.workspace_path || task.workspace_kind || "scratch"}
-
-## Body
-
-${body}
-
-## Dependency Links
-
-### Blocked By
-- ${parents}
-
-### Blocks
-- ${children}
-
-## Latest Run
-- ${summary}
-
-<!-- tasknotes-hermes-api: managed mirror. Use Hermes actions for board mutations. -->`;
+	parents: readonly string[]
+): TaskDependency[] {
+	return buildHermesBlockedByLinks(board, parents).map((uid) => ({
+		uid,
+		reltype: "FINISHTOSTART",
+	}));
 }
 
 function fallbackTaskInfo(
@@ -180,8 +157,17 @@ function fallbackTaskInfo(
 		path,
 		tags: ["task", "hermes-kanban"],
 		archived: task.status === "archived",
-		customProperties: frontmatter,
-		details: buildHermesMirrorBody(board, task, options),
+		contexts: ["hermes-kanban"],
+		projects: [`Hermes/${board}`],
+		customProperties: {
+			assignee: task.assignee?.trim() || "none",
+		},
+		dateCreated:
+			typeof frontmatter.dateCreated === "string" ? frontmatter.dateCreated : undefined,
+		completedDate:
+			typeof frontmatter.completedDate === "string" ? frontmatter.completedDate : undefined,
+		blockedBy: buildHermesBlockedByDependencies(board, options.parents ?? []),
+		details: buildHermesMirrorBody(task),
 	};
 }
 

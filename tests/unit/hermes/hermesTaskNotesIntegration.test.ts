@@ -48,9 +48,13 @@ describe("Hermes TaskNotes integration", () => {
 			hermes_submit: true,
 			hermes_board: "hhmi",
 			hermes_priority: "7",
-			hermes_assignee: "none",
 			hermes_created_by: "tasknotes-native",
+			assignee: "",
 		});
+		expect(options.prePopulatedValues?.customFrontmatter).not.toHaveProperty(
+			"hermes_assignee"
+		);
+		expect(options.modalFieldsConfig?.fields.map((field) => field.id)).toContain("assignee");
 	});
 
 	it("adds Hermes targets to ordinary TaskNotes creation without making it a Hermes task", () => {
@@ -114,7 +118,14 @@ describe("Hermes TaskNotes integration", () => {
 		const fieldIds = options.modalFieldsConfig?.fields?.map((field) => field.id) ?? [];
 
 		expect(fieldIds).toEqual(
-			expect.arrayContaining(["title", "details", "contexts", "blocked-by", "blocking"])
+			expect.arrayContaining([
+				"title",
+				"details",
+				"contexts",
+				"assignee",
+				"blocked-by",
+				"blocking",
+			])
 		);
 		expect(fieldIds).not.toEqual(
 			expect.arrayContaining([

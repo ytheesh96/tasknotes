@@ -5,6 +5,12 @@ import type { TaskCreationOptions } from "../modals/TaskCreationModal";
 import type { TaskEditOptions } from "../modals/TaskEditModal";
 import type { TaskCreationPrepopulatedValues } from "../modals/taskCreationFormState";
 import type { ModalFieldConfigLike, ModalFieldsConfigLike } from "../modals/taskModalFieldConfig";
+import {
+	ensureHermesAssigneeUserField,
+	hasHermesAssigneeUserField,
+	normalizeHermesModalFieldsConfig,
+	normalizeHermesUserFields,
+} from "./hermesAssignee";
 
 const HERMES_ROOT = "TaskNotes/Hermes";
 const HERMES_VIEWS_ROOT = "TaskNotes/Views";
@@ -118,12 +124,7 @@ function boardFromPrepopulated(
 }
 
 export function isHermesTask(task: TaskInfo): boolean {
-	return (
-		task.path.startsWith(`${HERMES_ROOT}/`) ||
-		Boolean(customString(task, "hermes_id")) ||
-		Boolean(customString(task, "hermes_board")) ||
-		(task.tags ?? []).includes(HERMES_KANBAN_TAG)
-	);
+	return task.path.startsWith(`${HERMES_ROOT}/`) || (task.tags ?? []).includes(HERMES_KANBAN_TAG);
 }
 
 export function isHermesCreationContext(
@@ -205,19 +206,17 @@ function userFieldIds(userFields: readonly UserMappedField[], ids: readonly stri
 export function createHermesCreationFieldConfig(
 	userFields: readonly UserMappedField[] = []
 ): ModalFieldsConfigLike {
+	const hermesUserFields = ensureHermesAssigneeUserField(userFields);
 	const fields: HermesModalField[] = [
 		field("title", "core", "basic", 0, "Title", true, true),
 		field("details", "core", "basic", 1, "Details", true, true),
 		field("contexts", "core", "routing", 0, "Board", true, true),
+		field("assignee", "user", "routing", 1, "Assignee", true, true),
 		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
 		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
 	];
 
-	for (const id of userFieldIds(userFields, [
-		"hermes_assignee",
-		"hermes_priority",
-		"hermes_parent",
-	])) {
+	for (const id of userFieldIds(hermesUserFields, ["hermes_priority", "hermes_parent"])) {
 		fields.push(field(id, "user", "routing", fields.length, id, false, false));
 	}
 
@@ -225,12 +224,14 @@ export function createHermesCreationFieldConfig(
 }
 
 export function createHermesEditFieldConfig(
-	_userFields: readonly UserMappedField[] = []
+	userFields: readonly UserMappedField[] = []
 ): ModalFieldsConfigLike {
+	ensureHermesAssigneeUserField(userFields);
 	const fields: HermesModalField[] = [
 		field("title", "core", "basic", 0, "Title", true, true),
 		field("details", "core", "basic", 1, "Details", true, true),
 		field("contexts", "core", "routing", 0, "Board", true, true),
+		field("assignee", "user", "routing", 1, "Assignee", true, true),
 		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
 		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
 	];
@@ -254,9 +255,9 @@ export function buildHermesTaskCreationOptions(
 		...incomingFrontmatter,
 		hermes_submit: true,
 		hermes_board: incomingFrontmatter.hermes_board ?? board,
-		hermes_assignee: incomingFrontmatter.hermes_assignee ?? "none",
 		hermes_priority: incomingFrontmatter.hermes_priority ?? "3",
 		hermes_created_by: incomingFrontmatter.hermes_created_by ?? "tasknotes-native",
+		assignee: incomingFrontmatter.assignee ?? incomingFrontmatter.hermes_assignee ?? "",
 	};
 
 	return {
@@ -281,6 +282,13 @@ export function buildHermesTaskCreationOptions(
 		},
 	};
 }
+
+export {
+	ensureHermesAssigneeUserField,
+	hasHermesAssigneeUserField,
+	normalizeHermesModalFieldsConfig,
+	normalizeHermesUserFields,
+};
 
 export function buildDefaultTaskCreationOptionsWithHermesTargets(
 	app: App,

@@ -1,11 +1,14 @@
+import { requestUrl } from "obsidian";
 import { HermesKanbanApiClient, getHermesTaskIdentity } from "../../../src/hermes/hermesApiClient";
 import type { TaskInfo } from "../../../src/types";
 
 describe("HermesKanbanApiClient", () => {
 	const originalFetch = global.fetch;
+	const requestUrlMock = requestUrl as jest.Mock;
 
 	beforeEach(() => {
 		global.fetch = jest.fn();
+		requestUrlMock.mockReset();
 	});
 
 	afterEach(() => {
@@ -13,12 +16,28 @@ describe("HermesKanbanApiClient", () => {
 		jest.restoreAllMocks();
 	});
 
-	it("resolves board and task id from Hermes custom properties", () => {
+	it("resolves board and task id from the Hermes mirror path", () => {
 		const task = {
 			title: "Example",
 			status: "triage",
 			priority: "normal",
 			path: "TaskNotes/Hermes/default/t_1234.md",
+			archived: false,
+			tags: ["task", "hermes-kanban"],
+		} satisfies TaskInfo;
+
+		expect(getHermesTaskIdentity(task)).toEqual({
+			board: "default",
+			id: "t_1234",
+		});
+	});
+
+	it("falls back to legacy Hermes custom properties for old mirrors", () => {
+		const task = {
+			title: "Example",
+			status: "triage",
+			priority: "normal",
+			path: "Tasks/example.md",
 			archived: false,
 			customProperties: {
 				hermes_board: "obsidian-os",
@@ -55,6 +74,36 @@ describe("HermesKanbanApiClient", () => {
 					title: "New task",
 					triage: true,
 					priority: 3,
+				}),
+			})
+		);
+	});
+
+	it("can request an initially blocked Hermes task with a block reason", async () => {
+		(global.fetch as jest.Mock).mockResolvedValue(
+			jsonResponse({
+				task: { id: "t_human", title: "Human task", status: "blocked" },
+			})
+		);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const created = await api.createTask("default", {
+			title: "Human task",
+			assignee: "human",
+			initial_status: "blocked",
+			block_reason: "Waiting on human: human",
+		});
+
+		expect(created.status).toBe("blocked");
+		expect(global.fetch).toHaveBeenCalledWith(
+			"http://127.0.0.1:9119/api/plugins/kanban/tasks?board=default",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({
+					title: "Human task",
+					assignee: "human",
+					initial_status: "blocked",
+					block_reason: "Waiting on human: human",
 				}),
 			})
 		);
@@ -97,6 +146,32 @@ describe("HermesKanbanApiClient", () => {
 				headers: expect.objectContaining({
 					Authorization: "Bearer test-token",
 				}),
+			})
+		);
+	});
+
+	it("falls back to Obsidian requestUrl when browser fetch is blocked", async () => {
+		(global.fetch as jest.Mock).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+		requestUrlMock.mockResolvedValueOnce({
+			status: 200,
+			json: {
+				task: { id: "t_detail", title: "Detail", status: "done" },
+				comments: [{ author: "worker", body: "done", created_at: 1770000000 }],
+				events: [],
+				runs: [],
+			},
+			text: "",
+		});
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const detail = await api.getTask({ board: "default", id: "t_detail" });
+
+		expect(detail.task?.id).toBe("t_detail");
+		expect(requestUrlMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/tasks/t_detail?board=default",
+				method: "GET",
+				throw: false,
 			})
 		);
 	});
