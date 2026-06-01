@@ -68,6 +68,7 @@ import { resolveTaskPropertyFrontmatterField } from "./task-service/taskProperty
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/TaskService" });
+const HERMES_MANAGED_TASK_PATH = /^TaskNotes\/Hermes\/[^/]+\/t_[^/]+\.md$/;
 
 export class TaskService {
 	private webhookNotifier?: IWebhookNotifier;
@@ -852,7 +853,7 @@ export class TaskService {
 	 */
 	async updateTask(
 		originalTask: TaskInfo,
-		updates: Partial<TaskInfo> & { details?: string }
+		updates: Partial<TaskInfo> & { details?: string; customFrontmatter?: Record<string, unknown> }
 	): Promise<TaskInfo> {
 		return this.taskUpdateService.updateTask(originalTask, updates);
 	}
@@ -943,6 +944,11 @@ export class TaskService {
 				throw new Error(`Cannot find task file: ${task.path}`);
 			}
 
+			if (this.isHermesManagedTask(task)) {
+				await this.archiveHermesManagedTaskFromDelete(task);
+				return;
+			}
+
 			// Delete from Google Calendar first (before file deletion, so we have the event ID)
 			if (this.plugin.taskCalendarSyncService && this.hasGoogleCalendarLinks(task)) {
 				try {
@@ -1000,6 +1006,30 @@ export class TaskService {
 
 			throw new Error(`Failed to delete task: ${errorMessage}`);
 		}
+	}
+
+	private isHermesManagedTask(task: TaskInfo): boolean {
+		return (
+			HERMES_MANAGED_TASK_PATH.test(task.path) &&
+			(task.customProperties?.sync_origin === "tasknotes-hermes-bridge" ||
+				typeof task.customProperties?.hermes_id === "string" ||
+				task.tags?.includes("hermes-kanban") === true)
+		);
+	}
+
+	private async archiveHermesManagedTaskFromDelete(task: TaskInfo): Promise<void> {
+		const archiveTag = this.plugin.fieldMapper.getMapping().archiveTag;
+		const currentTags = Array.isArray(task.tags) ? task.tags : [];
+		if (task.archived || currentTags.includes(archiveTag)) {
+			return;
+		}
+
+		await this.updateTask(task, {
+			tags: [...currentTags, archiveTag],
+			customFrontmatter: {
+				writeback_reason: "TaskNotes delete requested archive in Hermes",
+			},
+		});
 	}
 
 	/**

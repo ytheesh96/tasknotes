@@ -41,6 +41,7 @@ import { downloadTaskICSFile, openCalendarURL } from "../ui/calendarExportAction
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Components/TaskContextMenu" });
+const HERMES_MANAGED_TASK_PATH = /^TaskNotes\/Hermes\/[^/]+\/t_[^/]+\.md$/;
 
 type SubmenuMenuItem = {
 	setSubmenu(): Menu;
@@ -129,6 +130,15 @@ function toMenuTitle(value: unknown, fallback = ""): string {
 			: "";
 	const trimmed = text.trim();
 	return trimmed.length > 0 ? trimmed : fallback;
+}
+
+function isHermesManagedTask(task: TaskInfo): boolean {
+	return (
+		HERMES_MANAGED_TASK_PATH.test(task.path) &&
+		(task.customProperties?.sync_origin === "tasknotes-hermes-bridge" ||
+			typeof task.customProperties?.hermes_id === "string" ||
+			task.tags?.includes("hermes-kanban") === true)
+	);
 }
 
 export interface TaskContextMenuOptions {
@@ -489,20 +499,22 @@ export class TaskContextMenu {
 			// Get the file for the task
 			const file = plugin.app.vault.getAbstractFileByPath(task.path);
 			if (file instanceof TFile) {
-				// Try to populate with Obsidian's native file menu
-				try {
-					// Trigger the file-menu event to populate with default actions
-					plugin.app.workspace.trigger(
-						"file-menu",
-						submenu,
-						file,
-						"tasknotes-context-menu"
-					);
-				} catch {
-					tasknotesLogger.debug("Native file menu not available, using fallback", {
-						category: "stale-data",
-						operation: "native-file-menu-not-using-fallback",
-					});
+				if (!isHermesManagedTask(task)) {
+					// Try to populate with Obsidian's native file menu
+					try {
+						// Trigger the file-menu event to populate with default actions
+						plugin.app.workspace.trigger(
+							"file-menu",
+							submenu,
+							file,
+							"tasknotes-context-menu"
+						);
+					} catch {
+						tasknotesLogger.debug("Native file menu not available, using fallback", {
+							category: "stale-data",
+							operation: "native-file-menu-not-using-fallback",
+						});
+					}
 				}
 
 				// Add common file actions (these will either supplement or replace the native menu)

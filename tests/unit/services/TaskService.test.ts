@@ -1315,6 +1315,59 @@ describe('TaskService', () => {
       });
     });
 
+    it('should archive Hermes-managed tasks instead of deleting the local mirror', async () => {
+      const hermesTask = TaskFactory.createTask({
+        path: 'TaskNotes/Hermes/default/t_abc12345.md',
+        tags: ['task', 'hermes-kanban'],
+        customProperties: {
+          sync_origin: 'tasknotes-hermes-bridge',
+          hermes_id: 't_abc12345'
+        }
+      });
+      mockPlugin.app.vault.getAbstractFileByPath.mockReturnValue(new TFile(hermesTask.path));
+      const updateSpy = jest.spyOn(taskService, 'updateTask').mockResolvedValue({
+        ...hermesTask,
+        archived: true,
+        tags: ['task', 'hermes-kanban', 'archived']
+      });
+
+      await taskService.deleteTask(hermesTask);
+
+      expect(updateSpy).toHaveBeenCalledWith(hermesTask, {
+        tags: ['task', 'hermes-kanban', 'archived'],
+        customFrontmatter: {
+          writeback_reason: 'TaskNotes delete requested archive in Hermes'
+        }
+      });
+      expect(mockPlugin.app.fileManager.trashFile).not.toHaveBeenCalled();
+      expect(mockPlugin.cacheManager.clearCacheEntry).not.toHaveBeenCalled();
+      expect(mockPlugin.emitter.trigger).not.toHaveBeenCalledWith('task-deleted', expect.anything());
+
+      updateSpy.mockRestore();
+    });
+
+    it('should leave already archived Hermes-managed task mirrors in place', async () => {
+      const archivedHermesTask = TaskFactory.createTask({
+        path: 'TaskNotes/Hermes/default/t_archived.md',
+        archived: true,
+        tags: ['task', 'hermes-kanban', 'archived'],
+        customProperties: {
+          sync_origin: 'tasknotes-hermes-bridge',
+          hermes_id: 't_archived'
+        }
+      });
+      mockPlugin.app.vault.getAbstractFileByPath.mockReturnValue(new TFile(archivedHermesTask.path));
+      const updateSpy = jest.spyOn(taskService, 'updateTask');
+
+      await taskService.deleteTask(archivedHermesTask);
+
+      expect(updateSpy).not.toHaveBeenCalled();
+      expect(mockPlugin.app.fileManager.trashFile).not.toHaveBeenCalled();
+      expect(mockPlugin.cacheManager.clearCacheEntry).not.toHaveBeenCalled();
+
+      updateSpy.mockRestore();
+    });
+
     it('should handle file not found error', async () => {
       mockPlugin.app.vault.getAbstractFileByPath.mockReturnValue(null);
 
