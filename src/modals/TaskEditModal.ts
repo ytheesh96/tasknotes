@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion -- Modal lifecycle initializes required controls before event handlers run. */
-import { App, Notice, TFile } from "obsidian";
+import { App, Notice, Setting, TFile } from "obsidian";
 import TaskNotesPlugin from "../main";
 import { TaskModal } from "./TaskModal";
 import { TaskDependency, TaskInfo } from "../types";
@@ -26,7 +26,6 @@ import type { ModalFieldsConfigLike } from "./taskModalFieldConfig";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskEditModal" });
-const HERMES_HUMAN_REVIEW_ASSIGNEE = "Vaitheesh";
 
 export interface TaskEditOptions {
 	task: TaskInfo;
@@ -265,7 +264,7 @@ export class TaskEditModal extends TaskModal {
 	 * Add completions calendar and metadata sections after details
 	 */
 	protected createAdditionalSections(container: HTMLElement): void {
-		this.createHermesActionsSection(container);
+		this.createHermesCommentsSection(container);
 		createCompletionsCalendarSection(container, {
 			task: this.task,
 			plugin: this.plugin,
@@ -275,39 +274,32 @@ export class TaskEditModal extends TaskModal {
 		this.createMetadataSection(container);
 	}
 
-	private createHermesActionsSection(container: HTMLElement): void {
+	private createHermesCommentsSection(container: HTMLElement): void {
 		if (!isHermesTask(this.task)) {
 			return;
 		}
 
-		const status = this.getHermesStatus();
-		const board = this.getHermesCustomString("hermes_board");
-		const section = container.createDiv("tn-task-modal__hermes-actions");
-		section.createDiv("tn-task-modal__section-label").textContent = "Hermes Actions";
+		const section = container.createDiv("tn-task-modal__hermes-comments");
+		const commentButtonRef: { el?: HTMLButtonElement } = {};
 
-		const meta = section.createDiv("tn-task-modal__hermes-meta");
-		if (board) {
-			meta.createSpan("tn-task-modal__hermes-pill").textContent = board;
-		}
-		if (status) {
-			meta.createSpan("tn-task-modal__hermes-pill").textContent = status;
-		}
+		new Setting(section).setName("Comments").addButton((button) => {
+			button.setButtonText("Comment").setTooltip("Send comment to Hermes");
+			button.buttonEl.addClasses(["tn-btn", "tn-btn--ghost"]);
+			commentButtonRef.el = button.buttonEl;
+		});
 
-		const commentComposer = section.createDiv("tn-task-modal__hermes-comment-composer");
-		const commentInput = commentComposer.createEl("textarea", {
-			cls: "tn-task-modal__hermes-comment-input modal-form__input modal-form__input--textarea",
+		const commentInput = section.createEl("textarea", {
+			cls: "tn-task-modal__hermes-comment-input",
 			attr: {
 				placeholder: "Add a comment... (Enter to submit)",
 				rows: "3",
 			},
 		});
-		const commentFooter = commentComposer.createDiv("tn-task-modal__hermes-comment-footer");
-		const commentButton = commentFooter.createEl("button", {
-			text: "Comment",
-			cls: "tn-task-modal__hermes-comment-button mod-cta",
-		});
 		const updateCommentButtonState = () => {
-			commentButton.disabled = commentInput.value.trim().length === 0;
+			const commentButtonEl = commentButtonRef.el;
+			if (commentButtonEl) {
+				commentButtonEl.disabled = commentInput.value.trim().length === 0;
+			}
 		};
 		updateCommentButtonState();
 		commentInput.addEventListener("input", updateCommentButtonState);
@@ -316,40 +308,14 @@ export class TaskEditModal extends TaskModal {
 				return;
 			}
 			event.preventDefault();
-			void this.handleHermesCommentSubmit(commentInput, commentButton);
+			void this.handleHermesCommentSubmit(commentInput, commentButtonRef.el ?? null);
 		});
-		commentButton.addEventListener("click", () => {
-			void this.handleHermesCommentSubmit(commentInput, commentButton);
-		});
-
-		const buttons = section.createDiv("tn-task-modal__hermes-action-buttons");
-		this.createHermesActionButton(
-			buttons,
-			"Request human review",
-			() => {
-				void this.handleHermesHumanReviewAction();
-			},
-			{
-				disabled: status === "archived",
-			}
-		);
-	}
-
-	private createHermesActionButton(
-		container: HTMLElement,
-		text: string,
-		onClick: () => void,
-		options: { disabled?: boolean; title?: string } = {}
-	): void {
-		const button = container.createEl("button", {
-			text,
-			cls: "tn-task-modal__hermes-action-button",
-		});
-		button.disabled = !!options.disabled;
-		if (options.title) {
-			button.title = options.title;
+		const commentButtonEl = commentButtonRef.el;
+		if (commentButtonEl) {
+			commentButtonEl.addEventListener("click", () => {
+				void this.handleHermesCommentSubmit(commentInput, commentButtonRef.el ?? null);
+			});
 		}
-		button.addEventListener("click", onClick);
 	}
 
 	private getHermesCustomString(key: string): string {
@@ -440,37 +406,21 @@ export class TaskEditModal extends TaskModal {
 
 	private async handleHermesCommentSubmit(
 		input: HTMLTextAreaElement,
-		button: HTMLButtonElement
+		button: HTMLButtonElement | null
 	): Promise<void> {
 		const comment = input.value.trim();
 		if (!comment) return;
 		input.disabled = true;
-		button.disabled = true;
+		if (button) button.disabled = true;
 		const sent = await this.sendHermesAction("Comment", async (api, identity) => {
 			await api.addComment(identity, { body: comment, author: "tasknotes" });
 			return api.getTask(identity);
 		});
 		if (!sent) {
 			input.disabled = false;
-			button.disabled = input.value.trim().length === 0;
+			if (button) button.disabled = input.value.trim().length === 0;
 			input.focus();
 		}
-	}
-
-	private async handleHermesHumanReviewAction(): Promise<void> {
-		const reason = await this.promptHermesActionText({
-			title: "Request human review",
-			placeholder: "What decision or review is needed?",
-			confirmText: "Request review",
-		});
-		if (!reason) return;
-		await this.sendHermesAction("Human review", async (api, identity) => {
-			await api.addComment(identity, {
-				body: `Human review requested for ${HERMES_HUMAN_REVIEW_ASSIGNEE}: ${reason}`,
-				author: "tasknotes",
-			});
-			return api.getTask(identity);
-		});
 	}
 
 	/**
