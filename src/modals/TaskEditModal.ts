@@ -299,40 +299,6 @@ export class TaskEditModal extends TaskModal {
 		});
 		this.createHermesActionButton(
 			buttons,
-			"Block",
-			() => {
-				void this.handleHermesBlockAction();
-			},
-			{
-				disabled: !["ready", "running"].includes(status),
-				title:
-					status === "running"
-						? "Stops the active Hermes run and marks it blocked"
-						: "Only ready or running Hermes tasks can be blocked",
-			}
-		);
-		this.createHermesActionButton(
-			buttons,
-			"Unblock",
-			() => {
-				void this.handleHermesUnblockAction();
-			},
-			{
-				disabled: !["blocked", "scheduled"].includes(status),
-			}
-		);
-		this.createHermesActionButton(
-			buttons,
-			"Complete",
-			() => {
-				void this.handleHermesCompleteAction();
-			},
-			{
-				disabled: ["blocked", "scheduled", "running", "done", "archived"].includes(status),
-			}
-		);
-		this.createHermesActionButton(
-			buttons,
 			"Request human review",
 			() => {
 				void this.handleHermesHumanReviewAction();
@@ -453,53 +419,6 @@ export class TaskEditModal extends TaskModal {
 		if (!comment) return;
 		await this.sendHermesAction("Comment", async (api, identity) => {
 			await api.addComment(identity, { body: comment, author: "tasknotes" });
-			return api.getTask(identity);
-		});
-	}
-
-	private async handleHermesBlockAction(): Promise<void> {
-		const reason = await this.promptHermesActionText({
-			title: "Block Hermes task",
-			placeholder: "Why is this blocked?",
-			confirmText: "Block",
-		});
-		if (!reason) return;
-		await this.sendHermesAction("Block", async (api, identity) => {
-			await api.updateTask(identity, { status: "blocked", block_reason: reason });
-			return api.getTask(identity);
-		});
-	}
-
-	private async handleHermesUnblockAction(): Promise<void> {
-		const reason = await this.promptHermesActionText({
-			title: "Unblock Hermes task",
-			placeholder: "What changed?",
-			confirmText: "Unblock",
-		});
-		if (!reason) return;
-		await this.sendHermesAction("Unblock", async (api, identity) => {
-			await api.addComment(identity, {
-				body: `Unblock requested from TaskNotes: ${reason}`,
-				author: "tasknotes",
-			});
-			await api.updateTask(identity, { status: "ready" });
-			return api.getTask(identity);
-		});
-	}
-
-	private async handleHermesCompleteAction(): Promise<void> {
-		const result = await this.promptHermesActionText({
-			title: "Complete Hermes task",
-			placeholder: "Result / closeout summary",
-			confirmText: "Complete",
-		});
-		if (!result) return;
-		await this.sendHermesAction("Complete", async (api, identity) => {
-			await api.updateTask(identity, {
-				status: "done",
-				result,
-				summary: result,
-			});
 			return api.getTask(identity);
 		});
 	}
@@ -695,7 +614,10 @@ export class TaskEditModal extends TaskModal {
 
 		const api = new HermesKanbanApiClient();
 		let didHermesWrite = false;
-		const payload = this.hermesUpdatePayloadFromChanges(changes);
+		const payload = await this.hermesUpdatePayloadFromChanges(changes);
+		if (payload === null) {
+			return;
+		}
 		if (Object.keys(payload).length > 0) {
 			await api.updateTask(identity, payload);
 			didHermesWrite = true;
@@ -730,14 +652,14 @@ export class TaskEditModal extends TaskModal {
 		new Notice(`Hermes task updated: ${updatedTask.title}`);
 	}
 
-	private hermesUpdatePayloadFromChanges(changes: Partial<TaskInfo>): {
+	private async hermesUpdatePayloadFromChanges(changes: Partial<TaskInfo>): Promise<{
 		status?: string;
 		title?: string;
 		priority?: number;
 		result?: string;
 		summary?: string;
 		block_reason?: string;
-	} {
+	} | null> {
 		const payload: {
 			status?: string;
 			title?: string;
@@ -761,11 +683,23 @@ export class TaskEditModal extends TaskModal {
 			}
 			payload.status = changes.status;
 			if (changes.status === "blocked") {
-				payload.block_reason = "Blocked from TaskNotes";
+				const reason = await this.promptHermesActionText({
+					title: "Block Hermes task",
+					placeholder: "Why is this blocked?",
+					confirmText: "Block",
+				});
+				if (!reason) return null;
+				payload.block_reason = reason;
 			}
 			if (changes.status === "done") {
-				payload.result = "Completed from TaskNotes";
-				payload.summary = "Completed from TaskNotes";
+				const result = await this.promptHermesActionText({
+					title: "Complete Hermes task",
+					placeholder: "Result / closeout summary",
+					confirmText: "Complete",
+				});
+				if (!result) return null;
+				payload.result = result;
+				payload.summary = result;
 			}
 		}
 
