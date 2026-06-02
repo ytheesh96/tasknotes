@@ -6,10 +6,9 @@ import type { TaskEditOptions } from "../modals/TaskEditModal";
 import type { TaskCreationPrepopulatedValues } from "../modals/taskCreationFormState";
 import type { ModalFieldConfigLike, ModalFieldsConfigLike } from "../modals/taskModalFieldConfig";
 import {
-	ensureHermesAssigneeUserField,
-	hasHermesAssigneeUserField,
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
+	normalizeHermesAssignee,
 } from "./hermesAssignee";
 
 const TASKNOTES_ROOT = "TaskNotes";
@@ -107,6 +106,13 @@ function boardFromPrepopulated(
 	values?: TaskCreationPrepopulatedValues,
 	knownBoards: readonly string[] = DEFAULT_HERMES_BOARDS
 ): string | null {
+	const projects = asStringArray(values?.projects);
+	for (const project of projects) {
+		const match = project.match(/^Hermes\/([^/]+)$/);
+		if (match && knownBoards.includes(match[1])) {
+			return match[1];
+		}
+	}
 	const contexts = asStringArray(values?.contexts);
 	return contexts.find((context) => knownBoards.includes(context)) ?? null;
 }
@@ -161,12 +167,12 @@ function field(
 export function createHermesCreationFieldConfig(
 	userFields: readonly UserMappedField[] = []
 ): ModalFieldsConfigLike {
-	ensureHermesAssigneeUserField(userFields);
+	void userFields;
 	const fields: HermesModalField[] = [
 		field("title", "core", "basic", 0, "Title", true, true),
 		field("details", "core", "basic", 1, "Details", true, true),
-		field("contexts", "core", "routing", 0, "Board", true, true),
-		field("assignee", "user", "routing", 1, "Assignee", true, true),
+		field("projects", "core", "routing", 0, "Board", true, true),
+		field("contexts", "core", "routing", 1, "Assignee", true, true),
 		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
 		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
 	];
@@ -177,12 +183,12 @@ export function createHermesCreationFieldConfig(
 export function createHermesEditFieldConfig(
 	userFields: readonly UserMappedField[] = []
 ): ModalFieldsConfigLike {
-	ensureHermesAssigneeUserField(userFields);
+	void userFields;
 	const fields: HermesModalField[] = [
 		field("title", "core", "basic", 0, "Title", true, true),
 		field("details", "core", "basic", 1, "Details", true, true),
-		field("contexts", "core", "routing", 0, "Board", true, true),
-		field("assignee", "user", "routing", 1, "Assignee", true, true),
+		field("projects", "core", "routing", 0, "Board", true, true),
+		field("contexts", "core", "routing", 1, "Assignee", true, true),
 		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
 		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
 	];
@@ -202,10 +208,11 @@ export function buildHermesTaskCreationOptions(
 	const board = explicitBoard ?? preferredBoard(app);
 	const boardOptions = uniqueStrings([board, ...boards]);
 	const incomingFrontmatter = customFrontmatter(prePopulatedValues);
+	const legacyAssignee = normalizeHermesAssignee(incomingFrontmatter.assignee);
 	const custom = {
 		...incomingFrontmatter,
-		assignee: incomingFrontmatter.assignee ?? "",
 	};
+	delete custom.assignee;
 	const status =
 		typeof prePopulatedValues?.status === "string" && prePopulatedValues.status.trim()
 			? prePopulatedValues.status
@@ -215,7 +222,13 @@ export function buildHermesTaskCreationOptions(
 		prePopulatedValues: {
 			...prePopulatedValues,
 			status,
-			contexts: uniqueStrings([board, ...asStringArray(prePopulatedValues?.contexts)]),
+			projects: uniqueStrings([`Hermes/${board}`, ...asStringArray(prePopulatedValues?.projects)]),
+			contexts: uniqueStrings([
+				...(legacyAssignee ? [legacyAssignee] : []),
+				...asStringArray(prePopulatedValues?.contexts).filter(
+					(context) => !boards.includes(context) && context !== "hermes-kanban"
+				),
+			]),
 			tags: uniqueStrings([...asStringArray(prePopulatedValues?.tags), "hermes-kanban"]),
 			customFrontmatter: custom,
 		},
@@ -235,8 +248,6 @@ export function buildHermesTaskCreationOptions(
 }
 
 export {
-	ensureHermesAssigneeUserField,
-	hasHermesAssigneeUserField,
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
 };

@@ -1,6 +1,5 @@
 import type { Reminder, TaskInfo } from "../types";
 import type { TaskCreationDefaults, UserMappedField } from "../types/settings";
-import { isHermesAssigneeUserField } from "../hermes/hermesAssignee";
 import { calculateDefaultDate, calculateDefaultDateTime, sanitizeTags } from "../utils/helpers";
 import { convertDefaultRemindersToReminders } from "../utils/settingsUtils";
 import { splitListPreservingLinksAndQuotes } from "../utils/stringSplit";
@@ -80,7 +79,6 @@ function buildDefaultUserFieldValues(
 	const values: Record<string, unknown> = {};
 
 	for (const field of userFields) {
-		if (isHermesAssigneeUserField(field)) continue;
 		if (field.defaultValue === undefined) continue;
 
 		if (field.type === "date" && typeof field.defaultValue === "string") {

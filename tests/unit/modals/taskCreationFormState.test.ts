@@ -189,7 +189,7 @@ describe("taskCreationFormState", () => {
 		);
 	});
 
-	it("uses Assignee default CSV values as suggestions without auto-assigning new tasks", () => {
+	it("uses ordinary list defaults when user fields are present", () => {
 		const state = buildTaskCreationFormState({
 			defaultPriority: "normal",
 			defaultStatus: "open",
@@ -197,9 +197,9 @@ describe("taskCreationFormState", () => {
 			taskCreationDefaults: defaults(),
 			userFields: [
 				userField({
-					id: "assignee",
-					key: "assignee",
-					displayName: "Assignee",
+					id: "worker",
+					key: "worker",
+					displayName: "Worker",
 					type: "list",
 					defaultValue: ["orchestrator", "human"],
 				}),
@@ -214,6 +214,7 @@ describe("taskCreationFormState", () => {
 		});
 
 		expect(state.userFields).toEqual({
+			worker: ["orchestrator", "human"],
 			labels: ["alpha", "beta"],
 		});
 	});

@@ -1,5 +1,4 @@
 import { AbstractInputSuggest, App } from "obsidian";
-import { isHermesAssigneeUserField } from "../hermes/hermesAssignee";
 import TaskNotesPlugin from "../main";
 import type { UserMappedField } from "../types/settings";
 import { filterTagsForTaskModalSuggestions } from "../utils/taskTagFiltering";
@@ -151,14 +150,10 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 		this.plugin = plugin;
 		this.input = inputEl;
 		this.fieldConfig = fieldConfig;
-		if (isHermesAssigneeUserField(fieldConfig)) {
-			openSuggestionsOnFieldSelection(this.input, () => this.open());
-		}
 	}
 
 	protected async getSuggestions(_: string): Promise<UserFieldSuggestion[]> {
 		const isListField = this.fieldConfig.type === "list";
-		const allowEmptyQuery = isHermesAssigneeUserField(this.fieldConfig);
 		let currentQuery = "";
 		let currentValues: string[] = [];
 
@@ -168,7 +163,7 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 		} else {
 			currentQuery = this.input.value.trim();
 		}
-		if (!currentQuery && !allowEmptyQuery) return [];
+		if (!currentQuery) return [];
 
 		const wikiMatch = currentQuery.match(/\[\[([^\]]*)$/);
 		if (wikiMatch) {

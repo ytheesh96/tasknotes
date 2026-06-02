@@ -624,11 +624,12 @@ export class TaskCreationModal extends TaskModal {
 		this.recurrenceAnchor = formState.recurrenceAnchor;
 		this.reminders = formState.reminders;
 		this.userFields = formState.userFields;
-		this.syncHermesBoardSelection();
 
 		if (formState.projectStrings.length > 0) {
 			this.initializeProjectsFromStrings(formState.projectStrings);
 		}
+
+		this.syncHermesBoardSelection();
 
 		this.details = this.normalizeDetails(this.details);
 		this.originalDetails = this.details;
@@ -864,7 +865,7 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	private hermesAssigneeFromTaskData(taskData: HermesCreationTaskData): string | undefined {
-		return normalizeHermesAssignee(taskData.customFrontmatter?.assignee) ?? undefined;
+		return normalizeHermesAssignee(taskData.contexts) ?? undefined;
 	}
 
 	private hermesPriorityFromTaskData(): number {
@@ -923,7 +924,12 @@ export class TaskCreationModal extends TaskModal {
 		if (this.selectedCreationTarget.startsWith(HERMES_TARGET_PREFIX)) {
 			return this.selectedCreationTarget.slice(HERMES_TARGET_PREFIX.length);
 		}
-		return this.selectedHermesBoard ?? this.options.hermesBoardPicker?.selectedBoard ?? "";
+		return (
+			this.selectedHermesBoard ??
+			this.options.hermesBoardPicker?.selectedBoard ??
+			boardFromHermesProjects(this.projects, this.getHermesBoardOptions()) ??
+			""
+		);
 	}
 
 	private getHermesTargetId(board: string): string {
@@ -1010,14 +1016,16 @@ export class TaskCreationModal extends TaskModal {
 	private applyHermesSubmissionState(board: string): void {
 		if (!board) return;
 
-		this.contexts = withHermesBoardContext(this.contexts, this.getHermesBoardOptions(), board);
+		this.projects = withHermesBoardProject(this.projects, this.getHermesBoardOptions(), board);
+		this.initializeProjectsFromStrings(splitCommaList(this.projects));
 		this.tags = addCommaListValue(this.tags, "hermes-kanban");
 		this.syncVisibleHermesFields();
 	}
 
 	private clearHermesSubmissionState(): void {
 		this.status = this.nonHermesStatus ?? this.plugin.settings.defaultTaskStatus;
-		this.contexts = withoutHermesBoardContext(this.contexts, this.getHermesBoardOptions());
+		this.projects = withoutHermesBoardProject(this.projects, this.getHermesBoardOptions());
+		this.initializeProjectsFromStrings(splitCommaList(this.projects));
 		this.syncVisibleHermesFields();
 	}
 
@@ -1034,12 +1042,10 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	private syncVisibleHermesFields(): void {
-		if (this.contextsInput) {
-			this.contextsInput.value = this.contexts;
-		}
 		if (this.tagsInput) {
 			this.tagsInput.value = this.tags;
 		}
+		this.renderProjectsList();
 	}
 
 	private updatePrimaryActionButtonText(): void {
@@ -1112,29 +1118,24 @@ export class TaskCreationModal extends TaskModal {
 	}
 }
 
-export function withHermesBoardContext(
-	contexts: string,
+export function withHermesBoardProject(
+	projects: string,
 	knownBoards: readonly string[],
 	selectedBoard: string
 ): string {
-	const boardSet = new Set(knownBoards);
-	const nextContexts = contexts
-		.split(",")
-		.map((context) => context.trim())
-		.filter((context) => context.length > 0 && !boardSet.has(context));
+	const projectSet = new Set(knownBoards.map(hermesBoardProject));
+	const nextProjects = splitCommaList(projects).filter((project) => !projectSet.has(project));
 
-	return [selectedBoard, ...nextContexts].join(", ");
+	return [hermesBoardProject(selectedBoard), ...nextProjects].join(", ");
 }
 
-export function withoutHermesBoardContext(
-	contexts: string,
+export function withoutHermesBoardProject(
+	projects: string,
 	knownBoards: readonly string[]
 ): string {
-	const boardSet = new Set(knownBoards);
-	return contexts
-		.split(",")
-		.map((context) => context.trim())
-		.filter((context) => context.length > 0 && !boardSet.has(context))
+	const projectSet = new Set(knownBoards.map(hermesBoardProject));
+	return splitCommaList(projects)
+		.filter((project) => !projectSet.has(project))
 		.join(", ");
 }
 
@@ -1151,9 +1152,27 @@ export function addCommaListValue(value: string, item: string): string {
 
 export function removeCommaListValues(value: string, items: readonly string[]): string {
 	const removeSet = new Set(items);
+	return splitCommaList(value)
+		.filter((entry) => !removeSet.has(entry))
+		.join(", ");
+}
+
+function splitCommaList(value: string): string[] {
 	return value
 		.split(",")
 		.map((entry) => entry.trim())
-		.filter((entry) => entry.length > 0 && !removeSet.has(entry))
-		.join(", ");
+		.filter((entry) => entry.length > 0);
+}
+
+function hermesBoardProject(board: string): string {
+	return `Hermes/${board}`;
+}
+
+function boardFromHermesProjects(projects: string, knownBoards: readonly string[]): string | null {
+	const boardsByProject = new Map(knownBoards.map((board) => [hermesBoardProject(board), board]));
+	for (const project of splitCommaList(projects)) {
+		const board = boardsByProject.get(project);
+		if (board) return board;
+	}
+	return null;
 }

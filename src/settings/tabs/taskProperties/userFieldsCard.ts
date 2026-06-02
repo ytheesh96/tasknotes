@@ -14,13 +14,6 @@ import { createFilterSettingsInputs } from "../../components/FilterSettingsCompo
 import { initializeFieldConfig } from "../../../utils/fieldConfigDefaults";
 import { createNLPTriggerRows, createPropertyDescription, TranslateFn } from "./helpers";
 import { UserMappedField } from "../../../types/settings";
-import {
-	HERMES_ASSIGNEE_FIELD,
-	collectHermesAssigneesFromMirrorNotes,
-	ensureHermesAssigneeUserField,
-	findHermesAssigneeUserField,
-	isHermesAssigneeUserField,
-} from "../../../hermes/hermesAssignee";
 
 type UserFieldEntry = {
 	field: UserMappedField;
@@ -148,52 +141,6 @@ function createDefaultValueInput(
 }
 
 /**
- * Renders the promoted Assignee organization property.
- *
- * Assignee still uses the user-field plumbing so existing filter/sort/group
- * behavior keeps working, but the settings UI treats it as an organization
- * property rather than a generic custom field.
- */
-export function renderAssigneeOrganizationPropertyCard(
-	container: HTMLElement,
-	plugin: TaskNotesPlugin,
-	save: () => void,
-	translate: TranslateFn
-): void {
-	if (!Array.isArray(plugin.settings.userFields)) {
-		plugin.settings.userFields = [];
-	}
-
-	const userFields = plugin.settings.userFields;
-	const normalizedFields = ensureHermesAssigneeUserField(
-		userFields,
-		collectHermesAssigneesFromMirrorNotes(plugin.app)
-	);
-	if (
-		normalizedFields.length !== userFields.length ||
-		normalizedFields.some((field, index) => field !== userFields[index])
-	) {
-		plugin.settings.userFields = normalizedFields;
-		save();
-	}
-
-	const assigneeContainer = container.createDiv("tasknotes-assignee-field-container");
-	const render = (expandedFieldId?: string) => {
-		const field = findHermesAssigneeUserField(plugin.settings.userFields);
-		if (!field) return;
-		renderUserFieldsList(assigneeContainer, plugin, save, translate, expandedFieldId, {
-			allowDelete: false,
-			description: translate("settings.taskProperties.properties.assignee.description"),
-			emptyState: false,
-			filterField: isHermesAssigneeUserField,
-			onRerender: render,
-		});
-	};
-
-	render(HERMES_ASSIGNEE_FIELD.id);
-}
-
-/**
  * Renders the user fields section with add button
  */
 export function renderUserFieldsSection(
@@ -304,9 +251,7 @@ function renderUserFieldsList(
 
 	const entries: UserFieldEntry[] = plugin.settings.userFields
 		.map((field, index) => ({ field, index }))
-		.filter(({ field }) =>
-			options.filterField ? options.filterField(field) : !isHermesAssigneeUserField(field)
-		);
+		.filter(({ field }) => (options.filterField ? options.filterField(field) : true));
 
 	if (entries.length === 0) {
 		if (options.emptyState === false) {

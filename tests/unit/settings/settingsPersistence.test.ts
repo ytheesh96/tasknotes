@@ -200,6 +200,60 @@ describe("settings persistence helpers", () => {
 		expect(settings.defaultTaskStatus).toBe("ready");
 	});
 
+	it("removes legacy Hermes assignee settings on load", () => {
+		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData({
+			userFields: [
+				{ id: "assignee", key: "assignee", displayName: "Assignee", type: "list" },
+				{ id: "review", key: "review", displayName: "Review", type: "text" },
+			],
+			modalFieldsConfig: {
+				version: 1,
+				groups: [],
+				fields: [
+					{
+						id: "assignee",
+						fieldType: "user",
+						group: "routing",
+						displayName: "Assignee",
+						visibleInCreation: false,
+						visibleInEdit: true,
+						order: 0,
+						enabled: true,
+					},
+					{
+						id: "contexts",
+						fieldType: "core",
+						group: "routing",
+						displayName: "Contexts",
+						visibleInCreation: true,
+						visibleInEdit: true,
+						order: 1,
+						enabled: true,
+					},
+				],
+			},
+			nlpTriggers: {
+				triggers: [
+					{ propertyId: "assignee", trigger: "-", enabled: true },
+					{ propertyId: "contexts", trigger: "@", enabled: true },
+				],
+			},
+			defaultVisibleProperties: ["status", "user:assignee", "contexts"],
+			inlineVisibleProperties: ["status", "user:assignee"],
+		});
+
+		expect(settings.userFields.map((field) => field.id)).toEqual(["review"]);
+		expect(settings.modalFieldsConfig?.fields.map((field) => field.id)).toEqual([
+			"contexts",
+		]);
+		expect(settings.nlpTriggers.triggers.map((trigger) => trigger.propertyId)).toEqual([
+			"contexts",
+		]);
+		expect(settings.defaultVisibleProperties).toEqual(["status", "contexts"]);
+		expect(settings.inlineVisibleProperties).toEqual(["status"]);
+		expect(shouldPersistMigratedSettings).toBe(true);
+	});
+
 	it("merges only known settings keys into saved data while preserving other persisted data", () => {
 		const settings = {
 			...DEFAULT_SETTINGS,

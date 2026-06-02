@@ -1,6 +1,5 @@
 import type TaskNotesPlugin from "../main";
 import type { FieldMapping } from "../types";
-import { isHermesAssigneeUserField } from "../hermes/hermesAssignee";
 
 /**
  * Get all available properties for property selection modals.
@@ -46,22 +45,13 @@ export function getAvailableProperties(
 
 	const userFields = plugin.settings.userFields || [];
 
-	// Add promoted organization user fields before generic custom fields.
-	const promotedOrganizationProperties = userFields
-		.filter(isHermesAssigneeUserField)
-		.map((field) => ({
-			id: `user:${field.id}`,
-			label: field.displayName,
-		}));
-
 	// Add user-defined fields
-	const userProperties =
-		userFields.filter((field) => !isHermesAssigneeUserField(field)).map((field) => ({
-			id: `user:${field.id}`,
-			label: field.displayName,
-		}));
+	const userProperties = userFields.map((field) => ({
+		id: `user:${field.id}`,
+		label: field.displayName,
+	}));
 
-	return [...coreProperties, ...promotedOrganizationProperties, ...userProperties];
+	return [...coreProperties, ...userProperties];
 }
 
 /**

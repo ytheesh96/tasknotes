@@ -5,7 +5,7 @@ export { renderPriorityPropertyCard } from "./priorityPropertyCard";
 export { renderProjectsPropertyCard } from "./projectsPropertyCard";
 export { renderTagsPropertyCard } from "./tagsPropertyCard";
 export { renderRemindersPropertyCard } from "./remindersPropertyCard";
-export { renderAssigneeOrganizationPropertyCard, renderUserFieldsSection } from "./userFieldsCard";
+export { renderUserFieldsSection } from "./userFieldsCard";
 
 // Re-export helper functions and types
 export {

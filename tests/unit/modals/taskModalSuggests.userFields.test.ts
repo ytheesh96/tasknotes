@@ -15,7 +15,7 @@ function createPlugin(app: App) {
 	};
 }
 
-describe("UserFieldSuggest assignee defaults", () => {
+describe("UserFieldSuggest list defaults", () => {
 	let app: App;
 
 	beforeEach(() => {
@@ -24,13 +24,13 @@ describe("UserFieldSuggest assignee defaults", () => {
 		document.body.innerHTML = "";
 	});
 
-	it("opens promoted Assignee suggestions when the empty field is focused", () => {
+	it("does not open ordinary list field suggestions just because the empty field is focused", () => {
 		const input = document.createElement("input");
 		document.body.appendChild(input);
 		const suggest = new UserFieldSuggest(app, input, createPlugin(app) as never, {
-			id: "assignee",
-			displayName: "Assignee",
-			key: "assignee",
+			id: "worker",
+			displayName: "Worker",
+			key: "worker",
 			type: "list",
 			defaultValue: ["orchestrator", "human"],
 		});
@@ -38,23 +38,24 @@ describe("UserFieldSuggest assignee defaults", () => {
 
 		input.dispatchEvent(new Event("focus"));
 
-		expect(openSpy).toHaveBeenCalledTimes(1);
+		expect(openSpy).not.toHaveBeenCalled();
 	});
 
-	it("suggests Assignee CSV defaults together with values already used in notes", async () => {
+	it("suggests list defaults together with values already used in notes", async () => {
 		MockObsidian.createTestFile(
 			"TaskNotes/default/t_existing.md",
-			"---\nassignee: reviewer-qa\n---\n"
+			"---\nworker: reviewer-qa\n---\n"
 		);
 		app.metadataCache.setCache("TaskNotes/default/t_existing.md", {
-			frontmatter: { assignee: "reviewer-qa" },
+			frontmatter: { worker: "reviewer-qa" },
 		});
 		const input = document.createElement("input");
+		input.value = "r";
 		document.body.appendChild(input);
 		const suggest = new UserFieldSuggest(app, input, createPlugin(app) as never, {
-			id: "assignee",
-			displayName: "Assignee",
-			key: "assignee",
+			id: "worker",
+			displayName: "Worker",
+			key: "worker",
 			type: "list",
 			defaultValue: ["orchestrator", "human"],
 		});
@@ -64,20 +65,19 @@ describe("UserFieldSuggest assignee defaults", () => {
 		}).getSuggestions("");
 
 		expect(suggestions.map((suggestion) => suggestion.value)).toEqual([
-			"human",
 			"orchestrator",
 			"reviewer-qa",
 		]);
 	});
 
-	it("does not re-suggest an already selected assignee", async () => {
+	it("does not re-suggest an already selected list value", async () => {
 		const input = document.createElement("input");
-		input.value = "human, ";
+		input.value = "human, o";
 		document.body.appendChild(input);
 		const suggest = new UserFieldSuggest(app, input, createPlugin(app) as never, {
-			id: "assignee",
-			displayName: "Assignee",
-			key: "assignee",
+			id: "worker",
+			displayName: "Worker",
+			key: "worker",
 			type: "list",
 			defaultValue: ["orchestrator", "human"],
 		});

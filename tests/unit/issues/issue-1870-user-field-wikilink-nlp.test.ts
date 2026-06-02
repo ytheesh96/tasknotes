@@ -130,17 +130,17 @@ describe("Issue #1870: user field file autosuggest NLP values", () => {
 		});
 	});
 
-	it("suggests promoted Assignee list defaults from the dash NLP trigger", async () => {
+	it("suggests ordinary list defaults from a user-field NLP trigger", async () => {
 		const plugin = createCompletionPlugin({
 			settings: {
 				nlpTriggers: {
-					triggers: [{ propertyId: "assignee", trigger: "-", enabled: true }],
+					triggers: [{ propertyId: "worker", trigger: "-", enabled: true }],
 				},
 				userFields: [
 					{
-						id: "assignee",
-						displayName: "Assignee",
-						key: "assignee",
+						id: "worker",
+						displayName: "Worker",
+						key: "worker",
 						type: "list",
 						defaultValue: ["orchestrator", "human"],
 					},
@@ -154,12 +154,12 @@ describe("Issue #1870: user field file autosuggest NLP values", () => {
 				expect.objectContaining({
 					label: "orchestrator",
 					apply: "orchestrator ",
-					info: "Assignee",
+					info: "Worker",
 				}),
 				expect.objectContaining({
 					label: "human",
 					apply: "human ",
-					info: "Assignee",
+					info: "Worker",
 				}),
 			],
 		});

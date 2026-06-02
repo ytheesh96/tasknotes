@@ -6,7 +6,6 @@ import type {
 	StatusConfig,
 } from "../../types";
 import type { TaskNotesSettings } from "../../types/settings";
-import { isHermesAssigneeUserField } from "../../hermes/hermesAssignee";
 
 type UserFieldDefinition = NonNullable<TaskNotesSettings["userFields"]>[number];
 
@@ -57,13 +56,8 @@ export function buildUserPropertyDefinitions(
 	fields: readonly UserFieldDefinition[]
 ): PropertyDefinition[] {
 	const definitions: PropertyDefinition[] = [];
-	const orderedFields = [...fields].sort((a, b) => {
-		if (isHermesAssigneeUserField(a)) return -1;
-		if (isHermesAssigneeUserField(b)) return 1;
-		return 0;
-	});
 
-	for (const field of orderedFields) {
+	for (const field of fields) {
 		if (!field || !field.key || !field.displayName) continue;
 
 		definitions.push({

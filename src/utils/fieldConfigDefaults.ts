@@ -5,7 +5,6 @@ import type {
 	FieldGroup,
 	UserMappedField,
 } from "../types/settings";
-import { isHermesAssigneeUserField } from "../hermes/hermesAssignee";
 
 /**
  * Default field group configurations
@@ -227,7 +226,7 @@ export function migrateUserFieldsToFieldConfig(
 	return existingUserFields.map((userField, index) => ({
 		id: userField.id || `user-${index}`,
 		fieldType: "user" as const,
-		group: isHermesAssigneeUserField(userField) ? "routing" as const : "custom" as const,
+		group: "custom" as const,
 		displayName: userField.displayName || `Field ${index + 1}`,
 		visibleInCreation: true,
 		visibleInEdit: true,

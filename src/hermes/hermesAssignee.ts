@@ -66,6 +66,7 @@ export const HERMES_ASSIGNEE_FIELD: UserMappedField = {
 export const HERMES_ASSIGNEE_PROPERTY_ID = `user:${HERMES_ASSIGNEE_FIELD.id}`;
 
 const LEGACY_HERMES_USER_FIELD_IDS = new Set([
+	"assignee",
 	"hermes_id",
 	"hermes_board",
 	"hermes_assignee",
@@ -104,31 +105,9 @@ const CONTROL_PANEL_GROUP_IDS = new Set<FieldGroup>(
 
 export function ensureHermesAssigneeUserField(
 	userFields: readonly UserMappedField[] | undefined,
-	defaultValueSeeds: readonly unknown[] = []
+	_defaultValueSeeds: readonly unknown[] = []
 ): UserMappedField[] {
-	const fields = [...(userFields ?? [])];
-	let changed = false;
-	let hasAssignee = false;
-	const normalizedFields = fields.map((field) => {
-		if (!isHermesAssigneeUserField(field)) {
-			return field;
-		}
-		hasAssignee = true;
-		const normalizedField = normalizeHermesAssigneeUserField(field, defaultValueSeeds);
-		if (normalizedField !== field) {
-			changed = true;
-		}
-		return normalizedField;
-	});
-
-	if (hasAssignee) {
-		return changed ? normalizedFields : fields;
-	}
-
-	return [
-		...fields,
-		normalizeHermesAssigneeUserField({ ...HERMES_ASSIGNEE_FIELD }, defaultValueSeeds),
-	];
+	return (userFields ?? []).filter((field) => !isHermesAssigneeUserField(field));
 }
 
 export function hasHermesAssigneeUserField(
@@ -254,7 +233,11 @@ export function collectHermesAssigneesFromMirrorNotes(app: unknown): string[] {
 				const frontmatter =
 					source.metadataCache?.getFileCache?.(file)?.frontmatter ??
 					source.metadataCache?.getCache?.(file.path)?.frontmatter;
-				return [frontmatter?.assignee];
+				const board = file.path.match(/^TaskNotes\/([^/]+)\//)?.[1];
+				const contexts = Array.isArray(frontmatter?.contexts)
+					? frontmatter.contexts.filter((context) => context !== board && context !== "hermes-kanban")
+					: frontmatter?.contexts;
+				return [contexts, frontmatter?.assignee];
 			})
 	);
 
@@ -276,12 +259,11 @@ export function normalizeHermesUserFields(
 	userFields: readonly UserMappedField[] | undefined
 ): { fields: UserMappedField[]; changed: boolean } {
 	const fieldsWithoutLegacy = (userFields ?? []).filter((field) => !isLegacyHermesUserField(field));
-	const fields = ensureHermesAssigneeUserField(fieldsWithoutLegacy);
 	return {
-		fields,
+		fields: fieldsWithoutLegacy,
 		changed:
-			fields.length !== (userFields ?? []).length ||
-			fields.some((field, index) => field !== userFields?.[index]),
+			fieldsWithoutLegacy.length !== (userFields ?? []).length ||
+			fieldsWithoutLegacy.some((field, index) => field !== userFields?.[index]),
 	};
 }
 
@@ -297,29 +279,13 @@ export function normalizeHermesModalFieldsConfig(
 			...field,
 			group: normalizeModalFieldGroup(field.group),
 		}));
-	const hasAssignee = fieldsWithoutLegacy.some((field) => field.id === "assignee");
-	const fields = hasAssignee
-		? fieldsWithoutLegacy
-		: [
-				...fieldsWithoutLegacy,
-				{
-					id: "assignee",
-					fieldType: "user" as const,
-					group: "routing" as const,
-					displayName: "Assignee",
-					visibleInCreation: false,
-					visibleInEdit: true,
-					order: 99,
-					enabled: true,
-				},
-			];
 	const changed =
 		JSON.stringify(config.groups) !== JSON.stringify(CONTROL_PANEL_FIELD_GROUPS) ||
-		fields.length !== config.fields.length ||
-		fields.some((field, index) => field !== config.fields[index]);
+		fieldsWithoutLegacy.length !== config.fields.length ||
+		fieldsWithoutLegacy.some((field, index) => field !== config.fields[index]);
 	return {
 		config: changed
-			? { ...config, groups: [...CONTROL_PANEL_FIELD_GROUPS], fields }
+			? { ...config, groups: [...CONTROL_PANEL_FIELD_GROUPS], fields: fieldsWithoutLegacy }
 			: config,
 		changed,
 	};

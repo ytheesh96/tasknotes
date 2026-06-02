@@ -1588,6 +1588,10 @@ export class TaskEditModal extends TaskModal {
 	private hermesAssigneePayloadFromChanges(
 		changes: Partial<TaskInfo>
 	): { assignee: string | null; status?: string; block_reason?: string } | null {
+		if (Object.prototype.hasOwnProperty.call(changes, "contexts")) {
+			return buildHermesAssigneeUpdatePayload(changes.contexts);
+		}
+
 		const customFrontmatter = (changes as { customFrontmatter?: Record<string, unknown> })
 			.customFrontmatter;
 		if (

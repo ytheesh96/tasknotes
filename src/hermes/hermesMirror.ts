@@ -99,6 +99,7 @@ function buildHermesMirrorFrontmatter(
 		tags.push("archived");
 	}
 	const status = task.status || "triage";
+	const assignee = task.assignee?.trim();
 	const frontmatter: Record<string, unknown> = {
 		type: "task",
 		tags,
@@ -106,8 +107,7 @@ function buildHermesMirrorFrontmatter(
 		status,
 		priority: hermesPriorityToTaskNotesPriority(hermesPriority),
 		projects: [`Hermes/${board}`],
-		contexts: [board],
-		assignee: task.assignee?.trim() || "none",
+		contexts: assignee && assignee !== "none" ? [assignee] : [],
 		dateCreated: options.existingTaskInfo?.dateCreated ?? now,
 	};
 	if (status === "done" || status === "archived") {
@@ -157,11 +157,10 @@ function fallbackTaskInfo(
 		path,
 		tags: ["task", "hermes-kanban"],
 		archived: task.status === "archived",
-		contexts: [board],
+		contexts:
+			task.assignee?.trim() && task.assignee.trim() !== "none" ? [task.assignee.trim()] : [],
 		projects: [`Hermes/${board}`],
-		customProperties: {
-			assignee: task.assignee?.trim() || "none",
-		},
+		customProperties: {},
 		dateCreated:
 			typeof frontmatter.dateCreated === "string" ? frontmatter.dateCreated : undefined,
 		completedDate:

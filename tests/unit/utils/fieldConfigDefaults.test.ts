@@ -1,7 +1,7 @@
 import { migrateUserFieldsToFieldConfig } from "../../../src/utils/fieldConfigDefaults";
 
 describe("fieldConfigDefaults", () => {
-	it("promotes assignee user fields into the routing modal group", () => {
+	it("keeps all migrated user fields in the custom modal group", () => {
 		const fields = migrateUserFieldsToFieldConfig([
 			{ id: "assignee", key: "assignee", displayName: "Assignee", type: "text" },
 			{ id: "effort", key: "effort", displayName: "Effort", type: "number" },
@@ -11,7 +11,7 @@ describe("fieldConfigDefaults", () => {
 			expect.objectContaining({
 				id: "assignee",
 				fieldType: "user",
-				group: "routing",
+				group: "custom",
 				displayName: "Assignee",
 			}),
 			expect.objectContaining({

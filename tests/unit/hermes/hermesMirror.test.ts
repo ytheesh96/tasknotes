@@ -25,8 +25,8 @@ describe("Hermes mirror note content", () => {
 		expect(content).toContain("- hermes-kanban");
 		expect(content).toContain("projects:");
 		expect(content).toContain("- Hermes/job-hunt");
-		expect(content).toContain("contexts:\n  - job-hunt");
-		expect(content).toContain("assignee: research-librarian");
+		expect(content).toContain("contexts:\n  - research-librarian");
+		expect(content).not.toContain("assignee: research-librarian");
 		expect(content).toContain("blockedBy:");
 		expect(content).toContain("[[TaskNotes/job-hunt/t_parent]]");
 		expect(content).not.toContain("hermes_board:");

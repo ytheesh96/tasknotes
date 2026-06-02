@@ -96,7 +96,7 @@ describe("Issue #1466: current-file subtask Base creation defaults", () => {
 			expect.anything(),
 			expect.objectContaining({
 				prePopulatedValues: expect.objectContaining({
-					projects: ["[[Alpha]]"],
+					projects: ["Hermes/obsidian-os", "[[Alpha]]"],
 				}),
 			})
 		);
@@ -128,14 +128,14 @@ describe("Issue #1466: current-file subtask Base creation defaults", () => {
 		await view.createFileForView("New Task");
 
 		const options = (TaskCreationModal as unknown as jest.Mock).mock.calls[0][2];
-		expect(options.prePopulatedValues.projects).toBeUndefined();
+		expect(options.prePopulatedValues.projects).toEqual(["Hermes/obsidian-os"]);
 		expect(TaskCreationModal).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.anything(),
 			expect.objectContaining({
 				prePopulatedValues: expect.objectContaining({
-					contexts: ["obsidian-os"],
-					customFrontmatter: { assignee: "" },
+					contexts: [],
+					customFrontmatter: {},
 					status: "triage",
 					tags: ["hermes-kanban"],
 				}),

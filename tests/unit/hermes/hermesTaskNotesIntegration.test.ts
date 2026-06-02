@@ -12,10 +12,10 @@ describe("Hermes TaskNotes integration", () => {
 		const options = buildHermesTaskCreationOptions(app, [], {
 			title: "Draft packet cleanup",
 			status: "ready",
-			contexts: ["hhmi"],
+			projects: ["Hermes/hhmi"],
+			contexts: ["yt"],
 			tags: ["review"],
 			customFrontmatter: {
-				assignee: "yt",
 				lane: "drafting",
 			},
 		});
@@ -28,24 +28,28 @@ describe("Hermes TaskNotes integration", () => {
 		expect(options.hermesBoardPicker?.boards).toContain("hhmi");
 		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:hhmi");
 		expect(options.prePopulatedValues?.status).toBe("ready");
-		expect(options.prePopulatedValues?.contexts).toContain("hhmi");
+		expect(options.prePopulatedValues?.projects).toEqual(["Hermes/hhmi"]);
+		expect(options.prePopulatedValues?.contexts).toEqual(["yt"]);
 		expect(options.prePopulatedValues?.tags).toEqual(
 			expect.arrayContaining(["review", "hermes-kanban"])
 		);
 		expect(options.prePopulatedValues?.customFrontmatter).toMatchObject({
-			assignee: "yt",
 			lane: "drafting",
 		});
+		expect(options.prePopulatedValues?.customFrontmatter).not.toHaveProperty("assignee");
 		expect(options.prePopulatedValues?.customFrontmatter).not.toHaveProperty("hermes_submit");
 		expect(options.prePopulatedValues?.customFrontmatter).not.toHaveProperty("hermes_board");
 		expect(options.prePopulatedValues?.customFrontmatter).not.toHaveProperty("hermes_assignee");
-		expect(options.modalFieldsConfig?.fields.map((field) => field.id)).toContain("assignee");
+		expect(options.modalFieldsConfig?.fields.map((field) => field.id)).toEqual(
+			expect.arrayContaining(["title", "details", "projects", "contexts"])
+		);
+		expect(options.modalFieldsConfig?.fields.map((field) => field.id)).not.toContain("assignee");
 	});
 
 	it("defaults new board tasks to triage when no status is supplied", () => {
 		const options = buildHermesTaskCreationOptions(app, [], {
 			title: "Unspecified status",
-			contexts: ["hhmi"],
+			projects: ["Hermes/hhmi"],
 		});
 
 		expect(options.prePopulatedValues?.status).toBe("triage");
@@ -87,12 +91,13 @@ describe("Hermes TaskNotes integration", () => {
 			expect.arrayContaining([
 				"title",
 				"details",
+				"projects",
 				"contexts",
-				"assignee",
 				"blocked-by",
 				"blocking",
 			])
 		);
+		expect(fieldIds).not.toContain("assignee");
 		expect(fieldIds).not.toEqual(
 			expect.arrayContaining([
 				"writeback_comment",

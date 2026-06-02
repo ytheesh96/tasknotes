@@ -13,22 +13,14 @@ describe("Hermes assignee helpers", () => {
 		MockObsidian.reset();
 	});
 
-	it("adds a native Assignee user field when missing", () => {
+	it("does not create a custom Assignee user field when missing", () => {
 		const fields = ensureHermesAssigneeUserField([]);
 
-		expect(fields).toEqual([
-			expect.objectContaining({
-				id: "assignee",
-				displayName: "Assignee",
-				key: "assignee",
-				type: "list",
-				defaultValue: expect.arrayContaining(["orchestrator", "human", "user"]),
-			}),
-		]);
-		expect(hasHermesAssigneeUserField(fields)).toBe(true);
+		expect(fields).toEqual([]);
+		expect(hasHermesAssigneeUserField(fields)).toBe(false);
 	});
 
-	it("normalizes existing assignee user fields into the native Assignee list field", () => {
+	it("removes existing custom assignee user fields", () => {
 		const fields = [
 			{
 				id: "owner",
@@ -39,18 +31,10 @@ describe("Hermes assignee helpers", () => {
 			},
 		];
 
-		expect(ensureHermesAssigneeUserField(fields)).toEqual([
-			expect.objectContaining({
-				id: "assignee",
-				displayName: "Assignee",
-				key: "assignee",
-				type: "list",
-				defaultValue: ["custom-worker"],
-			}),
-		]);
+		expect(ensureHermesAssigneeUserField(fields)).toEqual([]);
 	});
 
-	it("merges live mirror assignees into an existing CSV without forcing every built-in name", () => {
+	it("keeps non-assignee user fields when cleaning legacy assignee fields", () => {
 		const fields = [
 			{
 				id: "assignee",
@@ -59,11 +43,17 @@ describe("Hermes assignee helpers", () => {
 				type: "list" as const,
 				defaultValue: ["custom-worker"],
 			},
+			{
+				id: "review",
+				displayName: "Review",
+				key: "review",
+				type: "text" as const,
+			},
 		];
 
 		expect(ensureHermesAssigneeUserField(fields, ["reviewer-qa"])).toEqual([
 			expect.objectContaining({
-				defaultValue: ["custom-worker", "reviewer-qa"],
+				id: "review",
 			}),
 		]);
 	});
@@ -97,13 +87,6 @@ describe("Hermes assignee helpers", () => {
 				displayName: "Review",
 				key: "review",
 				type: "text",
-			},
-			{
-				id: "assignee",
-				displayName: "Assignee",
-				key: "assignee",
-				type: "list",
-				defaultValue: expect.arrayContaining(["orchestrator", "human", "user"]),
 			},
 		]);
 	});
@@ -146,7 +129,7 @@ describe("Hermes assignee helpers", () => {
 		});
 
 		expect(result.changed).toBe(true);
-		expect(result.config?.fields.map((field) => field.id)).toEqual(["title", "assignee"]);
+		expect(result.config?.fields.map((field) => field.id)).toEqual(["title"]);
 	});
 
 	it("keeps agent assignees as assignment-only updates", () => {
@@ -174,11 +157,11 @@ describe("Hermes assignee helpers", () => {
 		const app = MockObsidian.createMockApp();
 		MockObsidian.createTestFile(
 			"TaskNotes/default/t_a.md",
-			"---\nassignee: peacock\n---\n"
+			"---\ncontexts:\n  - peacock\n---\n"
 		);
 		MockObsidian.createTestFile(
 			"TaskNotes/hhmi/t_b.md",
-			"---\nassignee:\n  - reviewer-qa\n  - peacock\n---\n"
+			"---\ncontexts:\n  - hhmi\n  - reviewer-qa\n  - peacock\n  - hermes-kanban\n---\n"
 		);
 		MockObsidian.createTestFile(
 			"TaskNotes/Other.md",
@@ -189,10 +172,10 @@ describe("Hermes assignee helpers", () => {
 			"---\nassignee: legacy-worker\n---\n"
 		);
 		app.metadataCache.setCache("TaskNotes/default/t_a.md", {
-			frontmatter: { assignee: "peacock" },
+			frontmatter: { contexts: ["peacock"] },
 		});
 		app.metadataCache.setCache("TaskNotes/hhmi/t_b.md", {
-			frontmatter: { assignee: ["reviewer-qa", "peacock"] },
+			frontmatter: { contexts: ["hhmi", "reviewer-qa", "peacock", "hermes-kanban"] },
 		});
 		app.metadataCache.setCache("TaskNotes/Other.md", {
 			frontmatter: { assignee: "outside" },

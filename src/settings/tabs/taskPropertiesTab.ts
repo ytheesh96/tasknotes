@@ -15,7 +15,6 @@ import {
 	renderProjectsPropertyCard,
 	renderTagsPropertyCard,
 	renderRemindersPropertyCard,
-	renderAssigneeOrganizationPropertyCard,
 	renderUserFieldsSection,
 	renderSimplePropertyCard,
 	renderMetadataPropertyCard,
@@ -151,9 +150,6 @@ export function renderTaskPropertiesTab(
 
 	// Tags Property Card (special - no property key, uses native Obsidian tags)
 	renderTagsPropertyCard(container, plugin, save, translate);
-
-	// Assignee Property Card (promoted organization user field)
-	renderAssigneeOrganizationPropertyCard(container, plugin, save, translate);
 
 	// ===== TASK DETAILS SECTION =====
 	createSectionHeader(container, translate("settings.taskProperties.sections.taskDetails"));

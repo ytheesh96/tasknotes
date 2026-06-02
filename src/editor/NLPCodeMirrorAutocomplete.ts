@@ -16,11 +16,6 @@ import { ProjectMetadataResolver, ProjectEntry } from "../utils/projectMetadataR
 import { parseDisplayFieldsRow } from "../utils/projectAutosuggestDisplayFieldsParser";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import type { UserMappedField } from "../types/settings";
-import {
-	collectHermesAssigneesFromMirrorNotes,
-	HERMES_DEFAULT_ASSIGNEES,
-	isHermesAssigneeUserField,
-} from "../hermes/hermesAssignee";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Editor/NLPCodeMirrorAutocomplete" });
 
@@ -307,15 +302,7 @@ function getUserFieldListSuggestionValues(
 	const values = new Set<string>();
 	const add = (value: unknown) => addListSuggestionValue(values, value);
 
-	if (isHermesAssigneeUserField(field) && field.defaultValue === undefined) {
-		add(HERMES_DEFAULT_ASSIGNEES);
-	} else {
-		add(field.defaultValue);
-	}
-
-	if (isHermesAssigneeUserField(field)) {
-		add(collectHermesAssigneesFromMirrorNotes(plugin.app));
-	}
+	add(field.defaultValue);
 
 	const allFiles = plugin.app.vault.getMarkdownFiles();
 	for (const file of allFiles) {

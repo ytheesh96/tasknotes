@@ -9,8 +9,8 @@ import {
 	addCommaListValue,
 	removeCommaListValues,
 	TaskCreationModal,
-	withHermesBoardContext,
-	withoutHermesBoardContext,
+	withHermesBoardProject,
+	withoutHermesBoardProject,
 } from "../../../src/modals/TaskCreationModal";
 import { TaskConversionOptions } from "../../../src/types/taskConversion";
 import { TaskInfo } from "../../../src/types";
@@ -125,23 +125,30 @@ jest.mock("../../../src/services/NaturalLanguageParser", () => {
 	};
 });
 
-describe("withHermesBoardContext", () => {
-	it("replaces the previous board while preserving other contexts", () => {
+describe("withHermesBoardProject", () => {
+	it("replaces the previous board while preserving other projects", () => {
 		expect(
-			withHermesBoardContext("obsidian-os, home, review", ["obsidian-os", "hhmi"], "hhmi")
-		).toBe("hhmi, home, review");
+			withHermesBoardProject(
+				"Hermes/obsidian-os, Research, Review",
+				["obsidian-os", "hhmi"],
+				"hhmi"
+			)
+		).toBe("Hermes/hhmi, Research, Review");
 	});
 
-	it("adds the board when natural language parsing only found ordinary contexts", () => {
-		expect(withHermesBoardContext("home", ["default", "job-hunt"], "default")).toBe(
-			"default, home"
+	it("adds the board when the project field only has ordinary projects", () => {
+		expect(withHermesBoardProject("Research", ["default", "job-hunt"], "default")).toBe(
+			"Hermes/default, Research"
 		);
 	});
 
-	it("removes board contexts from a comma list", () => {
-		expect(withoutHermesBoardContext("hhmi, home, obsidian-os", ["hhmi", "obsidian-os"])).toBe(
-			"home"
-		);
+	it("removes board projects from a comma list", () => {
+		expect(
+			withoutHermesBoardProject(
+				"Hermes/hhmi, Research, Hermes/obsidian-os",
+				["hhmi", "obsidian-os"]
+			)
+		).toBe("Research");
 	});
 });
 
