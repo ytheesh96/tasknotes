@@ -73,15 +73,10 @@ export async function syncHermesManagedTasksFromHermes(
 			continue;
 		}
 
-		for (const [id, localTask] of localTasksById.entries()) {
-			const remoteTask = remoteTasksById.get(id);
-			if (!remoteTask) {
-				result.skipped += 1;
-				continue;
-			}
-
+		for (const [id, remoteTask] of remoteTasksById.entries()) {
+			const localTask = localTasksById.get(id) ?? null;
 			result.tasksChecked += 1;
-			if (!shouldRefreshFromHermes(board, localTask, remoteTask)) {
+			if (localTask && !shouldRefreshFromHermes(board, localTask, remoteTask)) {
 				result.skipped += 1;
 				continue;
 			}
@@ -102,12 +97,14 @@ export async function syncHermesManagedTasksFromHermes(
 				parents: detail.links?.parents ?? [],
 				children: detail.links?.children ?? [],
 			});
-			plugin.emitter.trigger(EVENT_TASK_UPDATED, {
-				path: taskInfo.path,
-				originalTask: localTask,
-				updatedTask: taskInfo,
-			});
+			triggerHermesTaskUpdated(plugin, taskInfo, localTask);
 			result.updated += 1;
+		}
+
+		for (const id of localTasksById.keys()) {
+			if (!remoteTasksById.has(id)) {
+				result.skipped += 1;
+			}
 		}
 	}
 
@@ -125,12 +122,12 @@ export async function syncHermesManagedTaskFromHermes(
 ): Promise<boolean> {
 	const path = `TaskNotes/${identity.board}/${identity.id}.md`;
 	const localTask = options.localTask ?? (await plugin.cacheManager.getTaskInfo(path));
-	if (!localTask || !isHermesManagedTask(localTask)) {
+	if (localTask && !isHermesManagedTask(localTask)) {
 		return false;
 	}
 	const api = options.api ?? new HermesKanbanApiClient();
 	const detail = await api.getTask(identity);
-	if (!detail.task || !shouldRefreshFromHermes(identity.board, localTask, detail.task)) {
+	if (!detail.task || (localTask && !shouldRefreshFromHermes(identity.board, localTask, detail.task))) {
 		return false;
 	}
 
@@ -139,11 +136,7 @@ export async function syncHermesManagedTaskFromHermes(
 		parents: detail.links?.parents ?? [],
 		children: detail.links?.children ?? [],
 	});
-	plugin.emitter.trigger(EVENT_TASK_UPDATED, {
-		path: taskInfo.path,
-		originalTask: localTask,
-		updatedTask: taskInfo,
-	});
+	triggerHermesTaskUpdated(plugin, taskInfo, localTask);
 	return true;
 }
 
@@ -189,6 +182,18 @@ function getRemoteTasksById(
 		}
 	}
 	return tasksById;
+}
+
+function triggerHermesTaskUpdated(
+	plugin: TaskNotesPlugin,
+	updatedTask: TaskInfo,
+	originalTask: TaskInfo | null | undefined
+): void {
+	plugin.emitter.trigger(EVENT_TASK_UPDATED, {
+		path: updatedTask.path,
+		...(originalTask ? { originalTask } : {}),
+		updatedTask,
+	});
 }
 
 function shouldRefreshFromHermes(

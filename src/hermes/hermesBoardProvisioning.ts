@@ -1,4 +1,4 @@
-import type { App } from "obsidian";
+import { TFile, type App } from "obsidian";
 import { normalizePath } from "obsidian";
 import { ensureFolderHierarchy } from "../bootstrap/defaultBasesFiles";
 import { DEFAULT_STATUSES } from "../settings/defaults";
@@ -14,13 +14,19 @@ export type HermesBoardProvisionResult = {
 	foldersCreated: string[];
 	foldersSkipped: string[];
 	viewsCreated: string[];
+	viewsUpdated: string[];
 	viewsSkipped: string[];
+	legacyViewsRemoved: string[];
+	legacyViewsSkipped: string[];
 	boardsSkipped: string[];
 };
 
 type HermesBoardProvisionHost = {
 	app: {
-		vault: Pick<App["vault"], "adapter" | "create" | "createFolder">;
+		vault: Pick<
+			App["vault"],
+			"adapter" | "create" | "createFolder" | "delete" | "getAbstractFileByPath" | "modify" | "read"
+		>;
 	};
 	settings?: Pick<TaskNotesSettings, "fieldMapping" | "taskTag">;
 };
@@ -33,7 +39,10 @@ export async function provisionHermesBoardSurfaces(
 		foldersCreated: [],
 		foldersSkipped: [],
 		viewsCreated: [],
+		viewsUpdated: [],
 		viewsSkipped: [],
+		legacyViewsRemoved: [],
+		legacyViewsSkipped: [],
 		boardsSkipped: [],
 	};
 	const vault = host.app.vault;
@@ -51,13 +60,22 @@ export async function provisionHermesBoardSurfaces(
 		}
 
 		const viewPath = getHermesBoardKanbanViewPath(board);
-		if (await vault.adapter.exists(viewPath)) {
-			result.viewsSkipped.push(viewPath);
-			continue;
+		const viewContent = buildHermesBoardKanbanBase(board, host.settings);
+		const existingView = vault.getAbstractFileByPath(viewPath);
+		if (existingView instanceof TFile) {
+			const existingContent = await vault.read(existingView);
+			if (existingContent !== viewContent && isGeneratedHermesBoardView(existingContent, board)) {
+				await vault.modify(existingView, viewContent);
+				result.viewsUpdated.push(viewPath);
+			} else {
+				result.viewsSkipped.push(viewPath);
+			}
+		} else {
+			await vault.create(viewPath, viewContent);
+			result.viewsCreated.push(viewPath);
 		}
 
-		await vault.create(viewPath, buildHermesBoardKanbanBase(board, host.settings));
-		result.viewsCreated.push(viewPath);
+		await removeLegacyHermesBoardView(vault, board, result);
 	}
 
 	for (const board of boards) {
@@ -85,7 +103,6 @@ export function buildHermesBoardKanbanBase(
 	settings?: Pick<TaskNotesSettings, "fieldMapping" | "taskTag">
 ): string {
 	const normalizedBoard = normalizeBoardSlug(board) ?? board.trim();
-	const folderPath = getHermesBoardFolderPath(normalizedBoard);
 	const boardProject = canonicalHermesBoardProjects(normalizedBoard);
 	const fieldMapping = settings?.fieldMapping;
 	const statusProperty = getMappedField(fieldMapping, "status", "status");
@@ -105,9 +122,7 @@ export function buildHermesBoardKanbanBase(
 filters:
   and:
     - file.hasTag("${escapeBasesStringLiteral(taskTag)}")
-    - or:
-        - file.inFolder("${escapeBasesStringLiteral(folderPath)}")
-        - list(${formatPropertyReference(projectsProperty)}).contains("${escapeBasesStringLiteral(boardProject)}")
+    - list(${formatPropertyReference(projectsProperty)}).contains("${escapeBasesStringLiteral(boardProject)}")
 
 properties:
   file.name:
@@ -164,6 +179,12 @@ export function summarizeHermesBoardProvisionResult(
 	if (result.viewsCreated.length > 0) {
 		parts.push(`${result.viewsCreated.length} Kanban view(s)`);
 	}
+	if (result.viewsUpdated.length > 0) {
+		parts.push(`${result.viewsUpdated.length} updated Kanban view(s)`);
+	}
+	if (result.legacyViewsRemoved.length > 0) {
+		parts.push(`${result.legacyViewsRemoved.length} old Kanban view(s) removed`);
+	}
 	return parts.length > 0 ? `Created ${parts.join(" and ")}.` : "Board folders and views already exist.";
 }
 
@@ -206,6 +227,39 @@ function formatBoardTitle(board: string): string {
 
 function escapeBasesStringLiteral(value: string): string {
 	return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+async function removeLegacyHermesBoardView(
+	vault: HermesBoardProvisionHost["app"]["vault"],
+	board: string,
+	result: HermesBoardProvisionResult
+): Promise<void> {
+	const legacyPath = normalizePath(`${TASKNOTES_VIEWS_FOLDER}/kanban-${board}.base`);
+	if (legacyPath === "TaskNotes/Views/kanban-default.base") {
+		return;
+	}
+
+	const legacyView = vault.getAbstractFileByPath(legacyPath);
+	if (!(legacyView instanceof TFile)) {
+		return;
+	}
+
+	const legacyContent = await vault.read(legacyView);
+	if (!isGeneratedHermesBoardView(legacyContent, board)) {
+		result.legacyViewsSkipped.push(legacyPath);
+		return;
+	}
+
+	await vault.delete(legacyView);
+	result.legacyViewsRemoved.push(legacyPath);
+}
+
+function isGeneratedHermesBoardView(content: string, board: string): boolean {
+	return (
+		content.includes(`# ${formatBoardTitle(board)} Kanban`) &&
+		content.includes(`Hermes/${board}`) &&
+		content.includes("type: tasknotesKanban")
+	);
 }
 
 function isPresent(value: string | null): value is string {

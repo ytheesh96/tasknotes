@@ -36,6 +36,42 @@ describe("Hermes managed task sync", () => {
 		});
 	});
 
+	it("backfills remote Hermes tasks that do not have TaskNotes notes yet", async () => {
+		const knownLocalTask = createTask({
+			path: "TaskNotes/default/t_known.md",
+		});
+		const remoteTask = createRemoteTask({
+			id: "t_missing",
+			title: "Created in Hermes",
+			status: "todo",
+		});
+		const mirroredTask = createTask({
+			path: "TaskNotes/default/t_missing.md",
+			title: "Created in Hermes",
+			status: "todo",
+		});
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+		});
+		const mirrorWriter = jest.fn().mockResolvedValue({ taskInfo: mirroredTask });
+		const plugin = createPlugin([knownLocalTask]);
+
+		const result = await syncHermesManagedTasksFromHermes(plugin, { api, mirrorWriter });
+
+		expect(result.updated).toBe(1);
+		expect(result.skipped).toBe(1);
+		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_missing" });
+		expect(mirrorWriter).toHaveBeenCalledWith(plugin, "default", remoteTask, {
+			parents: [],
+			children: [],
+		});
+		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
+			path: mirroredTask.path,
+			updatedTask: mirroredTask,
+		});
+	});
+
 	it("refreshes one native note from a Hermes task event", async () => {
 		const localTask = createTask({ status: "running" });
 		const remoteTask = createRemoteTask({ status: "done" });
@@ -65,6 +101,41 @@ describe("Hermes managed task sync", () => {
 			path: updatedTask.path,
 			originalTask: localTask,
 			updatedTask,
+		});
+	});
+
+	it("creates a native note for a Hermes task event when the note is missing", async () => {
+		const remoteTask = createRemoteTask({
+			title: "Created by Hermes event",
+			status: "todo",
+		});
+		const mirroredTask = createTask({
+			title: "Created by Hermes event",
+			status: "todo",
+		});
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+		});
+		const mirrorWriter = jest.fn().mockResolvedValue({ taskInfo: mirroredTask });
+		const plugin = createPlugin([]);
+
+		const changed = await syncHermesManagedTaskFromHermes(
+			plugin,
+			{ board: "default", id: "t_sync" },
+			{ api, mirrorWriter }
+		);
+
+		expect(changed).toBe(true);
+		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith("TaskNotes/default/t_sync.md");
+		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
+		expect(mirrorWriter).toHaveBeenCalledWith(plugin, "default", remoteTask, {
+			parents: [],
+			children: [],
+		});
+		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
+			path: mirroredTask.path,
+			updatedTask: mirroredTask,
 		});
 	});
 
