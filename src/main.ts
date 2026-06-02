@@ -94,6 +94,7 @@ import { HermesKanbanApiClient, getHermesTaskIdentity } from "./hermes/hermesApi
 import { createOrUpdateHermesMirrorNote } from "./hermes/hermesMirror";
 import {
 	HERMES_MANAGED_TASK_RECONCILE_INTERVAL_MS,
+	getHermesManagedBoardFromTaskEvent,
 	getHermesManagedBoards,
 	shouldHandleHermesTaskEvent,
 	syncHermesManagedTaskFromHermes,
@@ -406,6 +407,11 @@ export default class TaskNotesPlugin extends Plugin {
 		this.hermesManagedTaskSyncStarted = true;
 		this.hermesEventStreamsActive = true;
 		this.register(() => this.stopHermesEventStreams());
+		this.registerEvent(
+			this.emitter.on(EVENT_TASK_UPDATED, (eventData: unknown) => {
+				void this.ensureHermesEventStreamForTaskEvent(eventData);
+			})
+		);
 		this.registerInterval(
 			window.setInterval(() => {
 				void this.syncHermesManagedTasksFromHermes();
@@ -439,6 +445,18 @@ export default class TaskNotesPlugin extends Plugin {
 		} finally {
 			this.hermesManagedTaskSyncInFlight = false;
 		}
+	}
+
+	private async ensureHermesEventStreamForTaskEvent(eventData: unknown): Promise<void> {
+		const board = getHermesManagedBoardFromTaskEvent(eventData);
+		if (
+			!board ||
+			this.hermesEventSockets.has(board) ||
+			this.hermesEventReconnectTimers.has(board)
+		) {
+			return;
+		}
+		await this.openHermesEventStream(board);
 	}
 
 	private async refreshHermesEventStreams(tasks: readonly TaskInfo[]): Promise<void> {

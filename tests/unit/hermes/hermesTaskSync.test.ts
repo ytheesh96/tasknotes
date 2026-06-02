@@ -1,5 +1,6 @@
 import { EVENT_TASK_UPDATED, type TaskInfo } from "../../../src/types";
 import {
+	getHermesManagedBoardFromTaskEvent,
 	shouldHandleHermesTaskEvent,
 	syncHermesManagedTaskFromHermes,
 	syncHermesManagedTasksFromHermes,
@@ -217,6 +218,27 @@ describe("Hermes managed task sync", () => {
 		expect(api.getBoard).not.toHaveBeenCalled();
 	});
 
+	it("detects Hermes boards from TaskNotes update events for immediate stream subscription", () => {
+		expect(
+			getHermesManagedBoardFromTaskEvent({
+				updatedTask: createTask({ path: "TaskNotes/default/t_sync.md" }),
+			})
+		).toBe("default");
+		expect(
+			getHermesManagedBoardFromTaskEvent({
+				taskInfo: createTask({ path: "TaskNotes/job-hunt/t_job.md" }),
+			})
+		).toBe("job-hunt");
+		expect(
+			getHermesManagedBoardFromTaskEvent({
+				updatedTask: createTask({
+					path: "TaskNotes/default/t_plain.md",
+					tags: ["task"],
+				}),
+			})
+		).toBeNull();
+	});
+
 	it("checks each Hermes board once and refreshes only changed tasks", async () => {
 		const unchanged = createTask({
 			path: "TaskNotes/default/t_same.md",
@@ -255,7 +277,7 @@ describe("Hermes managed task sync", () => {
 
 	it("ignores noisy Hermes task events", () => {
 		expect(shouldHandleHermesTaskEvent("heartbeat")).toBe(false);
-		expect(shouldHandleHermesTaskEvent("spawned")).toBe(false);
+		expect(shouldHandleHermesTaskEvent("spawned")).toBe(true);
 		expect(shouldHandleHermesTaskEvent("completed")).toBe(true);
 		expect(shouldHandleHermesTaskEvent("claimed")).toBe(true);
 	});

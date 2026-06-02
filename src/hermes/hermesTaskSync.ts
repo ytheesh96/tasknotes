@@ -40,6 +40,14 @@ export function getHermesManagedBoards(tasks: readonly TaskInfo[]): string[] {
 	return [...getHermesManagedTasksByBoard(tasks).keys()];
 }
 
+export function getHermesManagedBoardFromTaskEvent(eventData: unknown): string | null {
+	const task = getTaskFromTaskEvent(eventData);
+	if (!task || !isHermesManagedTask(task)) {
+		return null;
+	}
+	return getHermesTaskIdentity(task)?.board ?? null;
+}
+
 export async function syncHermesManagedTasksFromHermes(
 	plugin: TaskNotesPlugin,
 	options: {
@@ -141,7 +149,24 @@ export async function syncHermesManagedTaskFromHermes(
 }
 
 export function shouldHandleHermesTaskEvent(kind: string | null | undefined): boolean {
-	return kind !== "heartbeat" && kind !== "spawned";
+	return kind !== "heartbeat";
+}
+
+function getTaskFromTaskEvent(eventData: unknown): TaskInfo | null {
+	if (!isRecord(eventData)) {
+		return null;
+	}
+	for (const key of ["updatedTask", "task", "taskInfo"] as const) {
+		const value = eventData[key];
+		if (isTaskInfoLike(value)) {
+			return value;
+		}
+	}
+	return null;
+}
+
+function isTaskInfoLike(value: unknown): value is TaskInfo {
+	return isRecord(value) && typeof value.path === "string";
 }
 
 function getHermesManagedTasksByBoard(
@@ -170,6 +195,10 @@ function getHermesManagedTasksByBoard(
 
 function isHermesManagedTask(task: TaskInfo): boolean {
 	return (task.tags ?? []).includes("hermes-kanban");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function getRemoteTasksById(
