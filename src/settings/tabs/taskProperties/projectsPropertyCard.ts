@@ -16,6 +16,10 @@ import {
 	normalizeHermesBoardValue,
 	splitHermesList,
 } from "../../../hermes/hermesRouting";
+import {
+	provisionHermesBoardSurfaces,
+	summarizeHermesBoardProvisionResult,
+} from "../../../hermes/hermesBoardProvisioning";
 import { createPropertyDescription, TranslateFn } from "./helpers";
 
 const HERMES_BOARD_SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -50,11 +54,14 @@ export function renderProjectsPropertyCard(
 			const syncedBoards = await loadHermesBoards();
 			boardOptions = syncedBoards.length > 0 ? syncedBoards : defaultHermesBoards();
 			reconcileDefaultBoardWithSyncedBoards(plugin, boardOptions, saveAndRefresh);
+			const provisionResult = await provisionHermesBoardSurfaces(plugin, boardOptions);
 			if (showNotice) {
-				new Notice(`Synced ${boardOptions.length} Hermes boards`);
+				new Notice(
+					`Synced ${boardOptions.length} Hermes boards. ${summarizeHermesBoardProvisionResult(provisionResult)}`
+				);
 			}
 		} catch (error) {
-			boardSyncError = `Could not sync Hermes boards: ${getErrorMessage(error)}`;
+			boardSyncError = `Could not sync Hermes boards and TaskNotes surfaces: ${getErrorMessage(error)}`;
 			boardOptions = uniqueBoardOptions([
 				...defaultHermesBoards(),
 				boardFromDefaultProjects(plugin.settings.taskCreationDefaults.defaultProjects),
