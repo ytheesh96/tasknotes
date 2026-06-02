@@ -16,6 +16,10 @@ import { ProjectMetadataResolver, ProjectEntry } from "../utils/projectMetadataR
 import { parseDisplayFieldsRow } from "../utils/projectAutosuggestDisplayFieldsParser";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import type { UserMappedField } from "../types/settings";
+import {
+	filterHermesBoardSuggestionValues,
+	getHermesBoardSuggestionValues,
+} from "../hermes/hermesBoardSuggestions";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Editor/NLPCodeMirrorAutocomplete" });
 
@@ -225,6 +229,10 @@ async function getSuggestionsForProperty(
 	plugin: TaskNotesPlugin,
 	triggerConfig: TriggerConfigService
 ): Promise<Completion[] | null> {
+	if (propertyId === "projects") {
+		return getHermesBoardSuggestions(query, plugin);
+	}
+
 	const suggesterType = triggerConfig.getSuggesterType(propertyId);
 
 	switch (suggesterType) {
@@ -250,6 +258,19 @@ async function getSuggestionsForProperty(
 		default:
 			return null;
 	}
+}
+
+async function getHermesBoardSuggestions(
+	query: string,
+	plugin: TaskNotesPlugin
+): Promise<Completion[]> {
+	const boards = await getHermesBoardSuggestionValues(plugin);
+	return filterHermesBoardSuggestionValues(boards, query).map((board) => ({
+		label: board,
+		apply: `${board} `,
+		type: "constant",
+		info: "Board",
+	}));
 }
 
 /**

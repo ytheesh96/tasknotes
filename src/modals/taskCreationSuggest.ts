@@ -1,10 +1,14 @@
-import { App, AbstractInputSuggest, parseFrontMatterAliases, TFile } from "obsidian";
+import { App, AbstractInputSuggest, TFile } from "obsidian";
 import TaskNotesPlugin from "../main";
 import { NaturalLanguageParser } from "../services/NaturalLanguageParser";
 import { ProjectEntry, ProjectMetadataResolver } from "../utils/projectMetadataResolver";
 import { parseDisplayFieldsRow } from "../utils/projectAutosuggestDisplayFieldsParser";
 import { filterTagsForTaskModalSuggestions } from "../utils/taskTagFiltering";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import {
+	filterHermesBoardSuggestionValues,
+	getHermesBoardSuggestionValues,
+} from "../hermes/hermesBoardSuggestions";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationSuggest" });
 
@@ -219,107 +223,15 @@ export class NLPSuggest extends AbstractInputSuggest<
 	 * Get project suggestions (file-based)
 	 */
 	private async getProjectSuggestions(query: string): Promise<ProjectSuggestion[]> {
-		// Use FileSuggestHelper for multi-word support with enhanced project autosuggest cards and |s flag support
-		const { FileSuggestHelper } = await import("../suggest/FileSuggestHelper");
-
-		// Get suggestions using FileSuggestHelper with explicit project filter configuration
-		const list = await FileSuggestHelper.suggest(
-			this.plugin,
-			query,
-			20,
-			this.plugin.settings.projectAutosuggest
-		);
-
-		const appRef = this.obsidianApp ?? this.plugin.app;
-
-		try {
-			// Use cached resolver instead of creating a new one
-			const resolver = this.getProjectMetadataResolver();
-
-			const rowConfigs = (this.plugin.settings?.projectAutosuggest?.rows ?? []).slice(0, 3);
-
-			return list.map((item): ProjectSuggestion => {
-				const file = appRef?.vault
-					.getMarkdownFiles()
-					.find((f) => f.basename === item.insertText);
-				if (!file) {
-					return {
-						basename: item.insertText,
-						displayName: item.displayText,
-						type: "project" as const,
-						toString() {
-							return this.basename;
-						},
-					};
-				}
-
-				const cache = appRef?.metadataCache.getFileCache(file);
-				const frontmatter = cache?.frontmatter || {};
-				const mapped = this.plugin.fieldMapper.mapFromFrontmatter(
-					frontmatter,
-					file.path,
-					this.plugin.settings.storeTitleInFilename
-				);
-
-				const title = typeof mapped.title === "string" ? mapped.title : "";
-				const aliasesFm = parseFrontMatterAliases(frontmatter) || [];
-				const aliases = Array.isArray(aliasesFm)
-					? aliasesFm.filter((a) => typeof a === "string")
-					: [];
-
-				const fileData = {
-					basename: file.basename,
-					name: file.name,
-					path: file.path,
-					parent: file.parent?.path || "",
-					title,
-					aliases,
-					frontmatter: frontmatter,
-				};
-
-				const displayName = this.generateProjectDisplayName(
-					rowConfigs,
-					fileData,
-					resolver,
-					file.basename
-				);
-
-				return {
-					basename: item.insertText,
-					displayName: displayName,
-					type: "project",
-					entry: {
-						basename: fileData.basename,
-						name: fileData.name,
-						path: fileData.path,
-						parent: fileData.parent,
-						title: fileData.title,
-						aliases: fileData.aliases,
-						frontmatter: fileData.frontmatter,
-					},
-					toString() {
-						return this.basename;
-					},
-				};
-			});
-		} catch (err) {
-			tasknotesLogger.error(
-				"Enhanced project autosuggest failed, falling back to basic suggestions",
-				{
-					category: "persistence",
-					operation: "enhanced-project-autosuggest-falling-back-basic-suggestions",
-					error: err,
-				}
-			);
-			return list.map((item) => ({
-				basename: item.insertText,
-				displayName: item.displayText,
-				type: "project" as const,
-				toString() {
-					return this.basename;
-				},
-			}));
-		}
+		const boards = await getHermesBoardSuggestionValues(this.plugin);
+		return filterHermesBoardSuggestionValues(boards, query).map((board) => ({
+			basename: board,
+			displayName: board,
+			type: "project" as const,
+			toString() {
+				return this.basename;
+			},
+		}));
 	}
 
 	/**
@@ -577,8 +489,8 @@ export class NLPSuggest extends AbstractInputSuggest<
 		let replacement = "";
 
 		if (this.currentTrigger === "+") {
-			// For project (+) trigger, wrap in wikilink syntax but keep the + sign
-			replacement = "+[[" + suggestionText + "]]";
+			// For Hermes board (+) trigger, keep the + sign and insert the board slug.
+			replacement = "+" + suggestionText;
 		} else if (this.currentTrigger === "status") {
 			// For status: insert the label text (like other suggestions)
 			replacement = suggestion.type === "status" ? suggestion.label : suggestionText;

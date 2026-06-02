@@ -5,82 +5,52 @@ import {
 	getCompletionResult,
 } from "../helpers/nlpCompletionTestUtils";
 
-describe("+ project autocomplete searchable fields", () => {
+describe("+ board autocomplete", () => {
 	beforeEach(() => {
 		MockObsidian.reset();
 	});
 
-	it("always searches basename, title, and aliases", async () => {
-		const plugin = createCompletionPlugin({
-			settings: {
-				projectAutosuggest: {
-					rows: ["{customer|n(Customer)}"],
-				},
-				storeTitleInFilename: false,
-			},
+	it("suggests Hermes boards instead of project notes", async () => {
+		const plugin = createCompletionPlugin();
+		createMarkdownFile("TaskNotes/obsidian-os/t_12345678.md", {
+			title: "Triage vault session Git blockers",
 		});
-		createMarkdownFile("Projects/AcmePlan.md", {});
-		createMarkdownFile("Projects/TitleOnly.md", { title: "Foobar rollout" });
-		createMarkdownFile("Projects/AliasOnly.md", { aliases: ["Sidequest"] });
+		createMarkdownFile("Projects/Default.md", { title: "Default project note" });
 
-		await expect(getCompletionResult(plugin, "+acme")).resolves.toMatchObject({
-			options: [expect.objectContaining({ apply: "[[AcmePlan]] " })],
-		});
-		await expect(getCompletionResult(plugin, "+foobar")).resolves.toMatchObject({
-			options: [expect.objectContaining({ apply: "[[TitleOnly]] " })],
-		});
-		await expect(getCompletionResult(plugin, "+side")).resolves.toMatchObject({
-			options: [expect.objectContaining({ apply: "[[AliasOnly]] " })],
-		});
+		const result = await getCompletionResult(plugin, "+");
+
+		expect(result?.options).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					label: "default",
+					apply: "default ",
+					info: "Board",
+				}),
+				expect.objectContaining({
+					label: "obsidian-os",
+					apply: "obsidian-os ",
+					info: "Board",
+				}),
+			])
+		);
+		expect(result?.options.map((option) => option.label)).not.toContain("Default");
+		expect(result?.options.map((option) => option.label)).not.toContain(
+			"Triage vault session Git blockers"
+		);
 	});
 
-	it("only searches file.path when that displayed field is flagged with |s", async () => {
-		const plugin = createCompletionPlugin({
-			settings: {
-				projectAutosuggest: {
-					rows: ["{title|n(Title)}", "{file.path|n(Path)}"],
-				},
-				storeTitleInFilename: false,
-			},
-		});
-		createMarkdownFile("Clients/Acme/Project.md", {
-			title: "Implementation",
-			customer: "Northwind",
-		});
+	it("filters board suggestions by query", async () => {
+		const plugin = createCompletionPlugin();
 
-		await expect(getCompletionResult(plugin, "+acme")).resolves.toBeNull();
+		const result = await getCompletionResult(plugin, "+hh");
 
-		plugin.settings.projectAutosuggest.rows = [
-			"{title|n(Title)}",
-			"{file.path|n(Path)|s}",
-		];
-		await expect(getCompletionResult(plugin, "+acme")).resolves.toMatchObject({
-			options: [expect.objectContaining({ apply: "[[Project]] " })],
-		});
-	});
-
-	it("searches custom frontmatter fields only when they are flagged with |s", async () => {
-		const plugin = createCompletionPlugin({
-			settings: {
-				projectAutosuggest: {
-					rows: ["{title|n(Title)}", "{customer|n(Customer)}"],
-				},
-				storeTitleInFilename: false,
-			},
-		});
-		createMarkdownFile("Clients/Project.md", {
-			title: "Implementation",
-			customer: "Acme Corp",
-		});
-
-		await expect(getCompletionResult(plugin, "+acme")).resolves.toBeNull();
-
-		plugin.settings.projectAutosuggest.rows = [
-			"{title|n(Title)}",
-			"{customer|n(Customer)|s}",
-		];
-		await expect(getCompletionResult(plugin, "+acme")).resolves.toMatchObject({
-			options: [expect.objectContaining({ apply: "[[Project]] " })],
-		});
+		expect(result?.from).toBe("+".length);
+		expect(result?.options).toEqual([
+			expect.objectContaining({
+				label: "hhmi",
+				apply: "hhmi ",
+				info: "Board",
+			}),
+		]);
 	});
 });
