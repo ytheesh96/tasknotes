@@ -70,7 +70,7 @@ function createMockPlugin(overrides: Record<string, any> = {}): any {
 		fieldMapping: { ...DEFAULT_FIELD_MAPPING },
 		customStatuses: [...DEFAULT_STATUSES],
 		customPriorities: [...DEFAULT_PRIORITIES],
-		defaultTaskStatus: "open",
+		defaultTaskStatus: "triage",
 		defaultTaskPriority: "normal",
 		userFields: [],
 		...overrides,
@@ -361,8 +361,8 @@ describe("MdbaseSpecService", () => {
 			const block = getFieldBlock(fm, "status");
 			expect(block).toContain("type: enum");
 			expect(block).toContain("required: true");
-			expect(block).toContain("values: [none, open, in-progress, done]");
-			expect(block).toContain("default: open");
+			expect(block).toContain("values: [triage, todo, ready, running, blocked, done, archived]");
+			expect(block).toContain("default: triage");
 		});
 
 		it("should define priority as enum with values", () => {

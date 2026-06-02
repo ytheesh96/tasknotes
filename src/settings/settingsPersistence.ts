@@ -1,5 +1,5 @@
 import { normalizePath } from "obsidian";
-import { DEFAULT_NLP_TRIGGERS, DEFAULT_SETTINGS } from "./defaults";
+import { DEFAULT_NLP_TRIGGERS, DEFAULT_SETTINGS, DEFAULT_STATUSES } from "./defaults";
 import { hasMissingMigratedSettings } from "./settingsMigration";
 import type { TaskNotesSettings } from "../types/settings";
 import { initializeFieldConfig } from "../utils/fieldConfigDefaults";
@@ -38,6 +38,8 @@ export type SettingsBuildResult = {
 	settings: TaskNotesSettings;
 	shouldPersistMigratedSettings: boolean;
 };
+
+const HERMES_KANBAN_STATUS_VALUES = new Set(DEFAULT_STATUSES.map((status) => status.value));
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -159,8 +161,34 @@ function migrateLoadedSettingsData(data: LoadedSettingsData | null): LoadedSetti
 	return migratedData;
 }
 
+function normalizeHermesKanbanStatusSettings(
+	data: LoadedSettingsData | null
+): { customStatuses: TaskNotesSettings["customStatuses"]; defaultTaskStatus: string; changed: boolean } {
+	const loadedStatuses = data?.customStatuses;
+	const loadedStatusValues = Array.isArray(loadedStatuses)
+		? loadedStatuses.map((status) => status?.value)
+		: [];
+	const defaultStatus =
+		typeof data?.defaultTaskStatus === "string" &&
+		HERMES_KANBAN_STATUS_VALUES.has(data.defaultTaskStatus)
+			? data.defaultTaskStatus
+			: DEFAULT_SETTINGS.defaultTaskStatus;
+	const hasCanonicalStatuses =
+		loadedStatusValues.length === DEFAULT_STATUSES.length &&
+		DEFAULT_STATUSES.every((status, index) => loadedStatusValues[index] === status.value);
+
+	return {
+		customStatuses: DEFAULT_STATUSES,
+		defaultTaskStatus: defaultStatus,
+		changed:
+			!hasCanonicalStatuses ||
+			(data?.defaultTaskStatus !== undefined && data.defaultTaskStatus !== defaultStatus),
+	};
+}
+
 export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): SettingsBuildResult {
 	const loadedData = migrateLoadedSettingsData(data);
+	const statusSettings = normalizeHermesKanbanStatusSettings(loadedData);
 	const migratedLegacyCustomFilenameTemplate =
 		data?.taskFilenameFormat !== "custom" &&
 		data?.customFilenameTemplate === "{title}" &&
@@ -198,7 +226,8 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 			loadedData?.modalFieldsConfig,
 			loadedData?.userFields
 		),
-		customStatuses: loadedData?.customStatuses || DEFAULT_SETTINGS.customStatuses,
+		defaultTaskStatus: statusSettings.defaultTaskStatus,
+		customStatuses: statusSettings.customStatuses,
 		customPriorities: loadedData?.customPriorities || DEFAULT_SETTINGS.customPriorities,
 		savedViews: loadedData?.savedViews || DEFAULT_SETTINGS.savedViews,
 	};
@@ -206,7 +235,9 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 	return {
 		settings,
 		shouldPersistMigratedSettings:
-			hasMissingMigratedSettings(loadedData) || migratedLegacyCustomFilenameTemplate,
+			hasMissingMigratedSettings(loadedData) ||
+			migratedLegacyCustomFilenameTemplate ||
+			statusSettings.changed,
 	};
 }
 

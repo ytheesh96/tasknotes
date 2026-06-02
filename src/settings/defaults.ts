@@ -24,13 +24,14 @@ export const DEFAULT_INTERNAL_VISIBLE_PROPERTIES: (keyof FieldMapping)[] = [
 	"contexts",
 ];
 
-// Default status configuration matches current hardcoded behavior
+// Hermes Kanban status configuration. These are the only board states accepted
+// by the Hermes control panel API.
 export const DEFAULT_STATUSES: StatusConfig[] = [
 	{
-		id: "none",
-		value: "none",
-		label: "None",
-		color: "#cccccc",
+		id: "triage",
+		value: "triage",
+		label: "Triage",
+		color: "#9ca3af",
 		isCompleted: false,
 		excludeFromCycle: false,
 		order: 0,
@@ -38,10 +39,10 @@ export const DEFAULT_STATUSES: StatusConfig[] = [
 		autoArchiveDelay: 5,
 	},
 	{
-		id: "open",
-		value: "open",
-		label: "Open",
-		color: "#808080",
+		id: "todo",
+		value: "todo",
+		label: "Todo",
+		color: "#64748b",
 		isCompleted: false,
 		excludeFromCycle: false,
 		order: 1,
@@ -49,10 +50,10 @@ export const DEFAULT_STATUSES: StatusConfig[] = [
 		autoArchiveDelay: 5,
 	},
 	{
-		id: "in-progress",
-		value: "in-progress",
-		label: "In progress",
-		color: "#0066cc",
+		id: "ready",
+		value: "ready",
+		label: "Ready",
+		color: "#22c55e",
 		isCompleted: false,
 		excludeFromCycle: false,
 		order: 2,
@@ -60,13 +61,46 @@ export const DEFAULT_STATUSES: StatusConfig[] = [
 		autoArchiveDelay: 5,
 	},
 	{
+		id: "running",
+		value: "running",
+		label: "Running",
+		color: "#f59e0b",
+		isCompleted: false,
+		excludeFromCycle: false,
+		order: 3,
+		autoArchive: false,
+		autoArchiveDelay: 5,
+	},
+	{
+		id: "blocked",
+		value: "blocked",
+		label: "Blocked",
+		color: "#ef4444",
+		isCompleted: false,
+		excludeFromCycle: false,
+		order: 4,
+		autoArchive: false,
+		autoArchiveDelay: 5,
+	},
+	{
 		id: "done",
 		value: "done",
 		label: "Done",
-		color: "#00aa00",
+		color: "#16a34a",
 		isCompleted: true,
 		excludeFromCycle: false,
-		order: 3,
+		order: 5,
+		autoArchive: false,
+		autoArchiveDelay: 5,
+	},
+	{
+		id: "archived",
+		value: "archived",
+		label: "Archived",
+		color: "#6b7280",
+		isCompleted: true,
+		excludeFromCycle: true,
+		order: 6,
 		autoArchive: false,
 		autoArchiveDelay: 5,
 	},
@@ -255,7 +289,7 @@ export const DEFAULT_SETTINGS: TaskNotesSettings = {
 	taskPropertyValue: "",
 	excludedFolders: "", // Default to no excluded folders
 	defaultTaskPriority: "normal",
-	defaultTaskStatus: "open",
+	defaultTaskStatus: "triage",
 	taskOrgFiltersCollapsed: false, // Default to expanded
 	// Task filename defaults
 	taskFilenameFormat: "zettel", // Keep existing behavior as default

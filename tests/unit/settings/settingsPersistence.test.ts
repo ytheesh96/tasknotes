@@ -131,6 +131,75 @@ describe("settings persistence helpers", () => {
 		expect(shouldPersistMigratedSettings).toBe(true);
 	});
 
+	it("normalizes persisted statuses to the Hermes Kanban vocabulary", () => {
+		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData({
+			defaultTaskStatus: "open",
+			customStatuses: [
+				{
+					id: "none",
+					value: "none",
+					label: "None",
+					color: "#cccccc",
+					isCompleted: false,
+					order: 0,
+					autoArchive: false,
+					autoArchiveDelay: 5,
+				},
+				{
+					id: "open",
+					value: "open",
+					label: "Open",
+					color: "#808080",
+					isCompleted: false,
+					order: 1,
+					autoArchive: false,
+					autoArchiveDelay: 5,
+				},
+				{
+					id: "triage",
+					value: "triage",
+					label: "Triage",
+					color: "#9ca3af",
+					isCompleted: false,
+					order: 2,
+					autoArchive: false,
+					autoArchiveDelay: 5,
+				},
+				{
+					id: "done",
+					value: "done",
+					label: "Done",
+					color: "#16a34a",
+					isCompleted: true,
+					order: 3,
+					autoArchive: false,
+					autoArchiveDelay: 5,
+				},
+			],
+		});
+
+		expect(settings.defaultTaskStatus).toBe("triage");
+		expect(settings.customStatuses.map((status) => status.value)).toEqual([
+			"triage",
+			"todo",
+			"ready",
+			"running",
+			"blocked",
+			"done",
+			"archived",
+		]);
+		expect(shouldPersistMigratedSettings).toBe(true);
+	});
+
+	it("preserves a supported persisted default status", () => {
+		const { settings } = buildSettingsFromLoadedData({
+			defaultTaskStatus: "ready",
+			customStatuses: [...DEFAULT_SETTINGS.customStatuses],
+		});
+
+		expect(settings.defaultTaskStatus).toBe("ready");
+	});
+
 	it("merges only known settings keys into saved data while preserving other persisted data", () => {
 		const settings = {
 			...DEFAULT_SETTINGS,

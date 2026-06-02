@@ -1024,7 +1024,7 @@ export const en: TranslationTree = {
 				status: {
 					name: "Status",
 					description:
-						"Tracks the current state of a task (e.g., todo, in-progress, done). Status determines whether a task appears as completed and can trigger auto-archiving.",
+						"Tracks the current state of a task (e.g., triage, running, done). Status determines whether a task appears as completed and can trigger auto-archiving.",
 				},
 				priority: {
 					name: "Priority",
@@ -1186,8 +1186,8 @@ export const en: TranslationTree = {
 					"Customize the status options available for your tasks. These statuses control the task lifecycle and determine when tasks are considered complete.",
 				howTheyWork: {
 					title: "How statuses work:",
-					value: 'Value: The internal identifier stored in your task files (e.g., "in-progress")',
-					label: 'Label: The display name shown in the interface (e.g., "In Progress")',
+					value: 'Value: The internal identifier stored in your task files (e.g., "running")',
+					label: 'Label: The display name shown in the interface (e.g., "Running")',
 					color: "Color: Visual indicator color for the status dot and badges",
 					icon: 'Icon: Optional Lucide icon name to display instead of colored dot (e.g., "check", "circle", "clock"). Browse icons at lucide.dev',
 					completed:
@@ -1218,8 +1218,8 @@ export const en: TranslationTree = {
 					delayMinutes: "Delay (minutes):",
 				},
 				placeholders: {
-					value: "in-progress",
-					label: "In progress",
+					value: "running",
+					label: "Running",
 					icon: "check, circle, clock",
 					nextStatusDefault: "Use status order",
 				},
