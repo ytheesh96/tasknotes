@@ -9,7 +9,7 @@ import { isPathInExcludedFolder, parseExcludedFolders } from "./pathExclusions";
 import { buildTaskInfoFromMappedTask } from "./taskInfoAssembly";
 import { isTaskFrontmatter } from "./taskIdentification";
 import { createTaskNotesLogger } from "./tasknotesLogger";
-import { isHermesTask } from "../hermes/hermesTaskNotesIntegration";
+import { getHermesTaskIdentity } from "../hermes/hermesApiClient";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Utils/TaskManager" });
 
@@ -306,7 +306,8 @@ export class TaskManager extends Events {
 				// Use DependencyCache for status-aware blocking check
 				isBlocked = this._dependencyCache.isTaskBlocked(path);
 				blockingTasks = this._dependencyCache.getBlockedTaskPaths(path, {
-					includeCompletedSource: isHermesTask({ ...mappedTask, path } as TaskInfo),
+					includeCompletedSource:
+						getHermesTaskIdentity({ ...mappedTask, path } as TaskInfo) !== null,
 				});
 			} else {
 				// Fallback when dependency cache not available: use simple existence check

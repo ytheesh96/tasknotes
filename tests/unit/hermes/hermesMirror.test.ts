@@ -2,7 +2,7 @@ import { buildHermesMirrorContent } from "../../../src/hermes/hermesMirror";
 import type { HermesTaskRecord } from "../../../src/hermes/hermesApiClient";
 
 describe("Hermes mirror note content", () => {
-	it("keeps the Markdown body limited to the Hermes task body", () => {
+	it("keeps the Markdown body limited to the board task body", () => {
 		const task: HermesTaskRecord = {
 			id: "t_body_only",
 			title: "Mirror body only",
@@ -27,7 +27,7 @@ describe("Hermes mirror note content", () => {
 		expect(content).toContain("- Hermes/job-hunt");
 		expect(content).toContain("assignee: research-librarian");
 		expect(content).toContain("blockedBy:");
-		expect(content).toContain("[[TaskNotes/Hermes/job-hunt/t_parent]]");
+		expect(content).toContain("[[TaskNotes/job-hunt/t_parent]]");
 		expect(content).not.toContain("hermes_board:");
 		expect(content).not.toContain("hermes_id:");
 		expect(content).not.toContain("hermes_status:");

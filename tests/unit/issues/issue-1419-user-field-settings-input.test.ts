@@ -1,4 +1,7 @@
-import { renderUserFieldsSection } from "../../../src/settings/tabs/taskProperties/userFieldsCard";
+import {
+	renderAssigneeOrganizationPropertyCard,
+	renderUserFieldsSection,
+} from "../../../src/settings/tabs/taskProperties/userFieldsCard";
 import { DEFAULT_SETTINGS } from "../../../src/settings/defaults";
 import type { TaskNotesSettings } from "../../../src/types/settings";
 
@@ -112,5 +115,42 @@ describe("Issue #1419: custom user field settings save while typing", () => {
 		expect(plugin.settings.userFields[1].defaultValue).toEqual(["alpha", "beta"]);
 		expect(plugin.settings.userFields[2].defaultValue).toBe(7.5);
 		expect(save).toHaveBeenCalledTimes(3);
+	});
+
+	it("keeps promoted assignee out of the generic custom user fields list", () => {
+		const save = jest.fn();
+		const plugin = createPlugin({
+			userFields: [
+				{ id: "assignee", displayName: "Assignee", key: "assignee", type: "text" },
+				{ id: "effort", displayName: "Effort", key: "effort", type: "number" },
+			],
+		});
+		const container = document.createElement("div");
+
+		renderUserFieldsSection(container, plugin, save, translate as never);
+
+		expect(container.querySelector('[data-card-id="assignee"]')).toBeNull();
+		expect(container.querySelector('[data-card-id="effort"]')).not.toBeNull();
+	});
+
+	it("renders promoted assignee as its own organization property card", () => {
+		const save = jest.fn();
+		const plugin = createPlugin();
+		const container = document.createElement("div");
+
+		renderAssigneeOrganizationPropertyCard(container, plugin, save, translate as never);
+
+		expect(container.querySelector('[data-card-id="assignee"]')).not.toBeNull();
+		expect(container.textContent).toContain(
+			"settings.taskProperties.properties.assignee.description"
+		);
+		expect(plugin.settings.userFields).toEqual([
+			expect.objectContaining({
+				id: "assignee",
+				displayName: "Assignee",
+				key: "assignee",
+			}),
+		]);
+		expect(save).toHaveBeenCalledTimes(1);
 	});
 });

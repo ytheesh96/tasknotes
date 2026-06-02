@@ -3,25 +3,22 @@ import { HermesKanbanApiClient, getHermesTaskIdentity } from "../../../src/herme
 import type { TaskInfo } from "../../../src/types";
 
 describe("HermesKanbanApiClient", () => {
-	const originalFetch = global.fetch;
 	const requestUrlMock = requestUrl as jest.Mock;
 
 	beforeEach(() => {
-		global.fetch = jest.fn();
 		requestUrlMock.mockReset();
 	});
 
 	afterEach(() => {
-		global.fetch = originalFetch;
 		jest.restoreAllMocks();
 	});
 
-	it("resolves board and task id from the Hermes mirror path", () => {
+	it("resolves board and task id from the TaskNotes control-panel path", () => {
 		const task = {
 			title: "Example",
 			status: "triage",
 			priority: "normal",
-			path: "TaskNotes/Hermes/default/t_1234.md",
+			path: "TaskNotes/default/t_1234.md",
 			archived: false,
 			tags: ["task", "hermes-kanban"],
 		} satisfies TaskInfo;
@@ -30,6 +27,34 @@ describe("HermesKanbanApiClient", () => {
 			board: "default",
 			id: "t_1234",
 		});
+	});
+
+	it("keeps legacy Hermes mirror paths addressable", () => {
+		const task = {
+			title: "Example",
+			status: "triage",
+			priority: "normal",
+			path: "TaskNotes/Hermes/default/t_1234.md",
+			archived: false,
+		} satisfies TaskInfo;
+
+		expect(getHermesTaskIdentity(task)).toEqual({
+			board: "default",
+			id: "t_1234",
+		});
+	});
+
+	it("does not treat reserved TaskNotes folders as board tasks", () => {
+		const task = {
+			title: "Example",
+			status: "triage",
+			priority: "normal",
+			path: "TaskNotes/Tasks/t_1234.md",
+			archived: false,
+			tags: ["task"],
+		} satisfies TaskInfo;
+
+		expect(getHermesTaskIdentity(task)).toBeNull();
 	});
 
 	it("falls back to legacy Hermes custom properties for old mirrors", () => {
@@ -52,7 +77,7 @@ describe("HermesKanbanApiClient", () => {
 	});
 
 	it("posts created tasks to the board-scoped Hermes API", async () => {
-		(global.fetch as jest.Mock).mockResolvedValue(
+		requestUrlMock.mockResolvedValue(
 			jsonResponse({
 				task: { id: "t_new", title: "New task", status: "triage" },
 			})
@@ -66,21 +91,22 @@ describe("HermesKanbanApiClient", () => {
 		});
 
 		expect(created.id).toBe("t_new");
-		expect(global.fetch).toHaveBeenCalledWith(
-			"http://127.0.0.1:9119/api/plugins/kanban/tasks?board=obsidian-os",
+		expect(requestUrlMock).toHaveBeenCalledWith(
 			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/tasks?board=obsidian-os",
 				method: "POST",
 				body: JSON.stringify({
 					title: "New task",
 					triage: true,
 					priority: 3,
 				}),
+				throw: false,
 			})
 		);
 	});
 
-	it("can request an initially blocked Hermes task with a block reason", async () => {
-		(global.fetch as jest.Mock).mockResolvedValue(
+	it("can request an initially blocked board task with a block reason", async () => {
+		requestUrlMock.mockResolvedValue(
 			jsonResponse({
 				task: { id: "t_human", title: "Human task", status: "blocked" },
 			})
@@ -95,9 +121,9 @@ describe("HermesKanbanApiClient", () => {
 		});
 
 		expect(created.status).toBe("blocked");
-		expect(global.fetch).toHaveBeenCalledWith(
-			"http://127.0.0.1:9119/api/plugins/kanban/tasks?board=default",
+		expect(requestUrlMock).toHaveBeenCalledWith(
 			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/tasks?board=default",
 				method: "POST",
 				body: JSON.stringify({
 					title: "Human task",
@@ -105,12 +131,13 @@ describe("HermesKanbanApiClient", () => {
 					initial_status: "blocked",
 					block_reason: "Waiting on human: human",
 				}),
+				throw: false,
 			})
 		);
 	});
 
 	it("surfaces Hermes API error details", async () => {
-		(global.fetch as jest.Mock).mockResolvedValue(
+		requestUrlMock.mockResolvedValue(
 			jsonResponse({ detail: "Cannot set status to running" }, 400, "Bad Request")
 		);
 		const api = new HermesKanbanApiClient();
@@ -121,7 +148,7 @@ describe("HermesKanbanApiClient", () => {
 	});
 
 	it("discovers the dashboard session token and retries unauthorized requests", async () => {
-		(global.fetch as jest.Mock)
+		requestUrlMock
 			.mockResolvedValueOnce(jsonResponse({ detail: "Unauthorized" }, 401, "Unauthorized"))
 			.mockResolvedValueOnce(
 				textResponse('<script>window.__HERMES_SESSION_TOKEN__="test-token";</script>')
@@ -139,10 +166,10 @@ describe("HermesKanbanApiClient", () => {
 		);
 
 		expect(updated.id).toBe("t_retry");
-		expect(global.fetch).toHaveBeenNthCalledWith(
+		expect(requestUrlMock).toHaveBeenNthCalledWith(
 			3,
-			"http://127.0.0.1:9119/api/plugins/kanban/tasks/t_retry?board=default",
 			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/tasks/t_retry?board=default",
 				headers: expect.objectContaining({
 					Authorization: "Bearer test-token",
 				}),
@@ -150,8 +177,7 @@ describe("HermesKanbanApiClient", () => {
 		);
 	});
 
-	it("falls back to Obsidian requestUrl when browser fetch is blocked", async () => {
-		(global.fetch as jest.Mock).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+	it("uses Obsidian requestUrl for board detail requests", async () => {
 		requestUrlMock.mockResolvedValueOnce({
 			status: 200,
 			json: {
@@ -177,20 +203,19 @@ describe("HermesKanbanApiClient", () => {
 	});
 });
 
-function jsonResponse(body: unknown, status = 200, statusText = "OK"): Response {
+function jsonResponse(body: unknown, status = 200, statusText = "OK") {
 	return {
-		ok: status >= 200 && status < 300,
 		status,
 		statusText,
-		json: async () => body,
-	} as Response;
+		json: body,
+		text: JSON.stringify(body),
+	};
 }
 
-function textResponse(body: string, status = 200, statusText = "OK"): Response {
+function textResponse(body: string, status = 200, statusText = "OK") {
 	return {
-		ok: status >= 200 && status < 300,
 		status,
 		statusText,
-		text: async () => body,
-	} as Response;
+		text: body,
+	};
 }

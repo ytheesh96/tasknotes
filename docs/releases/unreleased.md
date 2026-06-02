@@ -23,3 +23,7 @@ Example:
 ```
 
 -->
+
+## Changed
+
+- Treat TaskNotes board folders as the native kanban control panel, using `TaskNotes/<board>/<task-id>.md` for board identity and removing empty Hermes-only modal field groups from settings.

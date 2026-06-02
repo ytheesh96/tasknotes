@@ -1,30 +1,71 @@
 import {
 	buildHermesAssigneeUpdatePayload,
+	collectHermesAssigneesFromMirrorNotes,
 	ensureHermesAssigneeUserField,
 	hasHermesAssigneeUserField,
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
 } from "../../../src/hermes/hermesAssignee";
+import { MockObsidian } from "../../__mocks__/obsidian";
 
 describe("Hermes assignee helpers", () => {
+	beforeEach(() => {
+		MockObsidian.reset();
+	});
+
 	it("adds a native Assignee user field when missing", () => {
 		const fields = ensureHermesAssigneeUserField([]);
 
 		expect(fields).toEqual([
-			{
+			expect.objectContaining({
 				id: "assignee",
 				displayName: "Assignee",
 				key: "assignee",
-				type: "text",
-			},
+				type: "list",
+				defaultValue: expect.arrayContaining(["orchestrator", "human", "user"]),
+			}),
 		]);
 		expect(hasHermesAssigneeUserField(fields)).toBe(true);
 	});
 
-	it("leaves existing assignee user fields untouched", () => {
-		const fields = [{ id: "owner", displayName: "Owner", key: "assignee", type: "text" as const }];
+	it("normalizes existing assignee user fields into the native Assignee list field", () => {
+		const fields = [
+			{
+				id: "owner",
+				displayName: "Owner",
+				key: "assignee",
+				type: "text" as const,
+				defaultValue: "custom-worker",
+			},
+		];
 
-		expect(ensureHermesAssigneeUserField(fields)).toEqual(fields);
+		expect(ensureHermesAssigneeUserField(fields)).toEqual([
+			expect.objectContaining({
+				id: "assignee",
+				displayName: "Assignee",
+				key: "assignee",
+				type: "list",
+				defaultValue: ["custom-worker"],
+			}),
+		]);
+	});
+
+	it("merges live mirror assignees into an existing CSV without forcing every built-in name", () => {
+		const fields = [
+			{
+				id: "assignee",
+				displayName: "Assignee",
+				key: "assignee",
+				type: "list" as const,
+				defaultValue: ["custom-worker"],
+			},
+		];
+
+		expect(ensureHermesAssigneeUserField(fields, ["reviewer-qa"])).toEqual([
+			expect.objectContaining({
+				defaultValue: ["custom-worker", "reviewer-qa"],
+			}),
+		]);
 	});
 
 	it("removes legacy Hermes bridge user fields while preserving native fields", () => {
@@ -61,7 +102,8 @@ describe("Hermes assignee helpers", () => {
 				id: "assignee",
 				displayName: "Assignee",
 				key: "assignee",
-				type: "text",
+				type: "list",
+				defaultValue: expect.arrayContaining(["orchestrator", "human", "user"]),
 			},
 		]);
 	});
@@ -117,6 +159,12 @@ describe("Hermes assignee helpers", () => {
 		});
 	});
 
+	it("uses the first selected value when a list assignee is submitted", () => {
+		expect(buildHermesAssigneeUpdatePayload(["reviewer-qa", "peacock"])).toEqual({
+			assignee: "reviewer-qa",
+		});
+	});
+
 	it("clears none-like assignees", () => {
 		expect(buildHermesAssigneeUpdatePayload("none")).toEqual({
 			assignee: null,
@@ -124,5 +172,32 @@ describe("Hermes assignee helpers", () => {
 		expect(buildHermesAssigneeUpdatePayload("")).toEqual({
 			assignee: null,
 		});
+	});
+
+	it("collects assignee defaults from board task notes", () => {
+		const app = MockObsidian.createMockApp();
+		MockObsidian.createTestFile(
+			"TaskNotes/default/t_a.md",
+			"---\nassignee: peacock\n---\n"
+		);
+		MockObsidian.createTestFile(
+			"TaskNotes/hhmi/t_b.md",
+			"---\nassignee:\n  - reviewer-qa\n  - peacock\n---\n"
+		);
+		MockObsidian.createTestFile(
+			"TaskNotes/Other.md",
+			"---\nassignee: outside\n---\n"
+		);
+		app.metadataCache.setCache("TaskNotes/default/t_a.md", {
+			frontmatter: { assignee: "peacock" },
+		});
+		app.metadataCache.setCache("TaskNotes/hhmi/t_b.md", {
+			frontmatter: { assignee: ["reviewer-qa", "peacock"] },
+		});
+		app.metadataCache.setCache("TaskNotes/Other.md", {
+			frontmatter: { assignee: "outside" },
+		});
+
+		expect(collectHermesAssigneesFromMirrorNotes(app)).toEqual(["peacock", "reviewer-qa"]);
 	});
 });

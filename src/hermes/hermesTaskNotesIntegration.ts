@@ -12,10 +12,9 @@ import {
 	normalizeHermesUserFields,
 } from "./hermesAssignee";
 
-const HERMES_ROOT = "TaskNotes/Hermes";
-const HERMES_VIEWS_ROOT = "TaskNotes/Views";
-const HERMES_KANBAN_TAG = "hermes-kanban";
 const HERMES_SUBMIT_TAG = "hermes-submit";
+const TASKNOTES_ROOT = "TaskNotes";
+const NON_BOARD_TASKNOTES_FOLDERS = new Set(["Tasks", "Submit", "Views", "Archive", "Hermes"]);
 const DEFAULT_HERMES_BOARDS = [
 	"obsidian-os",
 	"hhmi",
@@ -62,11 +61,6 @@ function customFrontmatter(
 	return values.customFrontmatter;
 }
 
-function customString(task: TaskInfo, key: string): string {
-	const value = task.customProperties?.[key];
-	return typeof value === "string" ? value.trim() : "";
-}
-
 function activeFile(app: App): TFile | null {
 	const workspace = (app as Partial<App>).workspace;
 	if (!workspace?.getActiveFile) return null;
@@ -75,7 +69,9 @@ function activeFile(app: App): TFile | null {
 }
 
 function boardFromHermesTaskPath(path: string): string | null {
-	const match = path.match(/^TaskNotes\/Hermes\/([^/]+)\/[^/]+\.md$/);
+	const match =
+		path.match(/^TaskNotes\/(?!Tasks\/|Submit\/|Views\/|Archive\/|Hermes\/)([^/]+)\/t_[^/]+\.md$/) ??
+		path.match(/^TaskNotes\/Hermes\/([^/]+)\/[^/]+\.md$/);
 	return match ? match[1] : null;
 }
 
@@ -84,10 +80,10 @@ export function getHermesBoards(app: App): string[] {
 	if (!app.vault?.getAbstractFileByPath) {
 		return [...boards].sort((a, b) => a.localeCompare(b));
 	}
-	const root = app.vault.getAbstractFileByPath(HERMES_ROOT);
+	const root = app.vault.getAbstractFileByPath(TASKNOTES_ROOT);
 	if (root instanceof TFolder) {
 		for (const child of root.children) {
-			if (child instanceof TFolder) {
+			if (child instanceof TFolder && !NON_BOARD_TASKNOTES_FOLDERS.has(child.name)) {
 				boards.add(child.name);
 			}
 		}
@@ -123,27 +119,6 @@ function boardFromPrepopulated(
 	return contexts.find((context) => knownBoards.includes(context)) ?? null;
 }
 
-export function isHermesTask(task: TaskInfo): boolean {
-	return task.path.startsWith(`${HERMES_ROOT}/`) || (task.tags ?? []).includes(HERMES_KANBAN_TAG);
-}
-
-export function isHermesCreationContext(
-	app: App,
-	values?: TaskCreationPrepopulatedValues
-): boolean {
-	const frontmatter = customFrontmatter(values);
-	if (frontmatter.hermes_submit || frontmatter.hermes_board) return true;
-	if (asStringArray(values?.tags).includes(HERMES_KANBAN_TAG)) return true;
-	if (boardFromPrepopulated(values, getHermesBoards(app))) return true;
-
-	const file = activeFile(app);
-	if (!file) return false;
-	return (
-		file.path.startsWith(`${HERMES_ROOT}/`) ||
-		(file.path.startsWith(`${HERMES_VIEWS_ROOT}/`) && file.basename.startsWith("hermes"))
-	);
-}
-
 function modalGroups(): HermesModalGroup[] {
 	return [
 		{
@@ -164,13 +139,6 @@ function modalGroups(): HermesModalGroup[] {
 			id: "dependencies",
 			displayName: "Dependencies",
 			order: 2,
-			collapsible: true,
-			defaultCollapsed: false,
-		},
-		{
-			id: "writeback",
-			displayName: "Hermes Actions",
-			order: 3,
 			collapsible: true,
 			defaultCollapsed: false,
 		},
@@ -269,7 +237,7 @@ export function buildHermesTaskCreationOptions(
 			customFrontmatter: custom,
 		},
 		onTaskCreated,
-		modalTitle: "Create Hermes task",
+		modalTitle: "Create task",
 		saveButtonText: "Send to triage",
 		modalFieldsConfig: createHermesCreationFieldConfig(userFields),
 		creationTargetPicker: {
@@ -321,8 +289,8 @@ export function buildHermesTaskEditOptions(
 	return {
 		task,
 		onTaskUpdated,
-		modalTitle: "Update Hermes task",
-		saveButtonText: "Save Hermes update",
+		modalTitle: "Update task",
+		saveButtonText: "Save update",
 		modalFieldsConfig: createHermesEditFieldConfig(userFields),
 	};
 }

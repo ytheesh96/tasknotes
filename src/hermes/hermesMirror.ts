@@ -36,7 +36,7 @@ export async function createOrUpdateHermesMirrorNote(
 		children?: string[];
 	} = {}
 ): Promise<{ file: TFile; taskInfo: TaskInfo }> {
-	const folder = `TaskNotes/Hermes/${board}`;
+	const folder = `TaskNotes/${board}`;
 	await ensureFolderExists(plugin.app.vault, folder);
 	const path = `${folder}/${task.id}.md`;
 	const existing = plugin.app.vault.getAbstractFileByPath(path);
@@ -126,7 +126,7 @@ function buildHermesMirrorBody(task: HermesTaskRecord): string {
 
 function buildHermesBlockedByLinks(board: string, parents: readonly string[]): string[] {
 	return [...new Set(parents.map((parent) => parent.trim()).filter(Boolean))].map(
-		(parent) => `[[TaskNotes/Hermes/${board}/${parent}]]`
+		(parent) => `[[TaskNotes/${board}/${parent}]]`
 	);
 }
 

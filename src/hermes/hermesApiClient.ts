@@ -2,6 +2,9 @@ import { requestUrl } from "obsidian";
 import type { TaskInfo } from "../types";
 
 const DEFAULT_HERMES_KANBAN_API_BASE = "http://127.0.0.1:9119/api/plugins/kanban";
+const TASKNOTES_KANBAN_TASK_PATH =
+	/^TaskNotes\/(?!Tasks\/|Submit\/|Views\/|Archive\/|Hermes\/)([^/]+)\/(t_[^/]+)\.md$/;
+const LEGACY_HERMES_MIRROR_PATH = /^TaskNotes\/Hermes\/([^/]+)\/(t_[^/]+)\.md$/;
 
 interface HermesHttpResponse {
 	ok: boolean;
@@ -80,7 +83,12 @@ export interface HermesTaskDetailResponse extends HermesTaskResponse {
 }
 
 export function getHermesTaskIdentity(task: TaskInfo): HermesTaskIdentity | null {
-	const match = task.path.match(/^TaskNotes\/Hermes\/([^/]+)\/([^/]+)\.md$/);
+	const tasknotesMatch = task.path.match(TASKNOTES_KANBAN_TASK_PATH);
+	if (tasknotesMatch) {
+		return { board: tasknotesMatch[1], id: tasknotesMatch[2] };
+	}
+
+	const match = task.path.match(LEGACY_HERMES_MIRROR_PATH);
 	if (match) {
 		return { board: match[1], id: match[2] };
 	}
@@ -197,14 +205,7 @@ export class HermesKanbanApiClient {
 			headers.Authorization = `Bearer ${this.sessionToken}`;
 		}
 		const url = `${this.baseUrl}${path}`;
-		try {
-			return await fetch(url, {
-				...init,
-				headers,
-			});
-		} catch (_error) {
-			return this.requestUrlOnce(url, init, headers);
-		}
+		return this.requestUrlOnce(url, init, headers);
 	}
 
 	private async loadSessionToken(): Promise<string | null> {
@@ -212,16 +213,10 @@ export class HermesKanbanApiClient {
 		if (windowToken) return windowToken;
 		const rootUrl = new URL(this.baseUrl).origin;
 		try {
-			const response = await fetch(`${rootUrl}/`);
-			const html = await response.text();
-			return html.match(/__HERMES_SESSION_TOKEN__\s*=\s*"([^"]+)"/)?.[1] ?? null;
-		} catch (_error) {
-			try {
-				const response = await requestUrl({ url: `${rootUrl}/`, throw: false });
-				return response.text.match(/__HERMES_SESSION_TOKEN__\s*=\s*"([^"]+)"/)?.[1] ?? null;
-			} catch (_requestUrlError) {
-				return null;
-			}
+			const response = await requestUrl({ url: `${rootUrl}/`, throw: false });
+			return response.text.match(/__HERMES_SESSION_TOKEN__\s*=\s*"([^"]+)"/)?.[1] ?? null;
+		} catch {
+			return null;
 		}
 	}
 
@@ -252,7 +247,7 @@ export class HermesKanbanApiClient {
 			const payload = (await response.json()) as { detail?: unknown };
 			if (typeof payload.detail === "string") return payload.detail;
 			if (payload.detail !== undefined) return JSON.stringify(payload.detail);
-		} catch (_error) {
+		} catch {
 			// Fall through to status text.
 		}
 		return `Hermes API ${response.status}: ${response.statusText || "request failed"}`;

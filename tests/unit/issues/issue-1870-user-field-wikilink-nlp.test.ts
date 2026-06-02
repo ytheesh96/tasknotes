@@ -130,6 +130,41 @@ describe("Issue #1870: user field file autosuggest NLP values", () => {
 		});
 	});
 
+	it("suggests promoted Assignee list defaults from the dash NLP trigger", async () => {
+		const plugin = createCompletionPlugin({
+			settings: {
+				nlpTriggers: {
+					triggers: [{ propertyId: "assignee", trigger: "-", enabled: true }],
+				},
+				userFields: [
+					{
+						id: "assignee",
+						displayName: "Assignee",
+						key: "assignee",
+						type: "list",
+						defaultValue: ["orchestrator", "human"],
+					},
+				],
+			},
+		});
+
+		await expect(getCompletionResult(plugin, "Follow up -")).resolves.toMatchObject({
+			from: "Follow up -".length,
+			options: [
+				expect.objectContaining({
+					label: "orchestrator",
+					apply: "orchestrator ",
+					info: "Assignee",
+				}),
+				expect.objectContaining({
+					label: "human",
+					apply: "human ",
+					info: "Assignee",
+				}),
+			],
+		});
+	});
+
 	it("mounts NLP autocomplete UI in the editor document for pop-out windows", () => {
 		const popoutDocument = document.implementation.createHTMLDocument("TaskNotes popout");
 		const container = popoutDocument.createElement("div");

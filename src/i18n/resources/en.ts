@@ -999,7 +999,8 @@ export const en: TranslationTree = {
 				dateProperties: "Date properties",
 				datePropertiesDesc: "Configure when tasks are due and scheduled.",
 				organizationProperties: "Organization properties",
-				organizationPropertiesDesc: "Organize tasks with contexts, projects, and tags.",
+				organizationPropertiesDesc:
+					"Organize tasks with contexts, projects, tags, and assignees.",
 				taskDetails: "Task details",
 				taskDetailsDesc:
 					"Additional details like time estimates, recurrence, and reminders.",
@@ -1054,6 +1055,11 @@ export const en: TranslationTree = {
 					name: "Tags",
 					description:
 						"Native Obsidian tags for categorizing tasks. These are stored in the tags frontmatter property and work with Obsidian's tag features.",
+				},
+				assignee: {
+					name: "Assignee",
+					description:
+						"Person or worker responsible for the task. Used for filtering, sorting, and grouping tasks across TaskNotes and Bases-powered views.",
 				},
 				timeEstimate: {
 					name: "Time estimate",

@@ -66,9 +66,9 @@ import {
 } from "./task-service/taskBlockingRelationships";
 import { resolveTaskPropertyFrontmatterField } from "./task-service/taskPropertyFrontmatterField";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getHermesTaskIdentity } from "../hermes/hermesApiClient";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/TaskService" });
-const HERMES_MANAGED_TASK_PATH = /^TaskNotes\/Hermes\/[^/]+\/t_[^/]+\.md$/;
 
 export class TaskService {
 	private webhookNotifier?: IWebhookNotifier;
@@ -1015,10 +1015,7 @@ export class TaskService {
 	}
 
 	private isHermesManagedTask(task: TaskInfo): boolean {
-		return (
-			HERMES_MANAGED_TASK_PATH.test(task.path) &&
-			task.tags?.includes("hermes-kanban") === true
-		);
+		return getHermesTaskIdentity(task) !== null && task.tags?.includes("hermes-kanban") === true;
 	}
 
 	private async archiveHermesManagedTaskFromDelete(task: TaskInfo): Promise<void> {

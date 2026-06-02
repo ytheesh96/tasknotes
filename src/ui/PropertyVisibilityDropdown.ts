@@ -1,6 +1,10 @@
 import { Menu } from "obsidian";
 import type TaskNotesPlugin from "../main";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import {
+	getHermesAssigneePropertyId,
+	isHermesAssigneeUserField,
+} from "../hermes/hermesAssignee";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Ui/PropertyVisibilityDropdown" });
 
@@ -266,9 +270,11 @@ export class PropertyVisibilityDropdown {
 			for (const field of userFields) {
 				if (field.id && field.displayName) {
 					properties.push({
-						id: `user:${field.id}`,
+						id: isHermesAssigneeUserField(field)
+							? getHermesAssigneePropertyId(field)
+							: `user:${field.id}`,
 						name: field.displayName,
-						category: "user",
+						category: isHermesAssigneeUserField(field) ? "organization" : "user",
 					});
 				}
 			}

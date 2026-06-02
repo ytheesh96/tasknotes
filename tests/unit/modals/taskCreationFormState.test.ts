@@ -188,4 +188,33 @@ describe("taskCreationFormState", () => {
 			})
 		);
 	});
+
+	it("uses Assignee default CSV values as suggestions without auto-assigning new tasks", () => {
+		const state = buildTaskCreationFormState({
+			defaultPriority: "normal",
+			defaultStatus: "open",
+			taskTag: "task",
+			taskCreationDefaults: defaults(),
+			userFields: [
+				userField({
+					id: "assignee",
+					key: "assignee",
+					displayName: "Assignee",
+					type: "list",
+					defaultValue: ["orchestrator", "human"],
+				}),
+				userField({
+					id: "labels",
+					key: "labels",
+					displayName: "Labels",
+					type: "list",
+					defaultValue: ["alpha", "beta"],
+				}),
+			],
+		});
+
+		expect(state.userFields).toEqual({
+			labels: ["alpha", "beta"],
+		});
+	});
 });

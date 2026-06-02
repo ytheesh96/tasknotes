@@ -39,9 +39,9 @@ import {
 } from "../utils/taskTagList";
 import { downloadTaskICSFile, openCalendarURL } from "../ui/calendarExportActions";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getHermesTaskIdentity } from "../hermes/hermesApiClient";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Components/TaskContextMenu" });
-const HERMES_MANAGED_TASK_PATH = /^TaskNotes\/Hermes\/[^/]+\/t_[^/]+\.md$/;
 
 type SubmenuMenuItem = {
 	setSubmenu(): Menu;
@@ -133,9 +133,7 @@ function toMenuTitle(value: unknown, fallback = ""): string {
 }
 
 function isHermesManagedTask(task: TaskInfo): boolean {
-	return (
-		HERMES_MANAGED_TASK_PATH.test(task.path) && task.tags?.includes("hermes-kanban") === true
-	);
+	return getHermesTaskIdentity(task) !== null && task.tags?.includes("hermes-kanban") === true;
 }
 
 export interface TaskContextMenuOptions {

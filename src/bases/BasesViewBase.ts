@@ -60,11 +60,7 @@ import {
 	registerBasesTaskUpdateListeners,
 } from "./basesTaskUpdateListeners";
 import type { BasesTaskUpdateSource } from "./basesUpdateEvents";
-import {
-	buildDefaultTaskCreationOptionsWithHermesTargets,
-	buildHermesTaskCreationOptions,
-	isHermesCreationContext,
-} from "../hermes/hermesTaskNotesIntegration";
+import { buildDefaultTaskCreationOptionsWithHermesTargets } from "../hermes/hermesTaskNotesIntegration";
 import { createTaskNotesLogger, type TaskNotesLogger } from "../utils/tasknotesLogger";
 
 type BasesEphemeralState = {
@@ -491,18 +487,13 @@ export abstract class BasesViewBase extends Component {
 			currentFileLink: () => getBasesCurrentFileLinkDefault(app),
 			frontmatterProcessor,
 		});
-		const taskCreationOptions = isHermesCreationContext(app, taskCreationData)
-			? buildHermesTaskCreationOptions(
-					app,
-					this.plugin.settings.userFields ?? [],
-					taskCreationData,
-					() => {
-						this.refresh();
-					}
-				)
-			: buildDefaultTaskCreationOptionsWithHermesTargets(app, taskCreationData, () => {
-					this.refresh();
-				});
+		const taskCreationOptions = buildDefaultTaskCreationOptionsWithHermesTargets(
+			app,
+			taskCreationData,
+			() => {
+				this.refresh();
+			}
+		);
 
 		// Open TaskNotes creation modal
 		// Use this.app if available (set by Bases), otherwise fall back to plugin.app

@@ -26,7 +26,13 @@ export type FieldType = "core" | "user" | "dependency" | "organization";
 /**
  * Field groups for organizing fields in the modal
  */
-export type FieldGroup = "basic" | "metadata" | "organization" | "dependencies" | "custom";
+export type FieldGroup =
+	| "basic"
+	| "routing"
+	| "metadata"
+	| "organization"
+	| "dependencies"
+	| "custom";
 
 /**
  * Configuration for a single field in task modals

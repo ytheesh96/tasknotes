@@ -5,6 +5,7 @@ import type {
 	FieldGroup,
 	UserMappedField,
 } from "../types/settings";
+import { isHermesAssigneeUserField } from "../hermes/hermesAssignee";
 
 /**
  * Default field group configurations
@@ -25,23 +26,30 @@ export const DEFAULT_FIELD_GROUPS: FieldGroupConfig[] = [
 		defaultCollapsed: false,
 	},
 	{
+		id: "routing",
+		displayName: "Routing",
+		order: 2,
+		collapsible: true,
+		defaultCollapsed: false,
+	},
+	{
 		id: "organization",
 		displayName: "Organization",
-		order: 2,
+		order: 3,
 		collapsible: true,
 		defaultCollapsed: false,
 	},
 	{
 		id: "dependencies",
 		displayName: "Dependencies",
-		order: 3,
+		order: 4,
 		collapsible: true,
 		defaultCollapsed: false,
 	},
 	{
 		id: "custom",
 		displayName: "Custom Fields",
-		order: 4,
+		order: 5,
 		collapsible: true,
 		defaultCollapsed: false,
 	},
@@ -219,7 +227,7 @@ export function migrateUserFieldsToFieldConfig(
 	return existingUserFields.map((userField, index) => ({
 		id: userField.id || `user-${index}`,
 		fieldType: "user" as const,
-		group: "custom" as const,
+		group: isHermesAssigneeUserField(userField) ? "routing" as const : "custom" as const,
 		displayName: userField.displayName || `Field ${index + 1}`,
 		visibleInCreation: true,
 		visibleInEdit: true,

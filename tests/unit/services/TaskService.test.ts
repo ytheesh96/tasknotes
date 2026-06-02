@@ -1343,9 +1343,9 @@ describe("TaskService", () => {
 			});
 		});
 
-		it("should archive Hermes-managed tasks instead of deleting the local mirror", async () => {
+		it("should archive board control-panel tasks instead of deleting the local note", async () => {
 			const hermesTask = TaskFactory.createTask({
-				path: "TaskNotes/Hermes/default/t_abc12345.md",
+				path: "TaskNotes/default/t_abc12345.md",
 				tags: ["task", "hermes-kanban"],
 			});
 			mockPlugin.app.vault.getAbstractFileByPath.mockReturnValue(new TFile(hermesTask.path));
@@ -1370,9 +1370,9 @@ describe("TaskService", () => {
 			updateSpy.mockRestore();
 		});
 
-		it("should leave already archived Hermes-managed task mirrors in place", async () => {
+		it("should leave already archived board control-panel tasks in place", async () => {
 			const archivedHermesTask = TaskFactory.createTask({
-				path: "TaskNotes/Hermes/default/t_archived.md",
+				path: "TaskNotes/default/t_archived.md",
 				archived: true,
 				tags: ["task", "hermes-kanban", "archived"],
 			});

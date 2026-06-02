@@ -126,7 +126,7 @@ jest.mock("../../../src/services/NaturalLanguageParser", () => {
 });
 
 describe("withHermesBoardContext", () => {
-	it("replaces the previous Hermes board while preserving other contexts", () => {
+	it("replaces the previous board while preserving other contexts", () => {
 		expect(
 			withHermesBoardContext("obsidian-os, home, review", ["obsidian-os", "hhmi"], "hhmi")
 		).toBe("hhmi, home, review");
@@ -138,7 +138,7 @@ describe("withHermesBoardContext", () => {
 		);
 	});
 
-	it("removes Hermes board contexts when returning to default creation", () => {
+	it("removes board contexts when returning to default creation", () => {
 		expect(withoutHermesBoardContext("hhmi, home, obsidian-os", ["hhmi", "obsidian-os"])).toBe(
 			"home"
 		);

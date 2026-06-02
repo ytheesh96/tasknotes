@@ -760,7 +760,7 @@ export class TaskCreationModal extends TaskModal {
 	private async handleHermesApiCreate(options: { createAnother?: boolean } = {}): Promise<void> {
 		const board = this.getSelectedHermesBoard();
 		if (!board) {
-			throw new Error("Choose a Hermes board before submitting.");
+			throw new Error("Choose a board before submitting.");
 		}
 
 		const taskData = this.buildTaskData();
@@ -801,14 +801,14 @@ export class TaskCreationModal extends TaskModal {
 
 		if (parentResolution.unresolved.length > 0 || childResolution.unresolved.length > 0) {
 			new Notice(
-				`Some dependencies were not linked in Hermes: ${[
+				`Some dependencies were not linked on the board: ${[
 					...parentResolution.unresolved,
 					...childResolution.unresolved,
 				].join(", ")}`
 			);
 		}
 
-		new Notice(`Sent to Hermes triage: ${created.title}`);
+		new Notice(`Sent to triage: ${created.title}`);
 		if (this.options.onTaskCreated) {
 			this.options.onTaskCreated(taskInfo);
 		}
@@ -942,7 +942,7 @@ export class TaskCreationModal extends TaskModal {
 		if (this.isHermesCreationTarget() && board) {
 			return `Board: ${board}`;
 		}
-		return board ? `Choose Hermes board: ${board}` : "Choose Hermes board";
+		return board ? `Choose board: ${board}` : "Choose board";
 	}
 
 	private getSelectedHermesBoard(): string {
@@ -962,7 +962,7 @@ export class TaskCreationModal extends TaskModal {
 
 	private getCreationTargetLabel(): string {
 		if (this.isHermesCreationTarget()) {
-			return `Hermes/${this.getSelectedHermesBoard()}`;
+			return `Board/${this.getSelectedHermesBoard()}`;
 		}
 		return "Default";
 	}

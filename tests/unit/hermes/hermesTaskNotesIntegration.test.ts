@@ -1,28 +1,14 @@
 import type { App } from "obsidian";
 import type { TaskInfo } from "../../../src/types";
 import {
-	buildDefaultTaskCreationOptionsWithHermesTargets,
 	buildHermesTaskEditOptions,
 	buildHermesTaskCreationOptions,
-	isHermesCreationContext,
-	isHermesTask,
 } from "../../../src/hermes/hermesTaskNotesIntegration";
 
 describe("Hermes TaskNotes integration", () => {
 	const app = {} as App;
 
-	it("recognizes Hermes creation data without requiring a live workspace", () => {
-		const values = {
-			tags: ["hermes-kanban"],
-			customFrontmatter: {
-				hermes_board: "hhmi",
-			},
-		};
-
-		expect(isHermesCreationContext(app, values)).toBe(true);
-	});
-
-	it("builds a native TaskNotes submission payload for Hermes triage", () => {
+	it("builds a native TaskNotes submission payload for board triage", () => {
 		const options = buildHermesTaskCreationOptions(app, [], {
 			title: "Draft packet cleanup",
 			contexts: ["hhmi"],
@@ -33,7 +19,7 @@ describe("Hermes TaskNotes integration", () => {
 			},
 		});
 
-		expect(options.modalTitle).toBe("Create Hermes task");
+		expect(options.modalTitle).toBe("Create task");
 		expect(options.saveButtonText).toBe("Send to triage");
 		expect(options.hermesBoardPicker).toMatchObject({
 			selectedBoard: "hhmi",
@@ -57,42 +43,12 @@ describe("Hermes TaskNotes integration", () => {
 		expect(options.modalFieldsConfig?.fields.map((field) => field.id)).toContain("assignee");
 	});
 
-	it("adds Hermes targets to ordinary TaskNotes creation without making it a Hermes task", () => {
-		const options = buildDefaultTaskCreationOptionsWithHermesTargets(app, {
-			title: "Ordinary task",
-		});
-
-		expect(options.prePopulatedValues?.title).toBe("Ordinary task");
-		expect(options.creationTargetPicker).toMatchObject({
-			selectedTarget: "default",
-		});
-		expect(options.creationTargetPicker?.boards).toContain("obsidian-os");
-		expect(options.hermesBoardPicker?.selectedBoard).toBe("obsidian-os");
-		expect(options.prePopulatedValues?.customFrontmatter).toBeUndefined();
-	});
-
-	it("does not treat ordinary task creation as Hermes submission", () => {
-		expect(isHermesCreationContext(app)).toBe(false);
-	});
-
-	it("recognizes synced Hermes task cards", () => {
-		const task = {
-			title: "Synced task",
-			status: "blocked",
-			priority: "normal",
-			path: "TaskNotes/Hermes/hhmi/t_123.md",
-			archived: false,
-		} as TaskInfo;
-
-		expect(isHermesTask(task)).toBe(true);
-	});
-
-	it("keeps raw writeback fields out of the Hermes edit modal", () => {
+	it("keeps raw writeback fields out of the board edit modal", () => {
 		const task = {
 			title: "Synced task",
 			status: "ready",
 			priority: "normal",
-			path: "TaskNotes/Hermes/hhmi/t_123.md",
+			path: "TaskNotes/hhmi/t_123.md",
 			archived: false,
 		} as TaskInfo;
 		const options = buildHermesTaskEditOptions(task, [
@@ -117,6 +73,8 @@ describe("Hermes TaskNotes integration", () => {
 		]);
 		const fieldIds = options.modalFieldsConfig?.fields?.map((field) => field.id) ?? [];
 
+		expect(options.modalTitle).toBe("Update task");
+		expect(options.saveButtonText).toBe("Save update");
 		expect(fieldIds).toEqual(
 			expect.arrayContaining([
 				"title",

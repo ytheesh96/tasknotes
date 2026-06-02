@@ -15,6 +15,12 @@ import { FileSuggestHelper } from "../suggest/FileSuggestHelper";
 import { ProjectMetadataResolver, ProjectEntry } from "../utils/projectMetadataResolver";
 import { parseDisplayFieldsRow } from "../utils/projectAutosuggestDisplayFieldsParser";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import type { UserMappedField } from "../types/settings";
+import {
+	collectHermesAssigneesFromMirrorNotes,
+	HERMES_DEFAULT_ASSIGNEES,
+	isHermesAssigneeUserField,
+} from "../hermes/hermesAssignee";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Editor/NLPCodeMirrorAutocomplete" });
 
@@ -228,7 +234,7 @@ async function getSuggestionsForProperty(
 
 	switch (suggesterType) {
 		case "list":
-			return getListSuggestions(propertyId, query, plugin);
+			return getListSuggestions(propertyId, query, plugin, triggerConfig);
 
 		case "file":
 			return getFileSuggestions(propertyId, query, plugin, triggerConfig);
@@ -257,7 +263,8 @@ async function getSuggestionsForProperty(
 function getListSuggestions(
 	propertyId: string,
 	query: string,
-	plugin: TaskNotesPlugin
+	plugin: TaskNotesPlugin,
+	triggerConfig: TriggerConfigService
 ): Completion[] {
 	let items: string[] = [];
 	let label: string = propertyId;
@@ -273,12 +280,12 @@ function getListSuggestions(
 			label = "Context";
 			break;
 
-		default:
-			// User-defined list field - would need to fetch values from cache
-			// For now, return empty
-			items = [];
-			label = propertyId;
+		default: {
+			const userField = triggerConfig.getUserField(propertyId);
+			items = userField ? getUserFieldListSuggestionValues(userField, plugin) : [];
+			label = userField?.displayName || propertyId;
 			break;
+		}
 	}
 
 	return items
@@ -291,6 +298,59 @@ function getListSuggestions(
 			type: "text",
 			info: label,
 		}));
+}
+
+function getUserFieldListSuggestionValues(
+	field: UserMappedField,
+	plugin: TaskNotesPlugin
+): string[] {
+	const values = new Set<string>();
+	const add = (value: unknown) => addListSuggestionValue(values, value);
+
+	if (isHermesAssigneeUserField(field) && field.defaultValue === undefined) {
+		add(HERMES_DEFAULT_ASSIGNEES);
+	} else {
+		add(field.defaultValue);
+	}
+
+	if (isHermesAssigneeUserField(field)) {
+		add(collectHermesAssigneesFromMirrorNotes(plugin.app));
+	}
+
+	const allFiles = plugin.app.vault.getMarkdownFiles();
+	for (const file of allFiles) {
+		const frontmatter = plugin.app.metadataCache.getFileCache(file)?.frontmatter;
+		if (!frontmatter) continue;
+
+		add(frontmatter[field.key]);
+		if (field.key !== field.id) {
+			add(frontmatter[field.id]);
+		}
+
+		if (values.size >= 200) {
+			break;
+		}
+	}
+
+	return Array.from(values);
+}
+
+function addListSuggestionValue(values: Set<string>, value: unknown): void {
+	if (Array.isArray(value)) {
+		value.forEach((item) => addListSuggestionValue(values, item));
+		return;
+	}
+	if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+		return;
+	}
+
+	const candidates =
+		typeof value === "string" ? value.split(",").map((part) => part.trim()) : [String(value)];
+	for (const candidate of candidates) {
+		if (candidate) {
+			values.add(candidate);
+		}
+	}
 }
 
 /**

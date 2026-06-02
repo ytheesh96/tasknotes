@@ -7,6 +7,7 @@ import {
 	TAbstractFile,
 	TFile,
 	getLanguage,
+	normalizePath,
 } from "obsidian";
 import { format } from "date-fns";
 import {
@@ -84,13 +85,10 @@ import {
 } from "./settings/settingsPersistence";
 import { startDateChangeDetection } from "./bootstrap/dateChangeDetection";
 import {
-	buildDefaultTaskCreationOptionsWithHermesTargets,
 	buildHermesTaskCreationOptions,
 	buildHermesTaskEditOptions,
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
-	isHermesCreationContext,
-	isHermesTask,
 } from "./hermes/hermesTaskNotesIntegration";
 import { HermesKanbanApiClient, getHermesTaskIdentity } from "./hermes/hermesApiClient";
 import { createOrUpdateHermesMirrorNote } from "./hermes/hermesMirror";
@@ -112,6 +110,18 @@ type SubmenuMenuItem = {
 
 function getSubmenu(item: unknown): Menu {
 	return (item as SubmenuMenuItem).setSubmenu();
+}
+
+function normalizeHermesTaskIdForLookup(taskId: string): string {
+	const match = taskId.trim().match(/\bt_[a-z0-9]{8}\b/i);
+	return match ? match[0].toLowerCase() : taskId.trim().toLowerCase();
+}
+
+function toFileUrl(path: string): string {
+	return `file://${path
+		.split("/")
+		.map((segment) => encodeURIComponent(segment))
+		.join("/")}`;
 }
 
 export default class TaskNotesPlugin extends Plugin {
@@ -1002,7 +1012,7 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 		const identity = getHermesTaskIdentity(task);
 		if (!identity) {
-			throw new Error("Hermes task is missing board or task id");
+			throw new Error("Task is missing board or task id");
 		}
 
 		const api = new HermesKanbanApiClient();
@@ -1092,7 +1102,7 @@ export default class TaskNotesPlugin extends Plugin {
 		options: { silent?: boolean } = {}
 	): Promise<TaskInfo> {
 		try {
-			const updatedTask = isHermesTask(task)
+			const updatedTask = getHermesTaskIdentity(task)
 				? ((await this.updateHermesTaskProperty(task, property, value)) ??
 					(await this.taskService.updateProperty(task, property, value, options)))
 				: await this.taskService.updateProperty(task, property, value, options);
@@ -1169,7 +1179,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 	async toggleTaskStatus(task: TaskInfo): Promise<TaskInfo> {
 		try {
-			const updatedTask = isHermesTask(task)
+			const updatedTask = getHermesTaskIdentity(task)
 				? await this.updateTaskProperty(
 						task,
 						"status",
@@ -1196,9 +1206,11 @@ export default class TaskNotesPlugin extends Plugin {
 
 	openTaskCreationModal(prePopulatedValues?: Partial<TaskInfo>) {
 		const values = this.applyParentNoteProjectDefault(prePopulatedValues);
-		const options = isHermesCreationContext(this.app, values)
-			? buildHermesTaskCreationOptions(this.app, this.settings.userFields ?? [], values)
-			: buildDefaultTaskCreationOptionsWithHermesTargets(this.app, values);
+		const options = buildHermesTaskCreationOptions(
+			this.app,
+			this.settings.userFields ?? [],
+			values
+		);
 		new TaskCreationModal(this.app, this, options).open();
 	}
 
@@ -1346,10 +1358,126 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	async openTaskEditModal(task: TaskInfo, onTaskUpdated?: (task: TaskInfo) => void) {
 		// With native cache, task data is always current - no need to refetch
-		const options = isHermesTask(task)
+		const options = getHermesTaskIdentity(task)
 			? buildHermesTaskEditOptions(task, this.settings.userFields ?? [], onTaskUpdated)
 			: { task, onTaskUpdated };
 		new TaskEditModal(this.app, this, options).open();
+	}
+
+	async openHermesTaskEditModalById(taskId: string, board?: string): Promise<void> {
+		const normalizedTaskId = normalizeHermesTaskIdForLookup(taskId);
+		const normalizedBoard = board?.trim();
+		if (!normalizedTaskId) {
+			new Notice("Missing task ID.");
+			return;
+		}
+
+		const directPath = normalizedBoard
+			? `TaskNotes/${normalizedBoard}/${normalizedTaskId}.md`
+			: "";
+		const directTask = directPath ? await this.cacheManager.getTaskInfo(directPath) : null;
+		if (directTask) {
+			await this.openTaskEditModal(directTask);
+			return;
+		}
+		const legacyDirectPath = normalizedBoard
+			? `TaskNotes/Hermes/${normalizedBoard}/${normalizedTaskId}.md`
+			: "";
+		const legacyDirectTask = legacyDirectPath
+			? await this.cacheManager.getTaskInfo(legacyDirectPath)
+			: null;
+		if (legacyDirectTask) {
+			await this.openTaskEditModal(legacyDirectTask);
+			return;
+		}
+
+		const tasks = await this.cacheManager.getAllTasks();
+		const matchesTaskId = (task: TaskInfo) => {
+			const identity = getHermesTaskIdentity(task);
+			return Boolean(identity && normalizeHermesTaskIdForLookup(identity.id) === normalizedTaskId);
+		};
+		const matchingTask =
+			tasks.find((task) => {
+				const identity = getHermesTaskIdentity(task);
+				return Boolean(
+					identity &&
+						normalizeHermesTaskIdForLookup(identity.id) === normalizedTaskId &&
+						(!normalizedBoard || identity.board === normalizedBoard)
+				);
+			}) ?? tasks.find(matchesTaskId);
+
+		if (!matchingTask) {
+			new Notice(`Could not find task ${normalizedTaskId}.`);
+			return;
+		}
+
+		await this.openTaskEditModal(matchingTask);
+	}
+
+	async openHermesArtifactPath(rawPath: string): Promise<void> {
+		const target = rawPath.trim();
+		if (!target) {
+			new Notice("Missing artifact path.");
+			return;
+		}
+
+		const vaultPath = this.resolveHermesArtifactVaultPath(target);
+		if (vaultPath) {
+			const file = this.app.vault.getAbstractFileByPath(vaultPath);
+			if (file instanceof TFile) {
+				await this.app.workspace.getLeaf(true).openFile(file);
+				return;
+			}
+		}
+
+		if (/^[a-z][a-z0-9+.-]*:/i.test(target)) {
+			window.open(target, "_blank");
+			return;
+		}
+
+		if (target.startsWith("/")) {
+			window.open(toFileUrl(target), "_blank");
+			return;
+		}
+
+		new Notice(`Could not open artifact: ${target}`);
+	}
+
+	private resolveHermesArtifactVaultPath(rawPath: string): string | null {
+		const target = rawPath.trim();
+		if (!target) {
+			return null;
+		}
+
+		const adapter = this.app.vault.adapter as { getBasePath?: () => string };
+		const basePath = adapter.getBasePath?.();
+		const candidates = new Set<string>();
+		candidates.add(target);
+
+		if (target.startsWith("file://")) {
+			try {
+				candidates.add(decodeURIComponent(new URL(target).pathname));
+			} catch {
+				// Keep the original candidate.
+			}
+		}
+
+		if (basePath) {
+			for (const candidate of Array.from(candidates)) {
+				if (candidate === basePath || candidate.startsWith(`${basePath}/`)) {
+					candidates.add(candidate.slice(basePath.length).replace(/^\/+/, ""));
+				}
+			}
+		}
+
+		for (const candidate of candidates) {
+			const normalized = normalizePath(candidate.replace(/^\/+/, ""));
+			if (this.app.vault.getAbstractFileByPath(normalized) instanceof TFile) {
+				return normalized;
+			}
+		}
+
+		return null;
 	}
 
 	/**

@@ -1,4 +1,5 @@
 import { AbstractInputSuggest, App } from "obsidian";
+import { isHermesAssigneeUserField } from "../hermes/hermesAssignee";
 import TaskNotesPlugin from "../main";
 import type { UserMappedField } from "../types/settings";
 import { filterTagsForTaskModalSuggestions } from "../utils/taskTagFiltering";
@@ -150,10 +151,14 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 		this.plugin = plugin;
 		this.input = inputEl;
 		this.fieldConfig = fieldConfig;
+		if (isHermesAssigneeUserField(fieldConfig)) {
+			openSuggestionsOnFieldSelection(this.input, () => this.open());
+		}
 	}
 
 	protected async getSuggestions(_: string): Promise<UserFieldSuggestion[]> {
 		const isListField = this.fieldConfig.type === "list";
+		const allowEmptyQuery = isHermesAssigneeUserField(this.fieldConfig);
 		let currentQuery = "";
 		let currentValues: string[] = [];
 
@@ -163,7 +168,7 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 		} else {
 			currentQuery = this.input.value.trim();
 		}
-		if (!currentQuery) return [];
+		if (!currentQuery && !allowEmptyQuery) return [];
 
 		const wikiMatch = currentQuery.match(/\[\[([^\]]*)$/);
 		if (wikiMatch) {
@@ -191,7 +196,8 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 			.filter((value) => value && typeof value === "string")
 			.filter(
 				(value) =>
-					value.toLowerCase().includes(currentQuery.toLowerCase()) &&
+					(!currentQuery ||
+						value.toLowerCase().includes(currentQuery.toLowerCase())) &&
 					(!isListField || !currentValues.slice(0, -1).includes(value))
 			)
 			.slice(0, 10)
@@ -211,6 +217,7 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 			try {
 				const allFiles = this.plugin.app.vault.getMarkdownFiles();
 				const values = new Set<string>();
+				this.addConfiguredDefaultValues(values);
 
 				for (const file of allFiles) {
 					try {
@@ -268,6 +275,28 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 				})();
 			}, debounceMs);
 		});
+	}
+
+	private addConfiguredDefaultValues(values: Set<string>): void {
+		const add = (item: unknown) => {
+			if (Array.isArray(item)) {
+				item.forEach(add);
+				return;
+			}
+			if (typeof item !== "string" && typeof item !== "number" && typeof item !== "boolean") {
+				return;
+			}
+
+			const candidates =
+				typeof item === "string" ? item.split(",").map((part) => part.trim()) : [String(item)];
+			for (const candidate of candidates) {
+				if (candidate) {
+					values.add(candidate);
+				}
+			}
+		};
+
+		add(this.fieldConfig.defaultValue);
 	}
 
 	public renderSuggestion(suggestion: UserFieldSuggestion, el: HTMLElement): void {
