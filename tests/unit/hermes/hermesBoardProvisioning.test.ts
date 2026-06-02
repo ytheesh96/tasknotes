@@ -29,16 +29,16 @@ describe("Hermes board surface provisioning", () => {
 
 		expect(result.foldersCreated).toEqual(["TaskNotes/default", "TaskNotes/obsidian-os"]);
 		expect(result.viewsCreated).toEqual([
-			"TaskNotes/Views/kanban-default.base",
-			"TaskNotes/Views/kanban-obsidian-os.base",
+			"TaskNotes/Views/kanban-board-default.base",
+			"TaskNotes/Views/kanban-board-obsidian-os.base",
 		]);
 		expect(app.vault.getAbstractFileByPath("TaskNotes/default")).not.toBeNull();
-		expect(app.vault.getAbstractFileByPath("TaskNotes/Views/kanban-default.base")).toBeInstanceOf(
+		expect(app.vault.getAbstractFileByPath("TaskNotes/Views/kanban-board-default.base")).toBeInstanceOf(
 			TFile
 		);
 
 		const view = app.vault.getAbstractFileByPath(
-			"TaskNotes/Views/kanban-obsidian-os.base"
+			"TaskNotes/Views/kanban-board-obsidian-os.base"
 		) as TFile;
 		await expect(app.vault.read(view)).resolves.toContain(
 			'file.inFolder("TaskNotes/obsidian-os")'
@@ -50,14 +50,14 @@ describe("Hermes board surface provisioning", () => {
 
 	it("does not overwrite existing board views", async () => {
 		const app = new App();
-		await app.vault.create("TaskNotes/Views/kanban-default.base", "custom view");
+		await app.vault.create("TaskNotes/Views/kanban-board-default.base", "custom view");
 
 		const result = await provisionHermesBoardSurfaces({ app }, ["default"]);
 
 		expect(result.viewsCreated).toEqual([]);
-		expect(result.viewsSkipped).toEqual(["TaskNotes/Views/kanban-default.base"]);
+		expect(result.viewsSkipped).toEqual(["TaskNotes/Views/kanban-board-default.base"]);
 		const existing = app.vault.getAbstractFileByPath(
-			"TaskNotes/Views/kanban-default.base"
+			"TaskNotes/Views/kanban-board-default.base"
 		) as TFile;
 		await expect(app.vault.read(existing)).resolves.toBe("custom view");
 	});
@@ -101,7 +101,7 @@ describe("Hermes board surface provisioning", () => {
 	it("normalizes the expected board paths", () => {
 		expect(getHermesBoardFolderPath("obsidian-os")).toBe("TaskNotes/obsidian-os");
 		expect(getHermesBoardKanbanViewPath("obsidian-os")).toBe(
-			"TaskNotes/Views/kanban-obsidian-os.base"
+			"TaskNotes/Views/kanban-board-obsidian-os.base"
 		);
 	});
 });

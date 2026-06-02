@@ -75,7 +75,9 @@ export function getHermesBoardFolderPath(board: string): string {
 }
 
 export function getHermesBoardKanbanViewPath(board: string): string {
-	return normalizePath(`${TASKNOTES_VIEWS_FOLDER}/kanban-${normalizeBoardSlug(board) ?? board.trim()}.base`);
+	return normalizePath(
+		`${TASKNOTES_VIEWS_FOLDER}/kanban-board-${normalizeBoardSlug(board) ?? board.trim()}.base`
+	);
 }
 
 export function buildHermesBoardKanbanBase(
