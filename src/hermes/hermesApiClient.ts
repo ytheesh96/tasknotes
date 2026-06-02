@@ -68,6 +68,12 @@ export interface HermesAssigneesResponse {
 	assignees?: HermesAssigneeRecord[];
 }
 
+export interface HermesRootHealthResponse {
+	ok: boolean;
+	status: number;
+	text: string;
+}
+
 export interface HermesCreateTaskPayload {
 	title: string;
 	body?: string;
@@ -137,6 +143,15 @@ export class HermesKanbanApiClient {
 	private sessionToken: string | null = null;
 
 	constructor(private readonly baseUrl = DEFAULT_HERMES_KANBAN_API_BASE) {}
+
+	async checkRoot(): Promise<HermesRootHealthResponse> {
+		const response = await requestUrl({ url: `${new URL(this.baseUrl).origin}/`, throw: false });
+		return {
+			ok: response.status >= 200 && response.status < 300,
+			status: response.status,
+			text: response.text,
+		};
+	}
 
 	async createTask(board: string, payload: HermesCreateTaskPayload): Promise<HermesTaskRecord> {
 		const response = await this.request<HermesTaskResponse>(

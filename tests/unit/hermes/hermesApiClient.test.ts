@@ -73,6 +73,19 @@ describe("HermesKanbanApiClient", () => {
 		expect(getHermesTaskIdentity(task)).toBeNull();
 	});
 
+	it("checks the localhost dashboard root used by the kanban API", async () => {
+		requestUrlMock.mockResolvedValueOnce(textResponse("ok"));
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const health = await api.checkRoot();
+
+		expect(health).toEqual({ ok: true, status: 200, text: "ok" });
+		expect(requestUrlMock).toHaveBeenCalledWith({
+			url: "http://127.0.0.1:9119/",
+			throw: false,
+		});
+	});
+
 	it("posts created tasks to the board-scoped Hermes API", async () => {
 		requestUrlMock.mockResolvedValue(
 			jsonResponse({

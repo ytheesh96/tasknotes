@@ -17,6 +17,11 @@ import { TaskInfo } from "../../../src/types";
 import { ParsedTaskData } from "../../../src/utils/TasksPluginParser";
 import { MockObsidian, Notice, TFile } from "../../__mocks__/obsidian";
 import type { App } from "obsidian";
+import {
+	HERMES_DASHBOARD_START_COMMAND,
+	HermesAvailabilityService,
+	type HermesAvailabilityHealth,
+} from "../../../src/hermes/hermesAvailabilityService";
 
 // Type helper to safely cast mock App to real App type
 // @ts-ignore: Mock App type is compatible at runtime despite TypeScript warnings
@@ -623,6 +628,43 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 		});
 	});
 
+	describe("Hermes availability controls", () => {
+		it("refreshes live board and assignee options after desktop startup succeeds", async () => {
+			const startDashboard = jest
+				.spyOn(HermesAvailabilityService.prototype, "startDashboard")
+				.mockResolvedValue({
+					started: true,
+					pid: 9119,
+					command: HERMES_DASHBOARD_START_COMMAND,
+					health: hermesHealth({ status: "connected", mode: "live", canStart: true }),
+				});
+			const getOptions = jest.spyOn(HermesAvailabilityService.prototype, "getOptions").mockResolvedValue({
+				boards: ["live-board", "ops"],
+				assignees: ["orchestrator", "peacock"],
+				statuses: ["triage", "todo", "running", "blocked", "done"],
+				health: hermesHealth({ status: "connected", mode: "live", canStart: true }),
+			});
+			modal = new TaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				hermesBoardPicker: { boards: ["cached-board"], selectedBoard: "cached-board" },
+			});
+			const selectEl = document.createElement("select");
+			(modal as any).hermesBoardSelectEl = selectEl;
+
+			const result = await modal.startHermesDashboardAndRefreshOptions();
+
+			expect(startDashboard).toHaveBeenCalledTimes(1);
+			expect(getOptions).toHaveBeenCalledWith("cached-board");
+			expect(result.health.status).toBe("connected");
+			expect((modal as any).hermesBoardOptions).toEqual(["live-board", "ops"]);
+			expect((modal as any).hermesAssigneeOptions).toEqual(["orchestrator", "peacock"]);
+			expect(Array.from(selectEl.options).map((option) => option.value)).toEqual([
+				"live-board",
+				"ops",
+			]);
+			expect(selectEl.value).toBe("live-board");
+		});
+	});
+
 	describe("Real Library Integration", () => {
 		it("should use real date-fns for date operations", () => {
 			const testDate = new Date(2025, 0, 15, 15, 30, 0);
@@ -691,3 +733,14 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 		});
 	});
 });
+
+function hermesHealth(overrides: Partial<HermesAvailabilityHealth>): HermesAvailabilityHealth {
+	return {
+		status: "connected",
+		mode: "live",
+		rootUrl: "http://127.0.0.1:9119/",
+		apiUrl: "http://127.0.0.1:9119/api/plugins/kanban",
+		canStart: true,
+		...overrides,
+	};
+}

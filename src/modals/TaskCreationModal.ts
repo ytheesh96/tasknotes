@@ -45,6 +45,11 @@ import {
 	validateHermesBoardSelection,
 } from "../hermes/hermesRouting";
 import { createTaskModalContextsField } from "./taskModalMetadataFields";
+import {
+	HermesAvailabilityService,
+	type HermesAvailabilityHealth,
+	type HermesDashboardStartResult,
+} from "../hermes/hermesAvailabilityService";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationModal" });
 export type { StatusSuggestion } from "./taskCreationSuggest";
@@ -1102,6 +1107,55 @@ export class TaskCreationModal extends TaskModal {
 		}
 		this.hermesAssigneeOptions = this.getHermesAssigneeOptions();
 		return this.hermesAssigneeOptions;
+	}
+
+	public async recheckHermesAvailability(): Promise<HermesAvailabilityHealth> {
+		return this.getHermesAvailabilityService().recheckHealth();
+	}
+
+	public async startHermesDashboardAndRefreshOptions(): Promise<HermesDashboardStartResult> {
+		const result = await this.getHermesAvailabilityService().startDashboard();
+		if (result.health.status === "connected" || result.health.status === "degraded") {
+			await this.refreshHermesLiveOptions();
+		}
+		return result;
+	}
+
+	private async refreshHermesLiveOptions(): Promise<void> {
+		const selectedBoard = this.getSelectedHermesBoard();
+		const options = await this.getHermesAvailabilityService().getOptions(selectedBoard);
+		if (options.boards.length > 0) {
+			this.hermesBoardOptions = uniqueNonEmpty(options.boards);
+			this.renderHermesBoardSelectOptions(this.hermesBoardOptions);
+		}
+		if (options.assignees.length > 0) {
+			this.hermesAssigneeOptions = uniqueNonEmpty(options.assignees);
+		}
+	}
+
+	private getHermesAvailabilityService(): HermesAvailabilityService {
+		return new HermesAvailabilityService();
+	}
+
+	private renderHermesBoardSelectOptions(boards: readonly string[]): void {
+		if (!this.hermesBoardSelectEl) {
+			return;
+		}
+		while (this.hermesBoardSelectEl.firstChild) {
+			this.hermesBoardSelectEl.removeChild(this.hermesBoardSelectEl.firstChild);
+		}
+		for (const board of boards) {
+			const option = this.hermesBoardSelectEl.ownerDocument.createElement("option");
+			option.value = board;
+			option.text = board;
+			this.hermesBoardSelectEl.appendChild(option);
+		}
+		const currentBoard = this.getSelectedHermesBoard();
+		const nextBoard = boards.includes(currentBoard) ? currentBoard : boards[0];
+		if (nextBoard) {
+			this.setCreationTarget(this.getHermesTargetId(nextBoard));
+			this.hermesBoardSelectEl.value = nextBoard;
+		}
 	}
 
 	private async validateHermesCreationRouting(
