@@ -11,7 +11,7 @@ The MVP removes the idea that Hermes tasks are a separate classification of Task
 The current implementation still carries old Hermes bridge concepts:
 
 - Some code treats Hermes tasks as a separate task class.
-- Some paths assume a legacy mirror folder such as `TaskNotes/Hermes/<board>/<task-id>.md`.
+- Some paths still assume old mirror-folder conventions instead of the native board folder.
 - Some creation routes can collapse ordinary view defaults into triage submission.
 - Human-owned work can be treated as an exceptional blocked state instead of first-class board work.
 - The settings UI can expose stale Hermes-specific modal groups that are no longer useful.
@@ -82,20 +82,6 @@ dateCreated: 2026-06-02T12:00:00.000Z
 
 The markdown body contains the task details/body accepted by Hermes.
 
-### Legacy Compatibility
-
-The MVP may continue to read legacy notes at:
-
-```text
-TaskNotes/Hermes/<board>/<task-id>.md
-```
-
-But new writes should use:
-
-```text
-TaskNotes/<board>/<task-id>.md
-```
-
 ### Fields To Avoid
 
 New board notes should not use old bridge fields as the primary contract:
@@ -111,7 +97,7 @@ New board notes should not use old bridge fields as the primary contract:
 - `last_synced`
 - writeback fields
 
-Legacy fields may be read only for migration and compatibility.
+The MVP does not use these fields for identity or routing. Existing legacy notes should be moved into the native board folder shape by a separate migration or manual cleanup pass.
 
 ## Assignee Model
 
@@ -292,14 +278,14 @@ The UI should not need a separate “Hermes task classification” toggle.
 
 - If Hermes create/update fails, TaskNotes should not silently mutate the local note.
 - If Hermes accepts a mutation but note refresh fails, show a clear notice and keep the task discoverable.
-- If identity cannot be derived from path or legacy fields, disable board actions and show a direct message.
+- If identity cannot be derived from the native board path, disable board actions and show a direct message.
 - If a task is self-assigned, do not warn that it is not agent-runnable; that is expected.
 - If a worker-only status is selected for a self-assigned task, show a soft warning only when needed.
 
 ## MVP Acceptance Criteria
 
 - New board task notes are written under `TaskNotes/<board>/<task-id>.md`.
-- Legacy `TaskNotes/Hermes/<board>/<task-id>.md` notes remain readable.
+- `TaskNotes/Hermes/<board>/<task-id>.md` is not part of the MVP identity contract.
 - TaskNotes creation calls Hermes first, then writes/refreshes the note.
 - Bases/Kanban creation preserves column, swimlane, project, status, priority, and custom defaults.
 - User can set `assignee` to themself and keep the task on the board.
@@ -321,14 +307,14 @@ The UI should not need a separate “Hermes task classification” toggle.
 - Offline divergent edits that later merge into Hermes.
 - Full execution monitoring beyond comments, run history, and event display.
 - Multi-user permissioning.
-- Full migration of every legacy note in the MVP.
+- Migrating every legacy note automatically.
 
 ## Implementation Plan
 
 ### Phase 1: Identity and Settings Contract
 
 - Use `TaskNotes/<board>/<task-id>.md` as the canonical identity path.
-- Keep legacy path read support.
+- Remove legacy path identity fallback from the MVP path.
 - Remove Hermes-only modal field groups.
 - Promote `assignee` to a visible TaskNotes routing/organization field.
 
