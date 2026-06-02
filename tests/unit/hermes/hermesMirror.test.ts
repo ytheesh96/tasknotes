@@ -64,4 +64,28 @@ describe("Hermes mirror note content", () => {
 		expect(content).toContain("- archived");
 		expect(content).not.toContain("status: archived");
 	});
+
+	it("marks Goal Mode mirror notes with stable frontmatter and tags", () => {
+		const task: HermesTaskRecord = {
+			id: "t_goal",
+			title: "Goal card",
+			status: "triage",
+			priority: 5,
+			body: "Shape the work into a persistent goal.",
+			metadata: {
+				hermes_card_mode: "goal",
+			},
+		};
+
+		const content = buildHermesMirrorContent("default", task, {
+			extraTags: ["hermes-goal"],
+		});
+
+		expect(content).toContain("hermesCardMode: goal");
+		expect(content).toContain("hermesMode: goal");
+		expect(content).toContain("- hermes-goal");
+		expect(content.replace(/^---\n[\s\S]*?\n---\n*/, "").trim()).toBe(
+			"Shape the work into a persistent goal."
+		);
+	});
 });

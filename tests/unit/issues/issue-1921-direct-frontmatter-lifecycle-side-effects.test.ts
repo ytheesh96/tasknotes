@@ -1,4 +1,14 @@
 import { TFile } from "../../__mocks__/obsidian";
+const mockSyncGoalModeTaskNoteToHermes = jest.fn();
+
+jest.mock("../../../src/hermes/hermesGoalModeTaskNoteSync", () => {
+	const actual = jest.requireActual("../../../src/hermes/hermesGoalModeTaskNoteSync");
+	return {
+		...actual,
+		syncGoalModeTaskNoteToHermes: (...args: unknown[]) => mockSyncGoalModeTaskNoteToHermes(...args),
+	};
+});
+
 import {
 	selectReconciledTaskProperty,
 	TaskFileLifecycleReconciliationService,
@@ -63,6 +73,15 @@ function createPlugin(initialTasks: TaskInfo[] = []) {
 }
 
 describe("Issue #1921: direct frontmatter edits trigger lifecycle side effects", () => {
+	beforeEach(() => {
+		mockSyncGoalModeTaskNoteToHermes.mockReset();
+		mockSyncGoalModeTaskNoteToHermes.mockResolvedValue({
+			status: "created",
+			board: "default",
+			cardId: "t_created",
+		});
+	});
+
 	it("selects status before other changed fields so completion uses completion side effects", () => {
 		const originalTask = createTask({ status: "ready", title: "Original" });
 		const updatedTask = createTask({
@@ -157,6 +176,93 @@ describe("Issue #1921: direct frontmatter edits trigger lifecycle side effects",
 		});
 
 		expect(taskService.applyPropertyChangeSideEffects).not.toHaveBeenCalled();
+
+		service.destroy();
+	});
+
+	it("detects TaskNotes newly tagged with #goal and starts Goal Mode sync", async () => {
+		const originalTask = createTask({ tags: ["task"] });
+		const updatedTask = createTask({
+			tags: ["task", "goal"],
+			projects: ["Hermes/default"],
+			contexts: ["peacock"],
+		});
+		const { plugin, taskService } = createPlugin([originalTask]);
+		const service = new TaskFileLifecycleReconciliationService(plugin as any);
+
+		await service.initialize();
+		mockSyncGoalModeTaskNoteToHermes.mockClear();
+		await service.handleTaskUpdatedEvent({
+			path: updatedTask.path,
+			updatedTask,
+		});
+
+		expect(mockSyncGoalModeTaskNoteToHermes).toHaveBeenCalledWith(plugin, updatedTask);
+		expect(taskService.applyPropertyChangeSideEffects).toHaveBeenCalledWith(
+			expect.any(TFile),
+			originalTask,
+			updatedTask,
+			"tags",
+			["task"],
+			["task", "goal"]
+		);
+
+		service.destroy();
+	});
+
+	it("syncs a newly created #goal TaskNote when no initial snapshot exists", async () => {
+		const updatedTask = createTask({
+			tags: ["task", "#goal"],
+			projects: ["Hermes/default"],
+			contexts: ["peacock"],
+		});
+		const { plugin, taskService } = createPlugin([]);
+		const service = new TaskFileLifecycleReconciliationService(plugin as any);
+
+		await service.initialize();
+		mockSyncGoalModeTaskNoteToHermes.mockClear();
+		await service.handleTaskUpdatedEvent({
+			path: updatedTask.path,
+			updatedTask,
+		});
+
+		expect(mockSyncGoalModeTaskNoteToHermes).toHaveBeenCalledWith(plugin, updatedTask);
+		expect(taskService.applyPropertyChangeSideEffects).not.toHaveBeenCalled();
+
+		service.destroy();
+	});
+
+	it("syncs existing unsynced #goal TaskNotes during startup snapshot", async () => {
+		const existingGoalTask = createTask({
+			tags: ["task", "hermes-goal"],
+			projects: ["Hermes/default"],
+			contexts: ["peacock"],
+		});
+		const { plugin, taskService } = createPlugin([existingGoalTask]);
+		const service = new TaskFileLifecycleReconciliationService(plugin as any);
+
+		await service.initialize();
+
+		expect(mockSyncGoalModeTaskNoteToHermes).toHaveBeenCalledWith(plugin, existingGoalTask);
+		expect(taskService.applyPropertyChangeSideEffects).not.toHaveBeenCalled();
+
+		service.destroy();
+	});
+
+	it("does not offer Goal Mode sync for TaskService-originated updates with originalTask", async () => {
+		const originalTask = createTask({ tags: ["task"] });
+		const updatedTask = createTask({ tags: ["task", "goal"] });
+		const { plugin } = createPlugin([originalTask]);
+		const service = new TaskFileLifecycleReconciliationService(plugin as any);
+
+		await service.initialize();
+		await service.handleTaskUpdatedEvent({
+			path: updatedTask.path,
+			originalTask,
+			updatedTask,
+		});
+
+		expect(mockSyncGoalModeTaskNoteToHermes).not.toHaveBeenCalled();
 
 		service.destroy();
 	});

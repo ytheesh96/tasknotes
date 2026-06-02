@@ -3,6 +3,7 @@ import type { TaskInfo } from "../../../src/types";
 import {
 	buildHermesTaskEditOptions,
 	buildHermesTaskCreationOptions,
+	buildHermesGoalModeTaskCreationOptions,
 } from "../../../src/hermes/hermesTaskNotesIntegration";
 
 describe("Hermes TaskNotes integration", () => {
@@ -83,6 +84,26 @@ describe("Hermes TaskNotes integration", () => {
 
 		expect(options.hermesBoardPicker?.selectedBoard).toBe("hhmi");
 		expect(options.prePopulatedValues?.projects).toEqual(["Hermes/hhmi"]);
+	});
+
+	it("builds Goal Mode creation options with durable mode markers", () => {
+		const options = buildHermesGoalModeTaskCreationOptions(app, [], {
+			title: "Clarify research goal",
+			projects: ["Hermes/default"],
+			tags: ["planning"],
+		});
+
+		expect(options.hermesCreationMode).toBe("goal");
+		expect(options.modalTitle).toBe("Create Goal Mode card");
+		expect(options.saveButtonText).toBe("Create Goal Mode card");
+		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:default");
+		expect(options.prePopulatedValues?.tags).toEqual(
+			expect.arrayContaining(["hermes-kanban", "hermes-goal", "planning"])
+		);
+		expect(options.prePopulatedValues?.customFrontmatter).toMatchObject({
+			hermesCardMode: "goal",
+			hermesMode: "goal",
+		});
 	});
 
 	it("keeps raw writeback fields out of the board edit modal", () => {

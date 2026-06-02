@@ -85,6 +85,7 @@ import {
 } from "./settings/settingsPersistence";
 import { startDateChangeDetection } from "./bootstrap/dateChangeDetection";
 import {
+	buildHermesGoalModeTaskCreationOptions,
 	buildHermesTaskCreationOptions,
 	buildHermesTaskEditOptions,
 	normalizeHermesModalFieldsConfig,
@@ -1446,6 +1447,18 @@ export default class TaskNotesPlugin extends Plugin {
 	openTaskCreationModal(prePopulatedValues?: Partial<TaskInfo>) {
 		const values = this.applyParentNoteProjectDefault(prePopulatedValues);
 		const options = buildHermesTaskCreationOptions(
+			this.app,
+			this.settings.userFields ?? [],
+			values,
+			undefined,
+			this.settings.taskCreationDefaults.defaultProjects
+		);
+		new TaskCreationModal(this.app, this, options).open();
+	}
+
+	openHermesGoalModeCreationModal(prePopulatedValues?: Partial<TaskInfo>) {
+		const values = this.applyParentNoteProjectDefault(prePopulatedValues);
+		const options = buildHermesGoalModeTaskCreationOptions(
 			this.app,
 			this.settings.userFields ?? [],
 			values,

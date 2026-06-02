@@ -38,6 +38,8 @@ export async function createOrUpdateHermesMirrorNote(
 	options: {
 		parents?: string[];
 		children?: string[];
+		extraFrontmatter?: Record<string, unknown>;
+		extraTags?: string[];
 	} = {}
 ): Promise<{ file: TFile; taskInfo: TaskInfo }> {
 	const folder = `TaskNotes/${board}`;
@@ -81,6 +83,8 @@ export function buildHermesMirrorContent(
 		parents?: string[];
 		children?: string[];
 		existingTaskInfo?: Pick<TaskInfo, "dateCreated" | "completedDate">;
+		extraFrontmatter?: Record<string, unknown>;
+		extraTags?: string[];
 	} = {}
 ): string {
 	const frontmatter = buildHermesMirrorFrontmatter(board, task, getCurrentTimestamp(), options);
@@ -95,10 +99,12 @@ function buildHermesMirrorFrontmatter(
 	options: {
 		parents?: string[];
 		existingTaskInfo?: Pick<TaskInfo, "dateCreated" | "completedDate">;
+		extraFrontmatter?: Record<string, unknown>;
+		extraTags?: string[];
 	} = {}
 ): Record<string, unknown> {
 	const hermesPriority = task.priority ?? 0;
-	const tags = ["task", "hermes-kanban"];
+	const tags = [...new Set(["task", "hermes-kanban", ...(options.extraTags ?? [])])];
 	if (task.status === "archived") {
 		tags.push("archived");
 	}
@@ -121,7 +127,23 @@ function buildHermesMirrorFrontmatter(
 	if (blockedBy.length > 0) {
 		frontmatter.blockedBy = blockedBy;
 	}
-	return frontmatter;
+	return {
+		...frontmatter,
+		...frontmatterFromHermesMetadata(task.metadata),
+		...(options.extraFrontmatter ?? {}),
+	};
+}
+
+function frontmatterFromHermesMetadata(
+	metadata: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+	if (!metadata || metadata.hermes_card_mode !== "goal") {
+		return {};
+	}
+	return {
+		hermesCardMode: "goal",
+		hermesMode: "goal",
+	};
 }
 
 function buildHermesMirrorBody(task: HermesTaskRecord): string {

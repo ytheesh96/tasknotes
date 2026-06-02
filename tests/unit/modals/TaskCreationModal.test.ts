@@ -35,7 +35,7 @@ jest.mock("obsidian");
 // Keeping behavior aligned with src/utils/helpers.sanitizeTags to avoid false negatives.
 jest.mock("../../../src/utils/helpers", () => ({
 	calculateDefaultDate: jest.fn((option) => {
-		const today = new Date("2025-01-15");
+		const today = new Date(2025, 0, 15);
 		if (option === "today") return format(today, "yyyy-MM-dd");
 		if (option === "tomorrow") {
 			const tomorrow = new Date(today);
@@ -45,7 +45,7 @@ jest.mock("../../../src/utils/helpers", () => ({
 		return "";
 	}),
 	calculateDefaultDateTime: jest.fn((option, time = "none") => {
-		const today = new Date("2025-01-15");
+		const today = new Date(2025, 0, 15);
 		let date = "";
 		if (option === "today") date = format(today, "yyyy-MM-dd");
 		if (option === "tomorrow") {
@@ -454,6 +454,39 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 			);
 
 			expect(Notice).toHaveBeenCalledWith('Task "Test Task" created successfully');
+		});
+
+		it("should ignore duplicate submits while creation is in flight", async () => {
+			let resolveCreateTask!: (value: {
+				file: TFile;
+				content: string;
+				taskInfo: Partial<TaskInfo>;
+			}) => void;
+			mockPlugin.taskService.createTask.mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						resolveCreateTask = resolve;
+					})
+			);
+			(modal as any).title = "Double-click guarded task";
+			(modal as any).frequencyMode = "NONE";
+
+			const firstSubmit = modal.handleSave();
+			const secondSubmit = modal.handleSave();
+
+			expect(mockPlugin.taskService.createTask).toHaveBeenCalledTimes(1);
+			resolveCreateTask({
+				file: new TFile("double-click-guarded-task.md"),
+				content: "# Double-click guarded task",
+				taskInfo: {
+					title: "Double-click guarded task",
+					status: "open",
+					priority: "normal",
+				},
+			});
+			await Promise.all([firstSubmit, secondSubmit]);
+
+			expect(mockPlugin.taskService.createTask).toHaveBeenCalledTimes(1);
 		});
 
 		it("should handle task creation errors", async () => {

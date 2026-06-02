@@ -253,6 +253,40 @@ export function buildHermesTaskCreationOptions(
 	};
 }
 
+export function buildHermesGoalModeTaskCreationOptions(
+	app: App,
+	userFields: readonly UserMappedField[] = [],
+	prePopulatedValues?: TaskCreationPrepopulatedValues,
+	onTaskCreated?: (task: TaskInfo) => void,
+	defaultProjects?: unknown
+): TaskCreationOptions {
+	const options = buildHermesTaskCreationOptions(
+		app,
+		userFields,
+		prePopulatedValues,
+		onTaskCreated,
+		defaultProjects
+	);
+	return {
+		...options,
+		hermesCreationMode: "goal",
+		modalTitle: "Create Goal Mode card",
+		saveButtonText: "Create Goal Mode card",
+		prePopulatedValues: {
+			...options.prePopulatedValues,
+			tags: uniqueStrings([
+				...asStringArray(options.prePopulatedValues?.tags),
+				"hermes-goal",
+			]),
+			customFrontmatter: {
+				...customFrontmatter(options.prePopulatedValues),
+				hermesCardMode: "goal",
+				hermesMode: "goal",
+			},
+		},
+	};
+}
+
 export {
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,

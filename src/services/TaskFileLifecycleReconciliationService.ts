@@ -1,5 +1,9 @@
 import { TFile, type EventRef } from "obsidian";
 import type TaskNotesPlugin from "../main";
+import {
+	isGoalModeTaskNoteSyncEligible,
+	syncGoalModeTaskNoteToHermes,
+} from "../hermes/hermesGoalModeTaskNoteSync";
 import { EVENT_TASK_UPDATED, type TaskInfo } from "../types";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
@@ -120,7 +124,12 @@ export class TaskFileLifecycleReconciliationService {
 		const originalTask = this.taskSnapshots.get(path);
 		this.taskSnapshots.set(path, updatedTask);
 
-		if (!originalTask || this.handlingPaths.has(path)) {
+		if (!originalTask) {
+			await this.syncNewlyDiscoveredGoalTask(path, updatedTask);
+			return;
+		}
+
+		if (this.handlingPaths.has(path)) {
 			return;
 		}
 
@@ -144,6 +153,7 @@ export class TaskFileLifecycleReconciliationService {
 				originalTask[property],
 				updatedTask[property]
 			);
+			await syncGoalModeTaskNoteToHermes(this.plugin, updatedTask);
 		} catch (error) {
 			tasknotesLogger.warn("Failed to reconcile direct task file edit:", {
 				category: "persistence",
@@ -161,6 +171,7 @@ export class TaskFileLifecycleReconciliationService {
 			const tasks = await this.plugin.cacheManager.getAllTasks();
 			for (const task of tasks) {
 				this.taskSnapshots.set(task.path, task);
+				await this.syncNewlyDiscoveredGoalTask(task.path, task);
 			}
 		} catch (error) {
 			tasknotesLogger.warn("Failed to snapshot tasks for direct file edit reconciliation:", {
@@ -168,6 +179,26 @@ export class TaskFileLifecycleReconciliationService {
 				operation: "snapshot-direct-task-file-reconciliation",
 				error,
 			});
+		}
+	}
+
+	private async syncNewlyDiscoveredGoalTask(path: string, task: TaskInfo): Promise<void> {
+		if (!isGoalModeTaskNoteSyncEligible(task) || this.handlingPaths.has(path)) {
+			return;
+		}
+
+		this.handlingPaths.add(path);
+		try {
+			await syncGoalModeTaskNoteToHermes(this.plugin, task);
+		} catch (error) {
+			tasknotesLogger.warn("Failed to sync newly discovered Goal Mode TaskNote:", {
+				category: "persistence",
+				operation: "sync-newly-discovered-goal-tasknote",
+				details: { taskPath: path },
+				error,
+			});
+		} finally {
+			this.handlingPaths.delete(path);
 		}
 	}
 }

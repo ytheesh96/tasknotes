@@ -73,6 +73,13 @@ export function createTaskNotesCommandDefinitions(
 			},
 		},
 		{
+			id: "create-hermes-goal-mode-card",
+			nameKey: "commands.createHermesGoalModeCard",
+			callback: (ctx) => {
+				ctx.openHermesGoalModeCreationModal();
+			},
+		},
+		{
 			id: "convert-current-note-to-task",
 			nameKey: "commands.convertCurrentNoteToTask.name",
 			callback: async (ctx) => {

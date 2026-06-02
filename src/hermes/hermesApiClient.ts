@@ -26,6 +26,7 @@ export interface HermesTaskRecord {
 	branch_name?: string | null;
 	result?: string | null;
 	latest_summary?: string | null;
+	metadata?: Record<string, unknown> | null;
 }
 
 export interface HermesTaskIdentity {
