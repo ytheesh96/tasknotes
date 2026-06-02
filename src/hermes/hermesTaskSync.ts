@@ -2,13 +2,14 @@ import type TaskNotesPlugin from "../main";
 import { EVENT_TASK_UPDATED, type TaskInfo } from "../types";
 import {
 	HermesKanbanApiClient,
+	type HermesTaskIdentity,
 	type HermesTaskDetailResponse,
 	type HermesTaskRecord,
 	getHermesTaskIdentity,
 } from "./hermesApiClient";
 import { createOrUpdateHermesMirrorNote, hermesPriorityToTaskNotesPriority } from "./hermesMirror";
 
-export const HERMES_MANAGED_TASK_SYNC_INTERVAL_MS = 15_000;
+export const HERMES_MANAGED_TASK_RECONCILE_INTERVAL_MS = 120_000;
 
 type HermesTaskSyncApi = Pick<HermesKanbanApiClient, "getBoard" | "getTask">;
 
@@ -29,6 +30,10 @@ export interface HermesManagedTaskSyncResult {
 	updated: number;
 	skipped: number;
 	failed: number;
+}
+
+export function getHermesManagedBoards(tasks: readonly TaskInfo[]): string[] {
+	return [...getHermesManagedTasksByBoard(tasks).keys()];
 }
 
 export async function syncHermesManagedTasksFromHermes(
@@ -103,6 +108,43 @@ export async function syncHermesManagedTasksFromHermes(
 	}
 
 	return result;
+}
+
+export async function syncHermesManagedTaskFromHermes(
+	plugin: TaskNotesPlugin,
+	identity: HermesTaskIdentity,
+	options: {
+		api?: Pick<HermesKanbanApiClient, "getTask">;
+		localTask?: TaskInfo | null;
+		mirrorWriter?: HermesMirrorWriter;
+	} = {}
+): Promise<boolean> {
+	const path = `TaskNotes/${identity.board}/${identity.id}.md`;
+	const localTask = options.localTask ?? (await plugin.cacheManager.getTaskInfo(path));
+	if (!localTask || !isHermesManagedTask(localTask)) {
+		return false;
+	}
+	const api = options.api ?? new HermesKanbanApiClient();
+	const detail = await api.getTask(identity);
+	if (!detail.task || !shouldRefreshFromHermes(identity.board, localTask, detail.task)) {
+		return false;
+	}
+
+	const mirrorWriter = options.mirrorWriter ?? createOrUpdateHermesMirrorNote;
+	const { taskInfo } = await mirrorWriter(plugin, identity.board, detail.task, {
+		parents: detail.links?.parents ?? [],
+		children: detail.links?.children ?? [],
+	});
+	plugin.emitter.trigger(EVENT_TASK_UPDATED, {
+		path: taskInfo.path,
+		originalTask: localTask,
+		updatedTask: taskInfo,
+	});
+	return true;
+}
+
+export function shouldHandleHermesTaskEvent(kind: string | null | undefined): boolean {
+	return kind !== "heartbeat" && kind !== "spawned";
 }
 
 function getHermesManagedTasksByBoard(

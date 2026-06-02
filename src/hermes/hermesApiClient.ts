@@ -165,6 +165,20 @@ export class HermesKanbanApiClient {
 		return this.request<HermesBoardStateResponse>(`/board?${params.toString()}`);
 	}
 
+	async getEventStreamUrl(board: string, since = 0): Promise<string | null> {
+		const token = this.sessionToken ?? (await this.loadSessionToken());
+		if (!token) {
+			return null;
+		}
+		this.sessionToken = token;
+		const url = new URL(`${this.baseUrl.replace(/\/$/, "")}/events`);
+		url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+		url.searchParams.set("since", String(Math.max(0, since)));
+		url.searchParams.set("token", token);
+		url.searchParams.set("board", board);
+		return url.toString();
+	}
+
 	async updateTask(
 		identity: HermesTaskIdentity,
 		payload: HermesUpdateTaskPayload

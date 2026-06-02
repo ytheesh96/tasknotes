@@ -93,7 +93,10 @@ import {
 import { HermesKanbanApiClient, getHermesTaskIdentity } from "./hermes/hermesApiClient";
 import { createOrUpdateHermesMirrorNote } from "./hermes/hermesMirror";
 import {
-	HERMES_MANAGED_TASK_SYNC_INTERVAL_MS,
+	HERMES_MANAGED_TASK_RECONCILE_INTERVAL_MS,
+	getHermesManagedBoards,
+	shouldHandleHermesTaskEvent,
+	syncHermesManagedTaskFromHermes,
 	syncHermesManagedTasksFromHermes,
 } from "./hermes/hermesTaskSync";
 import { createTaskNotesLogger } from "./utils/tasknotesLogger";
@@ -136,6 +139,11 @@ export default class TaskNotesPlugin extends Plugin {
 	private settingsDataSaveRequested = false;
 	private hermesManagedTaskSyncStarted = false;
 	private hermesManagedTaskSyncInFlight = false;
+	private hermesEventStreamsActive = false;
+	private hermesEventSockets = new Map<string, WebSocket>();
+	private hermesEventReconnectTimers = new Map<string, number>();
+	private hermesEventReconnectDelayByBoard = new Map<string, number>();
+	private hermesEventCursorByBoard = new Map<string, number>();
 
 	// Ready promise to signal when initialization is complete
 	private readyPromise: Promise<void>;
@@ -396,10 +404,12 @@ export default class TaskNotesPlugin extends Plugin {
 			return;
 		}
 		this.hermesManagedTaskSyncStarted = true;
+		this.hermesEventStreamsActive = true;
+		this.register(() => this.stopHermesEventStreams());
 		this.registerInterval(
 			window.setInterval(() => {
 				void this.syncHermesManagedTasksFromHermes();
-			}, HERMES_MANAGED_TASK_SYNC_INTERVAL_MS)
+			}, HERMES_MANAGED_TASK_RECONCILE_INTERVAL_MS)
 		);
 		void this.syncHermesManagedTasksFromHermes();
 	}
@@ -410,7 +420,9 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 		this.hermesManagedTaskSyncInFlight = true;
 		try {
-			const result = await syncHermesManagedTasksFromHermes(this);
+			const tasks = await this.cacheManager.getAllTasks();
+			await this.refreshHermesEventStreams(tasks);
+			const result = await syncHermesManagedTasksFromHermes(this, { tasks });
 			if (result.updated > 0 || result.failed > 0) {
 				tasknotesLogger.debug("Hermes managed task sync completed", {
 					category: "provider",
@@ -426,6 +438,168 @@ export default class TaskNotesPlugin extends Plugin {
 			});
 		} finally {
 			this.hermesManagedTaskSyncInFlight = false;
+		}
+	}
+
+	private async refreshHermesEventStreams(tasks: readonly TaskInfo[]): Promise<void> {
+		const nextBoards = new Set(getHermesManagedBoards(tasks));
+		for (const board of this.hermesEventSockets.keys()) {
+			if (!nextBoards.has(board)) {
+				this.closeHermesEventStream(board);
+			}
+		}
+		for (const board of nextBoards) {
+			if (
+				!this.hermesEventSockets.has(board) &&
+				!this.hermesEventReconnectTimers.has(board)
+			) {
+				await this.openHermesEventStream(board);
+			}
+		}
+	}
+
+	private async openHermesEventStream(board: string): Promise<void> {
+		if (!this.hermesEventStreamsActive || this.hermesEventSockets.has(board)) {
+			return;
+		}
+		let url: string | null = null;
+		try {
+			url = await new HermesKanbanApiClient().getEventStreamUrl(
+				board,
+				this.hermesEventCursorByBoard.get(board) ?? 0
+			);
+		} catch (error) {
+			tasknotesLogger.debug("Could not prepare Hermes event stream", {
+				category: "provider",
+				operation: "hermes-event-stream",
+				details: { board },
+				error,
+			});
+		}
+		if (!url) {
+			this.scheduleHermesEventReconnect(board);
+			return;
+		}
+
+		let socket: WebSocket;
+		try {
+			socket = new WebSocket(url);
+		} catch (error) {
+			tasknotesLogger.debug("Could not open Hermes event stream", {
+				category: "provider",
+				operation: "hermes-event-stream",
+				details: { board },
+				error,
+			});
+			this.scheduleHermesEventReconnect(board);
+			return;
+		}
+
+		this.hermesEventSockets.set(board, socket);
+		socket.onopen = () => {
+			this.hermesEventReconnectDelayByBoard.set(board, 1_000);
+		};
+		socket.onmessage = (event) => {
+			const raw = typeof event.data === "string" ? event.data : "";
+			void this.handleHermesEventStreamMessage(board, raw);
+		};
+		socket.onerror = () => {
+			socket.close();
+		};
+		socket.onclose = () => {
+			if (this.hermesEventSockets.get(board) === socket) {
+				this.hermesEventSockets.delete(board);
+			}
+			this.scheduleHermesEventReconnect(board);
+		};
+	}
+
+	private scheduleHermesEventReconnect(board: string): void {
+		if (!this.hermesEventStreamsActive || this.hermesEventReconnectTimers.has(board)) {
+			return;
+		}
+		const delay = this.hermesEventReconnectDelayByBoard.get(board) ?? 1_000;
+		this.hermesEventReconnectDelayByBoard.set(board, Math.min(delay * 2, 30_000));
+		const timer = window.setTimeout(() => {
+			this.hermesEventReconnectTimers.delete(board);
+			void this.openHermesEventStream(board);
+		}, delay);
+		this.hermesEventReconnectTimers.set(board, timer);
+	}
+
+	private closeHermesEventStream(board: string): void {
+		const timer = this.hermesEventReconnectTimers.get(board);
+		if (timer !== undefined) {
+			window.clearTimeout(timer);
+			this.hermesEventReconnectTimers.delete(board);
+		}
+		const socket = this.hermesEventSockets.get(board);
+		if (socket) {
+			socket.onopen = null;
+			socket.onmessage = null;
+			socket.onerror = null;
+			socket.onclose = null;
+			socket.close();
+			this.hermesEventSockets.delete(board);
+		}
+		this.hermesEventReconnectDelayByBoard.delete(board);
+	}
+
+	private stopHermesEventStreams(): void {
+		this.hermesEventStreamsActive = false;
+		for (const board of [
+			...this.hermesEventSockets.keys(),
+			...this.hermesEventReconnectTimers.keys(),
+		]) {
+			this.closeHermesEventStream(board);
+		}
+	}
+
+	private async handleHermesEventStreamMessage(board: string, raw: string): Promise<void> {
+		if (!raw) {
+			return;
+		}
+		let payload: unknown;
+		try {
+			payload = JSON.parse(raw);
+		} catch {
+			return;
+		}
+		if (!payload || typeof payload !== "object") {
+			return;
+		}
+		const message = payload as {
+			cursor?: unknown;
+			events?: Array<{ id?: unknown; task_id?: unknown; kind?: unknown }>;
+		};
+		if (typeof message.cursor === "number") {
+			this.hermesEventCursorByBoard.set(board, message.cursor);
+		}
+		const taskIds = new Set<string>();
+		for (const event of message.events ?? []) {
+			if (typeof event.id === "number") {
+				this.hermesEventCursorByBoard.set(
+					board,
+					Math.max(this.hermesEventCursorByBoard.get(board) ?? 0, event.id)
+				);
+			}
+			const kind = typeof event.kind === "string" ? event.kind : undefined;
+			if (!shouldHandleHermesTaskEvent(kind) || typeof event.task_id !== "string") {
+				continue;
+			}
+			taskIds.add(event.task_id);
+		}
+		for (const id of taskIds) {
+			try {
+				await syncHermesManagedTaskFromHermes(this, { board, id });
+			} catch (error) {
+				tasknotesLogger.debug("Hermes event task refresh failed", {
+					category: "provider",
+					operation: "hermes-event-task-refresh",
+					details: { board, id },
+					error,
+				});
+			}
 		}
 	}
 
@@ -686,7 +860,9 @@ export default class TaskNotesPlugin extends Plugin {
 		const loadedData = await this.loadSettingsData();
 		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData(loadedData);
 		const hermesUserFields = normalizeHermesUserFields(settings.userFields);
-		const hermesModalFieldsConfig = normalizeHermesModalFieldsConfig(settings.modalFieldsConfig);
+		const hermesModalFieldsConfig = normalizeHermesModalFieldsConfig(
+			settings.modalFieldsConfig
+		);
 		settings.userFields = hermesUserFields.fields;
 		settings.modalFieldsConfig = hermesModalFieldsConfig.config;
 		this.settings = settings;
@@ -1430,7 +1606,9 @@ export default class TaskNotesPlugin extends Plugin {
 		const tasks = await this.cacheManager.getAllTasks();
 		const matchesTaskId = (task: TaskInfo) => {
 			const identity = getHermesTaskIdentity(task);
-			return Boolean(identity && normalizeHermesTaskIdForLookup(identity.id) === normalizedTaskId);
+			return Boolean(
+				identity && normalizeHermesTaskIdForLookup(identity.id) === normalizedTaskId
+			);
 		};
 		const matchingTask =
 			tasks.find((task) => {

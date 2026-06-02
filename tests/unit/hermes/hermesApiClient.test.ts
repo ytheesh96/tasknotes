@@ -225,6 +225,23 @@ describe("HermesKanbanApiClient", () => {
 		);
 	});
 
+	it("builds authenticated Hermes event stream URLs", async () => {
+		requestUrlMock.mockResolvedValueOnce(
+			textResponse('<script>window.__HERMES_SESSION_TOKEN__="test-token";</script>')
+		);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const url = await api.getEventStreamUrl("default", 123);
+
+		expect(url).toBe(
+			"ws://127.0.0.1:9119/api/plugins/kanban/events?since=123&token=test-token&board=default"
+		);
+		expect(requestUrlMock).toHaveBeenCalledWith({
+			url: "http://127.0.0.1:9119/",
+			throw: false,
+		});
+	});
+
 	it("creates Hermes boards through the board API", async () => {
 		requestUrlMock.mockResolvedValueOnce(
 			jsonResponse({
