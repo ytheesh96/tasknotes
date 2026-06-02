@@ -53,6 +53,16 @@ export interface HermesBoardResponse {
 	board?: HermesBoardRecord;
 }
 
+export interface HermesBoardTaskColumn {
+	name: string;
+	tasks: HermesTaskRecord[];
+}
+
+export interface HermesBoardStateResponse {
+	columns?: HermesBoardTaskColumn[];
+	latest_event_id?: number;
+}
+
 export interface HermesAssigneesResponse {
 	assignees?: HermesAssigneeRecord[];
 }
@@ -142,6 +152,17 @@ export class HermesKanbanApiClient {
 		return this.request<HermesTaskDetailResponse>(
 			`/tasks/${encodeURIComponent(identity.id)}?board=${encodeURIComponent(identity.board)}`
 		);
+	}
+
+	async getBoard(
+		board: string,
+		options: { includeArchived?: boolean } = {}
+	): Promise<HermesBoardStateResponse> {
+		const params = new URLSearchParams({ board });
+		if (options.includeArchived) {
+			params.set("include_archived", "true");
+		}
+		return this.request<HermesBoardStateResponse>(`/board?${params.toString()}`);
 	}
 
 	async updateTask(

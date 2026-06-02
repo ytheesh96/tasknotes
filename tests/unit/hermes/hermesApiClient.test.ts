@@ -199,6 +199,32 @@ describe("HermesKanbanApiClient", () => {
 		);
 	});
 
+	it("reads board state with archived tasks included", async () => {
+		requestUrlMock.mockResolvedValueOnce(
+			jsonResponse({
+				columns: [
+					{
+						name: "done",
+						tasks: [{ id: "t_done", title: "Done", status: "done" }],
+					},
+				],
+				latest_event_id: 42,
+			})
+		);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const board = await api.getBoard("obsidian-os", { includeArchived: true });
+
+		expect(board.columns?.[0]?.tasks[0]?.id).toBe("t_done");
+		expect(requestUrlMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/board?board=obsidian-os&include_archived=true",
+				method: "GET",
+				throw: false,
+			})
+		);
+	});
+
 	it("creates Hermes boards through the board API", async () => {
 		requestUrlMock.mockResolvedValueOnce(
 			jsonResponse({

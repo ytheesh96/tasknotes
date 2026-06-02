@@ -92,6 +92,10 @@ import {
 } from "./hermes/hermesTaskNotesIntegration";
 import { HermesKanbanApiClient, getHermesTaskIdentity } from "./hermes/hermesApiClient";
 import { createOrUpdateHermesMirrorNote } from "./hermes/hermesMirror";
+import {
+	HERMES_MANAGED_TASK_SYNC_INTERVAL_MS,
+	syncHermesManagedTasksFromHermes,
+} from "./hermes/hermesTaskSync";
 import { createTaskNotesLogger } from "./utils/tasknotesLogger";
 import {
 	createTaskNotesPerformanceProfiler,
@@ -130,6 +134,8 @@ export default class TaskNotesPlugin extends Plugin {
 	private settingsLoadCompromised = false;
 	private settingsDataSavePromise: Promise<void> | null = null;
 	private settingsDataSaveRequested = false;
+	private hermesManagedTaskSyncStarted = false;
+	private hermesManagedTaskSyncInFlight = false;
 
 	// Ready promise to signal when initialization is complete
 	private readyPromise: Promise<void>;
@@ -382,6 +388,45 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	async initializeAfterLayoutReady(): Promise<void> {
 		await initializeAfterLayoutReady(this);
+		this.startHermesManagedTaskSync();
+	}
+
+	private startHermesManagedTaskSync(): void {
+		if (this.hermesManagedTaskSyncStarted) {
+			return;
+		}
+		this.hermesManagedTaskSyncStarted = true;
+		this.registerInterval(
+			window.setInterval(() => {
+				void this.syncHermesManagedTasksFromHermes();
+			}, HERMES_MANAGED_TASK_SYNC_INTERVAL_MS)
+		);
+		void this.syncHermesManagedTasksFromHermes();
+	}
+
+	private async syncHermesManagedTasksFromHermes(): Promise<void> {
+		if (this.hermesManagedTaskSyncInFlight) {
+			return;
+		}
+		this.hermesManagedTaskSyncInFlight = true;
+		try {
+			const result = await syncHermesManagedTasksFromHermes(this);
+			if (result.updated > 0 || result.failed > 0) {
+				tasknotesLogger.debug("Hermes managed task sync completed", {
+					category: "provider",
+					operation: "hermes-managed-task-sync",
+					details: { ...result },
+				});
+			}
+		} catch (error) {
+			tasknotesLogger.debug("Hermes managed task sync skipped", {
+				category: "provider",
+				operation: "hermes-managed-task-sync",
+				error,
+			});
+		} finally {
+			this.hermesManagedTaskSyncInFlight = false;
+		}
 	}
 
 	/**
