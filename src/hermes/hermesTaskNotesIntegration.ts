@@ -12,9 +12,7 @@ import {
 	normalizeHermesUserFields,
 } from "./hermesAssignee";
 
-const HERMES_SUBMIT_TAG = "hermes-submit";
 const TASKNOTES_ROOT = "TaskNotes";
-const NON_BOARD_TASKNOTES_FOLDERS = new Set(["Tasks", "Submit", "Views", "Archive", "Hermes"]);
 const DEFAULT_HERMES_BOARDS = [
 	"obsidian-os",
 	"hhmi",
@@ -69,9 +67,7 @@ function activeFile(app: App): TFile | null {
 }
 
 function boardFromHermesTaskPath(path: string): string | null {
-	const match =
-		path.match(/^TaskNotes\/(?!Tasks\/|Submit\/|Views\/|Archive\/|Hermes\/)([^/]+)\/t_[^/]+\.md$/) ??
-		path.match(/^TaskNotes\/Hermes\/([^/]+)\/[^/]+\.md$/);
+	const match = path.match(/^TaskNotes\/([^/]+)\/t_[^/]+\.md$/);
 	return match ? match[1] : null;
 }
 
@@ -83,7 +79,7 @@ export function getHermesBoards(app: App): string[] {
 	const root = app.vault.getAbstractFileByPath(TASKNOTES_ROOT);
 	if (root instanceof TFolder) {
 		for (const child of root.children) {
-			if (child instanceof TFolder && !NON_BOARD_TASKNOTES_FOLDERS.has(child.name)) {
+			if (child instanceof TFolder) {
 				boards.add(child.name);
 			}
 		}
@@ -111,10 +107,6 @@ function boardFromPrepopulated(
 	values?: TaskCreationPrepopulatedValues,
 	knownBoards: readonly string[] = DEFAULT_HERMES_BOARDS
 ): string | null {
-	const frontmatter = customFrontmatter(values);
-	const board =
-		typeof frontmatter.hermes_board === "string" ? frontmatter.hermes_board.trim() : "";
-	if (board) return board;
 	const contexts = asStringArray(values?.contexts);
 	return contexts.find((context) => knownBoards.includes(context)) ?? null;
 }
@@ -166,15 +158,10 @@ function field(
 	};
 }
 
-function userFieldIds(userFields: readonly UserMappedField[], ids: readonly string[]): string[] {
-	const existing = new Set(userFields.map((userField) => userField.id));
-	return ids.filter((id) => existing.has(id));
-}
-
 export function createHermesCreationFieldConfig(
 	userFields: readonly UserMappedField[] = []
 ): ModalFieldsConfigLike {
-	const hermesUserFields = ensureHermesAssigneeUserField(userFields);
+	ensureHermesAssigneeUserField(userFields);
 	const fields: HermesModalField[] = [
 		field("title", "core", "basic", 0, "Title", true, true),
 		field("details", "core", "basic", 1, "Details", true, true),
@@ -183,10 +170,6 @@ export function createHermesCreationFieldConfig(
 		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
 		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
 	];
-
-	for (const id of userFieldIds(hermesUserFields, ["hermes_priority", "hermes_parent"])) {
-		fields.push(field(id, "user", "routing", fields.length, id, false, false));
-	}
 
 	return { groups: modalGroups(), fields };
 }
@@ -221,24 +204,24 @@ export function buildHermesTaskCreationOptions(
 	const incomingFrontmatter = customFrontmatter(prePopulatedValues);
 	const custom = {
 		...incomingFrontmatter,
-		hermes_submit: true,
-		hermes_board: incomingFrontmatter.hermes_board ?? board,
-		hermes_priority: incomingFrontmatter.hermes_priority ?? "3",
-		hermes_created_by: incomingFrontmatter.hermes_created_by ?? "tasknotes-native",
-		assignee: incomingFrontmatter.assignee ?? incomingFrontmatter.hermes_assignee ?? "",
+		assignee: incomingFrontmatter.assignee ?? "",
 	};
+	const status =
+		typeof prePopulatedValues?.status === "string" && prePopulatedValues.status.trim()
+			? prePopulatedValues.status
+			: "triage";
 
 	return {
 		prePopulatedValues: {
 			...prePopulatedValues,
-			status: "triage",
+			status,
 			contexts: uniqueStrings([board, ...asStringArray(prePopulatedValues?.contexts)]),
-			tags: uniqueStrings([...asStringArray(prePopulatedValues?.tags), HERMES_SUBMIT_TAG]),
+			tags: uniqueStrings([...asStringArray(prePopulatedValues?.tags), "hermes-kanban"]),
 			customFrontmatter: custom,
 		},
 		onTaskCreated,
 		modalTitle: "Create task",
-		saveButtonText: "Send to triage",
+		saveButtonText: "Create task",
 		modalFieldsConfig: createHermesCreationFieldConfig(userFields),
 		creationTargetPicker: {
 			boards: boardOptions,
@@ -257,29 +240,6 @@ export {
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
 };
-
-export function buildDefaultTaskCreationOptionsWithHermesTargets(
-	app: App,
-	prePopulatedValues?: TaskCreationPrepopulatedValues,
-	onTaskCreated?: (task: TaskInfo) => void
-): TaskCreationOptions {
-	const boards = getHermesBoards(app);
-	const board = boardFromPrepopulated(prePopulatedValues, boards) ?? preferredBoard(app);
-	const boardOptions = uniqueStrings([board, ...boards]);
-
-	return {
-		prePopulatedValues,
-		onTaskCreated,
-		creationTargetPicker: {
-			boards: boardOptions,
-			selectedTarget: "default",
-		},
-		hermesBoardPicker: {
-			boards: boardOptions,
-			selectedBoard: board,
-		},
-	};
-}
 
 export function buildHermesTaskEditOptions(
 	task: TaskInfo,

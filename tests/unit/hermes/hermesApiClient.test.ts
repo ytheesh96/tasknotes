@@ -29,7 +29,7 @@ describe("HermesKanbanApiClient", () => {
 		});
 	});
 
-	it("keeps legacy Hermes mirror paths addressable", () => {
+	it("does not treat legacy Hermes mirror paths as board task identities", () => {
 		const task = {
 			title: "Example",
 			status: "triage",
@@ -38,13 +38,10 @@ describe("HermesKanbanApiClient", () => {
 			archived: false,
 		} satisfies TaskInfo;
 
-		expect(getHermesTaskIdentity(task)).toEqual({
-			board: "default",
-			id: "t_1234",
-		});
+		expect(getHermesTaskIdentity(task)).toBeNull();
 	});
 
-	it("does not treat reserved TaskNotes folders as board tasks", () => {
+	it("treats every direct TaskNotes folder as a possible board", () => {
 		const task = {
 			title: "Example",
 			status: "triage",
@@ -54,10 +51,13 @@ describe("HermesKanbanApiClient", () => {
 			tags: ["task"],
 		} satisfies TaskInfo;
 
-		expect(getHermesTaskIdentity(task)).toBeNull();
+		expect(getHermesTaskIdentity(task)).toEqual({
+			board: "Tasks",
+			id: "t_1234",
+		});
 	});
 
-	it("falls back to legacy Hermes custom properties for old mirrors", () => {
+	it("ignores legacy Hermes custom properties for identity", () => {
 		const task = {
 			title: "Example",
 			status: "triage",
@@ -70,10 +70,7 @@ describe("HermesKanbanApiClient", () => {
 			},
 		} satisfies TaskInfo;
 
-		expect(getHermesTaskIdentity(task)).toEqual({
-			board: "obsidian-os",
-			id: "t_abcd",
-		});
+		expect(getHermesTaskIdentity(task)).toBeNull();
 	});
 
 	it("posts created tasks to the board-scoped Hermes API", async () => {
@@ -105,19 +102,19 @@ describe("HermesKanbanApiClient", () => {
 		);
 	});
 
-	it("can request an initially blocked board task with a block reason", async () => {
+	it("can request an explicitly blocked board task with a block reason", async () => {
 		requestUrlMock.mockResolvedValue(
 			jsonResponse({
-				task: { id: "t_human", title: "Human task", status: "blocked" },
+				task: { id: "t_blocked", title: "Blocked task", status: "blocked" },
 			})
 		);
 		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
 
 		const created = await api.createTask("default", {
-			title: "Human task",
-			assignee: "human",
+			title: "Blocked task",
+			assignee: "peacock",
 			initial_status: "blocked",
-			block_reason: "Waiting on human: human",
+			block_reason: "Waiting on external dependency",
 		});
 
 		expect(created.status).toBe("blocked");
@@ -126,10 +123,10 @@ describe("HermesKanbanApiClient", () => {
 				url: "http://127.0.0.1:9119/api/plugins/kanban/tasks?board=default",
 				method: "POST",
 				body: JSON.stringify({
-					title: "Human task",
-					assignee: "human",
+					title: "Blocked task",
+					assignee: "peacock",
 					initial_status: "blocked",
-					block_reason: "Waiting on human: human",
+					block_reason: "Waiting on external dependency",
 				}),
 				throw: false,
 			})

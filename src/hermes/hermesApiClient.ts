@@ -2,9 +2,7 @@ import { requestUrl } from "obsidian";
 import type { TaskInfo } from "../types";
 
 const DEFAULT_HERMES_KANBAN_API_BASE = "http://127.0.0.1:9119/api/plugins/kanban";
-const TASKNOTES_KANBAN_TASK_PATH =
-	/^TaskNotes\/(?!Tasks\/|Submit\/|Views\/|Archive\/|Hermes\/)([^/]+)\/(t_[^/]+)\.md$/;
-const LEGACY_HERMES_MIRROR_PATH = /^TaskNotes\/Hermes\/([^/]+)\/(t_[^/]+)\.md$/;
+const TASKNOTES_KANBAN_TASK_PATH = /^TaskNotes\/([^/]+)\/(t_[^/]+)\.md$/;
 
 interface HermesHttpResponse {
 	ok: boolean;
@@ -38,6 +36,7 @@ export interface HermesTaskIdentity {
 export interface HermesCreateTaskPayload {
 	title: string;
 	body?: string;
+	status?: string;
 	assignee?: string;
 	tenant?: string;
 	priority?: number;
@@ -86,17 +85,6 @@ export function getHermesTaskIdentity(task: TaskInfo): HermesTaskIdentity | null
 	const tasknotesMatch = task.path.match(TASKNOTES_KANBAN_TASK_PATH);
 	if (tasknotesMatch) {
 		return { board: tasknotesMatch[1], id: tasknotesMatch[2] };
-	}
-
-	const match = task.path.match(LEGACY_HERMES_MIRROR_PATH);
-	if (match) {
-		return { board: match[1], id: match[2] };
-	}
-
-	const boardFromFrontmatter = customString(task, "hermes_board");
-	const idFromFrontmatter = customString(task, "hermes_id");
-	if (boardFromFrontmatter && idFromFrontmatter) {
-		return { board: boardFromFrontmatter, id: idFromFrontmatter };
 	}
 	return null;
 }
@@ -259,11 +247,6 @@ function requireTask(response: HermesTaskResponse, action: string): HermesTaskRe
 		throw new Error(`Hermes API did not return a task for ${action}`);
 	}
 	return response.task;
-}
-
-function customString(task: TaskInfo, key: string): string {
-	const value = task.customProperties?.[key];
-	return typeof value === "string" ? value.trim() : "";
 }
 
 function headersToRecord(headers: HeadersInit | undefined): Record<string, string> {

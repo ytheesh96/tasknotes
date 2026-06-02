@@ -60,7 +60,7 @@ import {
 	registerBasesTaskUpdateListeners,
 } from "./basesTaskUpdateListeners";
 import type { BasesTaskUpdateSource } from "./basesUpdateEvents";
-import { buildDefaultTaskCreationOptionsWithHermesTargets } from "../hermes/hermesTaskNotesIntegration";
+import { buildHermesTaskCreationOptions } from "../hermes/hermesTaskNotesIntegration";
 import { createTaskNotesLogger, type TaskNotesLogger } from "../utils/tasknotesLogger";
 
 type BasesEphemeralState = {
@@ -487,8 +487,9 @@ export abstract class BasesViewBase extends Component {
 			currentFileLink: () => getBasesCurrentFileLinkDefault(app),
 			frontmatterProcessor,
 		});
-		const taskCreationOptions = buildDefaultTaskCreationOptionsWithHermesTargets(
+		const taskCreationOptions = buildHermesTaskCreationOptions(
 			app,
+			this.plugin.settings.userFields ?? [],
 			taskCreationData,
 			() => {
 				this.refresh();

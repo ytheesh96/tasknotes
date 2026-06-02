@@ -65,7 +65,6 @@ export const HERMES_ASSIGNEE_FIELD: UserMappedField = {
 
 export const HERMES_ASSIGNEE_PROPERTY_ID = `user:${HERMES_ASSIGNEE_FIELD.id}`;
 
-const HUMAN_ASSIGNEES = new Set(["human", "user", "yt", "vaitheesh"]);
 const LEGACY_HERMES_USER_FIELD_IDS = new Set([
 	"hermes_id",
 	"hermes_board",
@@ -98,8 +97,7 @@ const LEGACY_MODAL_GROUP_MAP = new Map<string, FieldGroup>([
 	["hermes-state", "routing"],
 	["hermes-system", "routing"],
 ]);
-const CONTROL_PANEL_BOARD_PATH =
-	/^TaskNotes\/(?!Tasks\/|Submit\/|Views\/|Archive\/|Hermes\/)[^/]+\/t_[^/]+\.md$/;
+const CONTROL_PANEL_BOARD_PATH = /^TaskNotes\/[^/]+\/t_[^/]+\.md$/;
 const CONTROL_PANEL_GROUP_IDS = new Set<FieldGroup>(
 	CONTROL_PANEL_FIELD_GROUPS.map((group) => group.id)
 );
@@ -251,16 +249,12 @@ export function collectHermesAssigneesFromMirrorNotes(app: unknown): string[] {
 	const files = source.vault?.getMarkdownFiles?.() ?? [];
 	const values = mergeHermesAssigneeDefaultValues(
 		files
-			.filter(
-				(file) =>
-					file.path.startsWith("TaskNotes/Hermes/") ||
-					CONTROL_PANEL_BOARD_PATH.test(file.path)
-			)
+			.filter((file) => CONTROL_PANEL_BOARD_PATH.test(file.path))
 			.flatMap((file) => {
 				const frontmatter =
 					source.metadataCache?.getFileCache?.(file)?.frontmatter ??
 					source.metadataCache?.getCache?.(file.path)?.frontmatter;
-				return [frontmatter?.assignee, frontmatter?.hermes_assignee];
+				return [frontmatter?.assignee];
 			})
 	);
 
@@ -348,28 +342,12 @@ export function normalizeHermesAssignee(value: unknown): string | null {
 	return assignee && assignee.toLowerCase() !== "none" ? assignee : null;
 }
 
-export function isHumanHermesAssignee(value: unknown): boolean {
-	const assignee = normalizeHermesAssignee(value);
-	return assignee ? HUMAN_ASSIGNEES.has(assignee.toLowerCase()) : false;
-}
-
-export function buildHumanAssigneeBlockReason(assignee: string): string {
-	return `Waiting on human: ${assignee}`;
-}
-
 export function buildHermesAssigneeUpdatePayload(
 	value: unknown
 ): { assignee: string | null; status?: string; block_reason?: string } | null {
 	const assignee = normalizeHermesAssignee(value);
 	if (!assignee) {
 		return { assignee: null };
-	}
-	if (isHumanHermesAssignee(assignee)) {
-		return {
-			assignee,
-			status: "blocked",
-			block_reason: buildHumanAssigneeBlockReason(assignee),
-		};
 	}
 	return { assignee };
 }

@@ -1380,17 +1380,6 @@ export default class TaskNotesPlugin extends Plugin {
 			await this.openTaskEditModal(directTask);
 			return;
 		}
-		const legacyDirectPath = normalizedBoard
-			? `TaskNotes/Hermes/${normalizedBoard}/${normalizedTaskId}.md`
-			: "";
-		const legacyDirectTask = legacyDirectPath
-			? await this.cacheManager.getTaskInfo(legacyDirectPath)
-			: null;
-		if (legacyDirectTask) {
-			await this.openTaskEditModal(legacyDirectTask);
-			return;
-		}
-
 		const tasks = await this.cacheManager.getAllTasks();
 		const matchesTaskId = (task: TaskInfo) => {
 			const identity = getHermesTaskIdentity(task);
@@ -2063,16 +2052,19 @@ export default class TaskNotesPlugin extends Plugin {
 			};
 
 			const prePopulatedValues = this.applyParentNoteProjectDefault();
+			const taskCreationOptions = buildHermesTaskCreationOptions(
+				this.app,
+				this.settings.userFields ?? [],
+				prePopulatedValues,
+				(task: TaskInfo) => {
+					this.handleInlineTaskCreated(task, insertionContext);
+				}
+			);
+			taskCreationOptions.creationContext = "modal-inline-creation";
 
 			// Open task creation modal with callback to insert link
 			// Use modal-inline-creation context for inline folder behavior (Issue #1424)
-			const modal = new TaskCreationModal(this.app, this, {
-				prePopulatedValues,
-				onTaskCreated: (task: TaskInfo) => {
-					this.handleInlineTaskCreated(task, insertionContext);
-				},
-				creationContext: "modal-inline-creation",
-			});
+			const modal = new TaskCreationModal(this.app, this, taskCreationOptions);
 
 			modal.open();
 		} catch (error) {

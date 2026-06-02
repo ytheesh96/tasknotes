@@ -138,7 +138,7 @@ describe("withHermesBoardContext", () => {
 		);
 	});
 
-	it("removes board contexts when returning to default creation", () => {
+	it("removes board contexts from a comma list", () => {
 		expect(withoutHermesBoardContext("hhmi, home, obsidian-os", ["hhmi", "obsidian-os"])).toBe(
 			"home"
 		);
@@ -147,14 +147,14 @@ describe("withHermesBoardContext", () => {
 
 describe("TaskCreationModal comma-list helpers", () => {
 	it("adds a value only once", () => {
-		expect(addCommaListValue("task, hermes-submit", "hermes-submit")).toBe(
-			"task, hermes-submit"
+		expect(addCommaListValue("task, hermes-kanban", "hermes-kanban")).toBe(
+			"task, hermes-kanban"
 		);
-		expect(addCommaListValue("task", "hermes-submit")).toBe("task, hermes-submit");
+		expect(addCommaListValue("task", "hermes-kanban")).toBe("task, hermes-kanban");
 	});
 
 	it("removes selected values", () => {
-		expect(removeCommaListValues("task, hermes-submit, review", ["hermes-submit"])).toBe(
+		expect(removeCommaListValues("task, hermes-kanban, review", ["hermes-kanban"])).toBe(
 			"task, review"
 		);
 	});

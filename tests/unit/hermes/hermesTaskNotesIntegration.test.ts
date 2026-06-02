@@ -8,39 +8,47 @@ import {
 describe("Hermes TaskNotes integration", () => {
 	const app = {} as App;
 
-	it("builds a native TaskNotes submission payload for board triage", () => {
+	it("builds a board-backed creation payload while preserving TaskNotes defaults", () => {
 		const options = buildHermesTaskCreationOptions(app, [], {
 			title: "Draft packet cleanup",
+			status: "ready",
 			contexts: ["hhmi"],
-			tags: ["hermes-kanban"],
+			tags: ["review"],
 			customFrontmatter: {
-				hermes_board: "hhmi",
-				hermes_priority: "7",
+				assignee: "yt",
+				lane: "drafting",
 			},
 		});
 
 		expect(options.modalTitle).toBe("Create task");
-		expect(options.saveButtonText).toBe("Send to triage");
+		expect(options.saveButtonText).toBe("Create task");
 		expect(options.hermesBoardPicker).toMatchObject({
 			selectedBoard: "hhmi",
 		});
 		expect(options.hermesBoardPicker?.boards).toContain("hhmi");
-		expect(options.prePopulatedValues?.status).toBe("triage");
+		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:hhmi");
+		expect(options.prePopulatedValues?.status).toBe("ready");
 		expect(options.prePopulatedValues?.contexts).toContain("hhmi");
 		expect(options.prePopulatedValues?.tags).toEqual(
-			expect.arrayContaining(["hermes-kanban", "hermes-submit"])
+			expect.arrayContaining(["review", "hermes-kanban"])
 		);
 		expect(options.prePopulatedValues?.customFrontmatter).toMatchObject({
-			hermes_submit: true,
-			hermes_board: "hhmi",
-			hermes_priority: "7",
-			hermes_created_by: "tasknotes-native",
-			assignee: "",
+			assignee: "yt",
+			lane: "drafting",
 		});
-		expect(options.prePopulatedValues?.customFrontmatter).not.toHaveProperty(
-			"hermes_assignee"
-		);
+		expect(options.prePopulatedValues?.customFrontmatter).not.toHaveProperty("hermes_submit");
+		expect(options.prePopulatedValues?.customFrontmatter).not.toHaveProperty("hermes_board");
+		expect(options.prePopulatedValues?.customFrontmatter).not.toHaveProperty("hermes_assignee");
 		expect(options.modalFieldsConfig?.fields.map((field) => field.id)).toContain("assignee");
+	});
+
+	it("defaults new board tasks to triage when no status is supplied", () => {
+		const options = buildHermesTaskCreationOptions(app, [], {
+			title: "Unspecified status",
+			contexts: ["hhmi"],
+		});
+
+		expect(options.prePopulatedValues?.status).toBe("triage");
 	});
 
 	it("keeps raw writeback fields out of the board edit modal", () => {

@@ -142,11 +142,11 @@ describe("Issue #1657: Kanban + New button should assign project", () => {
 			expect.objectContaining({
 				prePopulatedValues: expect.objectContaining({
 					status: "In Progress",
-					contexts: ["work"],
-					customFrontmatter: {
+					contexts: expect.arrayContaining(["work"]),
+					customFrontmatter: expect.objectContaining({
 						reviewed: false,
 						customCount: 0,
-					},
+					}),
 				}),
 			})
 		);

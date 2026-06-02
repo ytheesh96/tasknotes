@@ -29,23 +29,12 @@ import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import type { TaskModalActionIconSpec } from "./taskModalActionBar";
 import { HermesKanbanApiClient, getHermesTaskIdentity } from "../hermes/hermesApiClient";
 import { createOrUpdateHermesMirrorNote } from "../hermes/hermesMirror";
-import {
-	buildHermesAssigneeUpdatePayload,
-	normalizeHermesAssignee,
-} from "../hermes/hermesAssignee";
+import { normalizeHermesAssignee } from "../hermes/hermesAssignee";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationModal" });
 export type { StatusSuggestion } from "./taskCreationSuggest";
 
 const TASK_CREATION_FAILURE_PREFIX = "Failed to create task: ";
-const HERMES_SUBMIT_TAG = "hermes-submit";
-const HERMES_CUSTOM_KEYS = [
-	"hermes_submit",
-	"hermes_board",
-	"hermes_assignee",
-	"hermes_priority",
-	"hermes_created_by",
-];
 
 export function getTaskCreationFailureNoticeMessage(error: unknown): string {
 	const rawMessage = error instanceof Error && error.message ? error.message : String(error);
@@ -159,9 +148,6 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	protected getPrimaryActionText(): string | undefined {
-		if (this.isHermesCreationTarget()) {
-			return "Send to triage";
-		}
 		return this.options.saveButtonText;
 	}
 
@@ -768,17 +754,18 @@ export class TaskCreationModal extends TaskModal {
 		const parentResolution = await this.resolveHermesDependencyIds(this.blockedByItems, board);
 		const childResolution = await this.resolveHermesDependencyIds(this.blockingItems, board);
 		const assignee = this.hermesAssigneeFromTaskData(taskData);
-		const assigneePayload = buildHermesAssigneeUpdatePayload(assignee);
-		const shouldCreateBlocked = assigneePayload?.status === "blocked";
+		const status =
+			typeof taskData.status === "string" && taskData.status.trim()
+				? taskData.status.trim()
+				: "triage";
 		const created = await api.createTask(board, {
 			title: String(taskData.title || this.title).trim(),
 			body: typeof taskData.details === "string" ? taskData.details : undefined,
+			status,
 			assignee: assignee ?? undefined,
-			priority: this.hermesPriorityFromTaskData(taskData),
+			priority: this.hermesPriorityFromTaskData(),
 			parents: parentResolution.ids,
-			triage: !shouldCreateBlocked,
-			initial_status: shouldCreateBlocked ? "blocked" : undefined,
-			block_reason: shouldCreateBlocked ? assigneePayload.block_reason : undefined,
+			triage: status === "triage",
 		});
 		const identity = { board, id: created.id };
 
@@ -808,7 +795,7 @@ export class TaskCreationModal extends TaskModal {
 			);
 		}
 
-		new Notice(`Sent to triage: ${created.title}`);
+		new Notice(`Created task: ${created.title}`);
 		if (this.options.onTaskCreated) {
 			this.options.onTaskCreated(taskInfo);
 		}
@@ -872,28 +859,15 @@ export class TaskCreationModal extends TaskModal {
 				...taskData.customFrontmatter,
 			};
 		}
-		if (!this.isHermesCreationTarget()) {
-			removeHermesCustomFrontmatter(taskData.customFrontmatter);
-		}
 
 		return taskData;
 	}
 
 	private hermesAssigneeFromTaskData(taskData: HermesCreationTaskData): string | undefined {
-		return (
-			normalizeHermesAssignee(taskData.customFrontmatter?.assignee) ??
-			normalizeHermesAssignee(taskData.customFrontmatter?.hermes_assignee) ??
-			undefined
-		);
+		return normalizeHermesAssignee(taskData.customFrontmatter?.assignee) ?? undefined;
 	}
 
-	private hermesPriorityFromTaskData(taskData: HermesCreationTaskData): number {
-		const raw = taskData.customFrontmatter?.hermes_priority;
-		if (typeof raw === "number") return raw;
-		if (typeof raw === "string" && raw.trim()) {
-			const parsed = Number(raw);
-			if (Number.isFinite(parsed)) return parsed;
-		}
+	private hermesPriorityFromTaskData(): number {
 		if (this.priority === "high") return 8;
 		if (this.priority === "normal") return 5;
 		if (this.priority === "low") return 2;
@@ -964,7 +938,7 @@ export class TaskCreationModal extends TaskModal {
 		if (this.isHermesCreationTarget()) {
 			return `Board/${this.getSelectedHermesBoard()}`;
 		}
-		return "Default";
+		return "Board";
 	}
 
 	private showHermesBoardContextMenu(event: UIEvent): void {
@@ -972,21 +946,11 @@ export class TaskCreationModal extends TaskModal {
 		if (boards.length === 0) return;
 
 		const menu = new Menu();
-		menu.addItem((item) => {
-			item.setTitle("Default task");
-			item.setIcon(this.isHermesCreationTarget() ? "circle" : "check");
-			item.setChecked(!this.isHermesCreationTarget());
-			item.onClick(() => {
-				this.setCreationTarget(DEFAULT_CREATION_TARGET);
-			});
-		});
-
-		menu.addSeparator();
 		const currentBoard = this.getSelectedHermesBoard();
 		for (const board of boards) {
 			menu.addItem((item) => {
 				const isSelected = this.isHermesCreationTarget() && board === currentBoard;
-				item.setTitle(`Hermes/${board}`);
+				item.setTitle(`Board/${board}`);
 				item.setIcon(isSelected ? "check" : "columns-3");
 				item.setChecked(isSelected);
 				item.onClick(() => {
@@ -1046,23 +1010,14 @@ export class TaskCreationModal extends TaskModal {
 	private applyHermesSubmissionState(board: string): void {
 		if (!board) return;
 
-		this.status = "triage";
 		this.contexts = withHermesBoardContext(this.contexts, this.getHermesBoardOptions(), board);
-		this.tags = addCommaListValue(this.tags, HERMES_SUBMIT_TAG);
-		this.userFields.hermes_submit = true;
-		this.userFields.hermes_board = board;
-		this.userFields.hermes_priority = this.userFields.hermes_priority ?? "3";
-		this.userFields.hermes_created_by = this.userFields.hermes_created_by ?? "tasknotes-native";
+		this.tags = addCommaListValue(this.tags, "hermes-kanban");
 		this.syncVisibleHermesFields();
 	}
 
 	private clearHermesSubmissionState(): void {
 		this.status = this.nonHermesStatus ?? this.plugin.settings.defaultTaskStatus;
 		this.contexts = withoutHermesBoardContext(this.contexts, this.getHermesBoardOptions());
-		this.tags = removeCommaListValues(this.tags, [HERMES_SUBMIT_TAG]);
-		for (const key of HERMES_CUSTOM_KEYS) {
-			delete this.userFields[key];
-		}
 		this.syncVisibleHermesFields();
 	}
 
@@ -1084,12 +1039,6 @@ export class TaskCreationModal extends TaskModal {
 		}
 		if (this.tagsInput) {
 			this.tagsInput.value = this.tags;
-		}
-		const hermesBoardInput = this.userFieldInputs.get("hermes_board");
-		if (hermesBoardInput) {
-			hermesBoardInput.value = this.isHermesCreationTarget()
-				? this.getSelectedHermesBoard()
-				: "";
 		}
 	}
 
@@ -1207,13 +1156,4 @@ export function removeCommaListValues(value: string, items: readonly string[]): 
 		.map((entry) => entry.trim())
 		.filter((entry) => entry.length > 0 && !removeSet.has(entry))
 		.join(", ");
-}
-
-function removeHermesCustomFrontmatter(
-	customFrontmatter: Record<string, unknown> | undefined
-): void {
-	if (!customFrontmatter) return;
-	for (const key of HERMES_CUSTOM_KEYS) {
-		delete customFrontmatter[key];
-	}
 }

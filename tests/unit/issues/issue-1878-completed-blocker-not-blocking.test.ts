@@ -55,42 +55,42 @@ describe("Issue #1878: completed blockers should not appear as active blockers",
 		expect(dependencyCache.getBlockedTaskPaths("Tasks/blocker.md")).toEqual([]);
 	});
 
-	it("keeps completed Hermes mirror blocking relationships visible for faded related cards", async () => {
+	it("keeps completed board-task blocking relationships visible for faded related cards", async () => {
 		const app = MockObsidian.createMockApp();
 		MockObsidian.createTestFile(
-			"TaskNotes/Hermes/default/t_done.md",
+			"TaskNotes/default/t_done.md",
 			"---\ntitle: Done Hermes blocker\nstatus: done\ntags:\n  - task\n  - hermes-kanban\n---\n"
 		);
 		MockObsidian.createTestFile(
-			"TaskNotes/Hermes/default/t_child.md",
-			"---\ntitle: Done Hermes child\nstatus: done\ntags:\n  - task\n  - hermes-kanban\nblockedBy:\n  - uid: '[[TaskNotes/Hermes/default/t_done|Done Hermes blocker]]'\n    reltype: FINISHTOSTART\n---\n"
+			"TaskNotes/default/t_child.md",
+			"---\ntitle: Done Hermes child\nstatus: done\ntags:\n  - task\n  - hermes-kanban\nblockedBy:\n  - uid: '[[TaskNotes/default/t_done|Done Hermes blocker]]'\n    reltype: FINISHTOSTART\n---\n"
 		);
 
-		const blockerFile = app.vault.getAbstractFileByPath("TaskNotes/Hermes/default/t_done.md");
-		const childFile = app.vault.getAbstractFileByPath("TaskNotes/Hermes/default/t_child.md");
-		app.metadataCache.setCache("TaskNotes/Hermes/default/t_done.md", {
+		const blockerFile = app.vault.getAbstractFileByPath("TaskNotes/default/t_done.md");
+		const childFile = app.vault.getAbstractFileByPath("TaskNotes/default/t_child.md");
+		app.metadataCache.setCache("TaskNotes/default/t_done.md", {
 			frontmatter: {
 				title: "Done Hermes blocker",
 				status: "done",
 				tags: ["task", "hermes-kanban"],
 			},
 		});
-		app.metadataCache.setCache("TaskNotes/Hermes/default/t_child.md", {
+		app.metadataCache.setCache("TaskNotes/default/t_child.md", {
 			frontmatter: {
 				title: "Done Hermes child",
 				status: "done",
 				tags: ["task", "hermes-kanban"],
 				blockedBy: [
 					{
-						uid: "[[TaskNotes/Hermes/default/t_done|Done Hermes blocker]]",
+						uid: "[[TaskNotes/default/t_done|Done Hermes blocker]]",
 						reltype: "FINISHTOSTART",
 					},
 				],
 			},
 		});
 		app.metadataCache.getFirstLinkpathDest = jest.fn((linkpath: string) => {
-			if (linkpath === "TaskNotes/Hermes/default/t_done") return blockerFile;
-			if (linkpath === "TaskNotes/Hermes/default/t_child") return childFile;
+			if (linkpath === "TaskNotes/default/t_done") return blockerFile;
+			if (linkpath === "TaskNotes/default/t_child") return childFile;
 			return null;
 		});
 
@@ -120,10 +120,10 @@ describe("Issue #1878: completed blockers should not appear as active blockers",
 		);
 		taskManager.setDependencyCache(dependencyCache);
 
-		expect(dependencyCache.getBlockedTaskPaths("TaskNotes/Hermes/default/t_done.md")).toEqual([]);
+		expect(dependencyCache.getBlockedTaskPaths("TaskNotes/default/t_done.md")).toEqual([]);
 
-		await expect(taskManager.getTaskInfo("TaskNotes/Hermes/default/t_done.md")).resolves.toMatchObject({
-			blocking: ["TaskNotes/Hermes/default/t_child.md"],
+		await expect(taskManager.getTaskInfo("TaskNotes/default/t_done.md")).resolves.toMatchObject({
+			blocking: ["TaskNotes/default/t_child.md"],
 			isBlocking: true,
 		});
 	});

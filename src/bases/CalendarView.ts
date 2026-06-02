@@ -50,6 +50,7 @@ import {
 } from "./calendarMutationPlanning";
 import { handleCalendarTaskClick } from "../utils/clickHandlers";
 import { TaskCreationModal } from "../modals/TaskCreationModal";
+import { buildHermesTaskCreationOptions } from "../hermes/hermesTaskNotesIntegration";
 import { CalendarEventCreationModal } from "../modals/CalendarEventCreationModal";
 import { ICSEventInfoModal } from "../modals/ICSEventInfoModal";
 import { Menu, Platform, TFile, setIcon, setTooltip } from "obsidian";
@@ -2460,12 +2461,18 @@ export class CalendarView extends BasesViewBase {
 						slotDurationMinutes
 					);
 
-					const modal = new TaskCreationModal(this.plugin.app, this.plugin, {
-						prePopulatedValues: values,
-						onTaskCreated: (task) => {
-							void this.refreshAfterDirectCalendarTaskWrite(task);
-						},
-					});
+					const modal = new TaskCreationModal(
+						this.plugin.app,
+						this.plugin,
+						buildHermesTaskCreationOptions(
+							this.plugin.app,
+							this.plugin.settings.userFields ?? [],
+							values,
+							(task) => {
+								void this.refreshAfterDirectCalendarTaskWrite(task);
+							}
+						)
+					);
 					modal.open();
 				});
 		});

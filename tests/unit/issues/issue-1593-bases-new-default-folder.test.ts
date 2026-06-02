@@ -99,7 +99,12 @@ describe("Issue #1593: Bases New button should use TaskNotes task creation", () 
 			expect.anything(),
 			expect.anything(),
 			expect.objectContaining({
-				prePopulatedValues: {},
+				prePopulatedValues: expect.objectContaining({
+					contexts: ["obsidian-os"],
+					customFrontmatter: { assignee: "" },
+					status: "triage",
+					tags: ["hermes-kanban"],
+				}),
 			})
 		);
 	});

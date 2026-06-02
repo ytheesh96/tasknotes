@@ -108,16 +108,12 @@ describe("Hermes assignee helpers", () => {
 		]);
 	});
 
-	it("turns human assignees into blocked Hermes updates", () => {
+	it("keeps human and self assignees as assignment-only updates", () => {
 		expect(buildHermesAssigneeUpdatePayload("human")).toEqual({
 			assignee: "human",
-			status: "blocked",
-			block_reason: "Waiting on human: human",
 		});
 		expect(buildHermesAssigneeUpdatePayload("yt")).toEqual({
 			assignee: "yt",
-			status: "blocked",
-			block_reason: "Waiting on human: yt",
 		});
 	});
 
@@ -188,6 +184,10 @@ describe("Hermes assignee helpers", () => {
 			"TaskNotes/Other.md",
 			"---\nassignee: outside\n---\n"
 		);
+		MockObsidian.createTestFile(
+			"TaskNotes/Hermes/default/t_legacy.md",
+			"---\nassignee: legacy-worker\n---\n"
+		);
 		app.metadataCache.setCache("TaskNotes/default/t_a.md", {
 			frontmatter: { assignee: "peacock" },
 		});
@@ -196,6 +196,9 @@ describe("Hermes assignee helpers", () => {
 		});
 		app.metadataCache.setCache("TaskNotes/Other.md", {
 			frontmatter: { assignee: "outside" },
+		});
+		app.metadataCache.setCache("TaskNotes/Hermes/default/t_legacy.md", {
+			frontmatter: { assignee: "legacy-worker" },
 		});
 
 		expect(collectHermesAssigneesFromMirrorNotes(app)).toEqual(["peacock", "reviewer-qa"]);

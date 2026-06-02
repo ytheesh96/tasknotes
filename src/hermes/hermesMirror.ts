@@ -106,7 +106,7 @@ function buildHermesMirrorFrontmatter(
 		status,
 		priority: hermesPriorityToTaskNotesPriority(hermesPriority),
 		projects: [`Hermes/${board}`],
-		contexts: ["hermes-kanban"],
+		contexts: [board],
 		assignee: task.assignee?.trim() || "none",
 		dateCreated: options.existingTaskInfo?.dateCreated ?? now,
 	};
@@ -157,7 +157,7 @@ function fallbackTaskInfo(
 		path,
 		tags: ["task", "hermes-kanban"],
 		archived: task.status === "archived",
-		contexts: ["hermes-kanban"],
+		contexts: [board],
 		projects: [`Hermes/${board}`],
 		customProperties: {
 			assignee: task.assignee?.trim() || "none",

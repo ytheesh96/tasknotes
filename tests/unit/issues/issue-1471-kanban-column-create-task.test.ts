@@ -145,9 +145,9 @@ describe("Issue #1471: create tasks from Kanban columns", () => {
 			expect.anything(),
 			expect.objectContaining({
 				prePopulatedValues: expect.objectContaining({
-					customFrontmatter: {
+					customFrontmatter: expect.objectContaining({
 						workstream: "Research",
-					},
+					}),
 				}),
 			})
 		);
