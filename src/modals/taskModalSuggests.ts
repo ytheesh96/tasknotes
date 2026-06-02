@@ -13,6 +13,10 @@ interface ContextSuggestion {
 	toString(): string;
 }
 
+export interface ContextSuggestOptions {
+	getValues?: () => string[] | Promise<string[]>;
+}
+
 function openSuggestionsOnFieldSelection(
 	input: HTMLInputElement,
 	openSuggestions: () => void
@@ -24,11 +28,18 @@ function openSuggestionsOnFieldSelection(
 export class ContextSuggest extends AbstractInputSuggest<ContextSuggestion> {
 	private plugin: TaskNotesPlugin;
 	private input: HTMLInputElement;
+	private options: ContextSuggestOptions;
 
-	constructor(app: App, inputEl: HTMLInputElement, plugin: TaskNotesPlugin) {
+	constructor(
+		app: App,
+		inputEl: HTMLInputElement,
+		plugin: TaskNotesPlugin,
+		options: ContextSuggestOptions = {}
+	) {
 		super(app, inputEl);
 		this.plugin = plugin;
 		this.input = inputEl;
+		this.options = options;
 		openSuggestionsOnFieldSelection(this.input, () => this.open());
 	}
 
@@ -36,7 +47,9 @@ export class ContextSuggest extends AbstractInputSuggest<ContextSuggestion> {
 		const currentValues = this.input.value.split(",").map((value: string) => value.trim());
 		const currentQuery = currentValues[currentValues.length - 1];
 
-		const contexts = this.plugin.cacheManager.getAllContexts();
+		const contexts = this.options.getValues
+			? await this.options.getValues()
+			: this.plugin.cacheManager.getAllContexts();
 		const alreadySelected = currentValues.slice(0, -1);
 		return contexts
 			.filter((context) => context && typeof context === "string")

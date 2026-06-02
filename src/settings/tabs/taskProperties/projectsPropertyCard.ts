@@ -3,13 +3,18 @@ import TaskNotesPlugin from "../../../main";
 import {
 	createCard,
 	createCardInput,
+	createCardSelect,
 	createCardToggle,
 	CardRow,
 } from "../../components/CardComponent";
 import { createFilterSettingsInputs } from "../../components/FilterSettingsComponent";
-import { ProjectSelectModal } from "../../../modals/ProjectSelectModal";
-import { splitListPreservingLinksAndQuotes } from "../../../utils/stringSplit";
 import { createNLPTriggerRows, createPropertyDescription, TranslateFn } from "./helpers";
+import {
+	canonicalHermesBoardProjects,
+	defaultHermesBoards,
+	normalizeHermesBoardValue,
+	splitHermesList,
+} from "../../../hermes/hermesRouting";
 
 /**
  * Renders the Projects property card with default projects, use parent note toggle, and autosuggest settings
@@ -42,84 +47,28 @@ export function renderProjectsPropertyCard(
 		const nestedContainer = activeDocument.createElement("div");
 		nestedContainer.addClass("tasknotes-settings__nested-content");
 
-		// Default projects container
-		const selectedDefaultProjectFiles: TAbstractFile[] = [];
+		// Default board container
 		const defaultProjectsContainer = nestedContainer.createDiv("default-projects-container");
-
-		// Initialize selected projects from settings
-		if (plugin.settings.taskCreationDefaults.defaultProjects) {
-			const projectPaths = splitListPreservingLinksAndQuotes(
-				plugin.settings.taskCreationDefaults.defaultProjects
-			)
-				.map((link) => link.replace(/\[\[|\]\]/g, "").trim())
-				.filter((path) => path);
-
-			projectPaths.forEach((path) => {
-				const file =
-					plugin.app.vault.getAbstractFileByPath(path + ".md") ||
-					plugin.app.vault.getAbstractFileByPath(path);
-				if (file) {
-					selectedDefaultProjectFiles.push(file);
-				}
-			});
-		}
-
-		// Select projects button
-		const selectButtonContainer = defaultProjectsContainer.createDiv();
-		const selectButton = selectButtonContainer.createEl("button", {
-			text: translate("settings.defaults.basicDefaults.defaultProjects.selectButton"),
-			cls: "tn-btn tn-btn--ghost",
+		const boardOptions = [
+			{ value: "", label: "None" },
+			...defaultHermesBoards().map((board) => ({ value: board, label: board })),
+		];
+		const defaultBoardSelect = createCardSelect(
+			boardOptions,
+			boardFromDefaultProjects(plugin.settings.taskCreationDefaults.defaultProjects) ?? ""
+		);
+		defaultBoardSelect.addEventListener("change", () => {
+			const board = (defaultBoardSelect as HTMLSelectElement).value;
+			plugin.settings.taskCreationDefaults.defaultProjects = board
+				? canonicalHermesBoardProjects(board)
+				: "";
+			plugin.settings.taskCreationDefaults.useParentNoteAsProject = false;
+			plugin.settings.taskCreationDefaults.useParentHeaderAsProject = false;
+			save();
 		});
-		selectButton.onclick = () => {
-			const modal = new ProjectSelectModal(plugin.app, plugin, (file: TAbstractFile) => {
-				if (!selectedDefaultProjectFiles.includes(file)) {
-					selectedDefaultProjectFiles.push(file);
-					const projectLinks = selectedDefaultProjectFiles
-						.map((f) => `[[${f.path.replace(/\.md$/, "")}]]`)
-						.join(", ");
-					plugin.settings.taskCreationDefaults.defaultProjects = projectLinks;
-					save();
-					renderDefaultProjectsList(
-						projectsListContainer,
-						plugin,
-						save,
-						selectedDefaultProjectFiles,
-						translate
-					);
-				}
-			});
-			modal.open();
-		};
-
-		// Projects list
-		const projectsListContainer = defaultProjectsContainer.createDiv(
-			"default-projects-list-container"
-		);
-		renderDefaultProjectsList(
-			projectsListContainer,
-			plugin,
-			save,
-			selectedDefaultProjectFiles,
-			translate
-		);
+		defaultProjectsContainer.appendChild(defaultBoardSelect);
 
 		// Use parent note as project toggle
-		const useParentNoteToggle = createCardToggle(
-			plugin.settings.taskCreationDefaults.useParentNoteAsProject,
-			(value) => {
-				plugin.settings.taskCreationDefaults.useParentNoteAsProject = value;
-				save();
-			}
-		);
-
-		const useParentHeaderToggle = createCardToggle(
-			plugin.settings.taskCreationDefaults.useParentHeaderAsProject,
-			(value) => {
-				plugin.settings.taskCreationDefaults.useParentHeaderAsProject = value;
-				save();
-			}
-		);
-
 		const inheritParentTaskPropertiesToggle = createCardToggle(
 			plugin.settings.taskCreationDefaults.inheritParentTaskProperties,
 			(value) => {
@@ -128,17 +77,10 @@ export function renderProjectsPropertyCard(
 			}
 		);
 
-		const nlpRows = createNLPTriggerRows(plugin, "projects", "+", save, translate);
-
 		// Create description element
 		const descriptionEl = createPropertyDescription(
 			translate("settings.taskProperties.properties.projects.description")
 		);
-
-		// Create autosuggest settings section
-		const autosuggestSection = activeDocument.createElement("div");
-		autosuggestSection.addClass("tasknotes-settings__nested-content");
-		renderProjectAutosuggestSettings(autosuggestSection, plugin, save, translate, renderCard);
 
 		const rows: CardRow[] = [
 			{ label: "", input: descriptionEl, fullWidth: true },
@@ -152,19 +94,9 @@ export function renderProjectsPropertyCard(
 				fullWidth: true,
 			},
 			{
-				label: translate("settings.taskProperties.projectsCard.useParentNote"),
-				input: useParentNoteToggle,
-			},
-			{
-				label: translate("settings.taskProperties.projectsCard.useParentHeader"),
-				input: useParentHeaderToggle,
-			},
-			{
 				label: translate("settings.taskProperties.projectsCard.inheritParentTaskProperties"),
 				input: inheritParentTaskPropertiesToggle,
 			},
-			...nlpRows,
-			{ label: "", input: autosuggestSection, fullWidth: true },
 		];
 
 		createCard(cardWrapper, {
@@ -490,4 +422,14 @@ function renderDefaultProjectsList(
 			}
 		};
 	});
+}
+
+function boardFromDefaultProjects(defaultProjects: unknown): string | null {
+	for (const value of splitHermesList(defaultProjects)) {
+		const board = normalizeHermesBoardValue(value);
+		if (board) {
+			return board;
+		}
+	}
+	return null;
 }

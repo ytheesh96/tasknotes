@@ -22,9 +22,18 @@ import {
 } from "../hermes/hermesApiClient";
 import { createOrUpdateHermesMirrorNote } from "../hermes/hermesMirror";
 import { buildHermesAssigneeUpdatePayload } from "../hermes/hermesAssignee";
+import {
+	canonicalHermesBoardProjects,
+	defaultHermesAssignees,
+	defaultHermesBoards,
+	splitHermesList,
+	validateHermesAssigneeSelection,
+	validateHermesBoardSelection,
+} from "../hermes/hermesRouting";
 import type { ModalFieldsConfigLike } from "./taskModalFieldConfig";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import { resizeTaskModalTitleTextarea } from "./taskModalTitleInput";
+import { createTaskModalContextsField } from "./taskModalMetadataFields";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskEditModal" });
 
@@ -560,6 +569,8 @@ export class TaskEditModal extends TaskModal {
 	private isShowingConfirmation = false;
 	private pendingClose = false;
 	private isConvertingNoteToTask = false;
+	private hermesBoardOptions: string[] | null = null;
+	private hermesAssigneeOptions: string[] | null = null;
 
 	constructor(app: App, plugin: TaskNotesPlugin, options: TaskEditOptions) {
 		super(app, plugin);
@@ -621,6 +632,11 @@ export class TaskEditModal extends TaskModal {
 		} else {
 			this.projects = "";
 			this.selectedProjectItems = [];
+		}
+		const hermesIdentity = getHermesTaskIdentity(this.task);
+		if (hermesIdentity) {
+			this.projects = canonicalHermesBoardProjects(hermesIdentity.board);
+			this.initializeProjectsFromStrings([this.projects]);
 		}
 
 		this.tags = formState.tags;
@@ -768,6 +784,51 @@ export class TaskEditModal extends TaskModal {
 	 */
 	protected createPrimaryInput(container: HTMLElement): void {
 		// No-op: Edit modal shows title in the details section, not at top
+	}
+
+	protected createContextsField(container: HTMLElement): void {
+		const identity = getHermesTaskIdentity(this.task);
+		if (!identity) {
+			super.createContextsField(container);
+			return;
+		}
+
+		this.contextsInput = createTaskModalContextsField(
+			{
+				app: this.app,
+				plugin: this.plugin,
+				translate: (key) => this.t(key),
+				attachMobileKeyboardScrollGuard: (input) => {
+					this.attachMobileKeyboardScrollGuard(input);
+				},
+			},
+			{
+				container,
+				value: this.contexts,
+				label: "Assignee",
+				placeholder: "orchestrator",
+				onChange: (value) => {
+					this.contexts = value;
+				},
+				contextSuggestOptions: {
+					getValues: () => this.resolveHermesAssigneeOptions(identity.board),
+				},
+			}
+		);
+	}
+
+	protected createProjectsField(container: HTMLElement): void {
+		const identity = getHermesTaskIdentity(this.task);
+		if (!identity) {
+			super.createProjectsField(container);
+			return;
+		}
+
+		new Setting(container).setName("Board").addDropdown((dropdown) => {
+			dropdown.addOption(identity.board, identity.board);
+			dropdown.setValue(identity.board);
+			dropdown.selectEl.disabled = true;
+		});
 	}
 
 	/**
@@ -1487,6 +1548,12 @@ export class TaskEditModal extends TaskModal {
 			return;
 		}
 
+		const routing = await this.validateHermesEditRouting(identity);
+		if (routing.error) {
+			new Notice(routing.error);
+			return;
+		}
+
 		const api = new HermesKanbanApiClient();
 		let didHermesWrite = false;
 		const payload = await this.hermesUpdatePayloadFromChanges(changes);
@@ -1545,20 +1612,22 @@ export class TaskEditModal extends TaskModal {
 			summary?: string;
 			block_reason?: string;
 		} = {};
-		const assigneePayload = this.hermesAssigneePayloadFromChanges(changes);
+		const changesForPayload = { ...changes };
+		delete changesForPayload.projects;
+		const assigneePayload = this.hermesAssigneePayloadFromChanges(changesForPayload);
 
-		if (typeof changes.title === "string") {
-			payload.title = changes.title;
+		if (typeof changesForPayload.title === "string") {
+			payload.title = changesForPayload.title;
 		}
-		if (typeof changes.priority === "string") {
-			payload.priority = this.hermesPriorityFromTaskNotesPriority(changes.priority);
+		if (typeof changesForPayload.priority === "string") {
+			payload.priority = this.hermesPriorityFromTaskNotesPriority(changesForPayload.priority);
 		}
-		if (typeof changes.status === "string") {
-			if (changes.status === "running") {
+		if (typeof changesForPayload.status === "string") {
+			if (changesForPayload.status === "running") {
 				throw new Error("Running state is claimed by the dispatcher, not TaskNotes.");
 			}
-			payload.status = changes.status;
-			if (changes.status === "blocked" && assigneePayload?.status !== "blocked") {
+			payload.status = changesForPayload.status;
+			if (changesForPayload.status === "blocked" && assigneePayload?.status !== "blocked") {
 				const reason = await this.promptHermesActionText({
 					title: "Block task",
 					placeholder: "Why is this blocked?",
@@ -1567,7 +1636,7 @@ export class TaskEditModal extends TaskModal {
 				if (!reason) return null;
 				payload.block_reason = reason;
 			}
-			if (changes.status === "done") {
+			if (changesForPayload.status === "done") {
 				const result = await this.promptHermesActionText({
 					title: "Complete task",
 					placeholder: "Result / closeout summary",
@@ -1583,6 +1652,75 @@ export class TaskEditModal extends TaskModal {
 		}
 
 		return payload;
+	}
+
+	private async validateHermesEditRouting(identity: {
+		board: string;
+		id: string;
+	}): Promise<{ error?: string }> {
+		const acceptedBoards = await this.resolveHermesBoardOptions();
+		const boardResult = validateHermesBoardSelection(
+			this.projects,
+			acceptedBoards,
+			identity.board
+		);
+		if (boardResult.error) {
+			return { error: boardResult.error };
+		}
+
+		const acceptedAssignees = await this.resolveHermesAssigneeOptions(identity.board);
+		const assigneeResult = validateHermesAssigneeSelection(this.contexts, acceptedAssignees);
+		if (assigneeResult.error) {
+			return { error: assigneeResult.error };
+		}
+		return {};
+	}
+
+	private async resolveHermesBoardOptions(): Promise<string[]> {
+		try {
+			const boards = (await new HermesKanbanApiClient().listBoards())
+				.filter((board) => !board.archived)
+				.map((board) => board.slug);
+			if (boards.length > 0) {
+				this.hermesBoardOptions = uniqueNonEmpty(boards);
+				return this.hermesBoardOptions;
+			}
+		} catch (error) {
+			tasknotesLogger.warn("Failed to load Hermes boards:", {
+				category: "provider",
+				operation: "load-hermes-boards",
+				error,
+			});
+		}
+		this.hermesBoardOptions = uniqueNonEmpty([
+			...(this.hermesBoardOptions ?? []),
+			...defaultHermesBoards(),
+		]);
+		return this.hermesBoardOptions;
+	}
+
+	private async resolveHermesAssigneeOptions(board?: string): Promise<string[]> {
+		try {
+			const assignees = (await new HermesKanbanApiClient().listAssignees(board))
+				.map((assignee) => assignee.name)
+				.filter(Boolean);
+			if (assignees.length > 0) {
+				this.hermesAssigneeOptions = uniqueNonEmpty(assignees);
+				return this.hermesAssigneeOptions;
+			}
+		} catch (error) {
+			tasknotesLogger.warn("Failed to load Hermes assignees:", {
+				category: "provider",
+				operation: "load-hermes-assignees",
+				error,
+			});
+		}
+		this.hermesAssigneeOptions = uniqueNonEmpty([
+			...(this.hermesAssigneeOptions ?? []),
+			...defaultHermesAssignees(),
+			...splitHermesList(this.contexts),
+		]);
+		return this.hermesAssigneeOptions;
 	}
 
 	private hermesAssigneePayloadFromChanges(
@@ -2094,4 +2232,8 @@ export class TaskEditModal extends TaskModal {
 
 	// Start expanded for edit modal - override parent property
 	protected isExpanded = true;
+}
+
+function uniqueNonEmpty(values: readonly string[]): string[] {
+	return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }

@@ -126,19 +126,19 @@ jest.mock("../../../src/services/NaturalLanguageParser", () => {
 });
 
 describe("withHermesBoardProject", () => {
-	it("replaces the previous board while preserving other projects", () => {
+	it("replaces the previous board and removes ordinary projects", () => {
 		expect(
 			withHermesBoardProject(
 				"Hermes/obsidian-os, Research, Review",
 				["obsidian-os", "hhmi"],
 				"hhmi"
 			)
-		).toBe("Hermes/hhmi, Research, Review");
+		).toBe("Hermes/hhmi");
 	});
 
-	it("adds the board when the project field only has ordinary projects", () => {
+	it("uses only the board when the project field has ordinary projects", () => {
 		expect(withHermesBoardProject("Research", ["default", "job-hunt"], "default")).toBe(
-			"Hermes/default, Research"
+			"Hermes/default"
 		);
 	});
 

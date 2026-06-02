@@ -46,13 +46,13 @@ const CONTROL_PANEL_FIELD_GROUPS: TaskModalFieldsConfig["groups"] = [
 ];
 
 export const HERMES_DEFAULT_ASSIGNEES = [
+	"default",
+	"ops-steward",
 	"orchestrator",
-	"research-librarian",
 	"peacock",
+	"product-designer",
+	"research-librarian",
 	"reviewer-qa",
-	"codex",
-	"human",
-	"user",
 ] as const;
 
 export const HERMES_ASSIGNEE_FIELD: UserMappedField = {
@@ -69,6 +69,7 @@ const LEGACY_HERMES_USER_FIELD_IDS = new Set([
 	"assignee",
 	"hermes_id",
 	"hermes_board",
+	"hermes_status",
 	"hermes_assignee",
 	"hermes_priority",
 	"hermes_tenant",

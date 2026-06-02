@@ -96,7 +96,7 @@ describe("Issue #1466: current-file subtask Base creation defaults", () => {
 			expect.anything(),
 			expect.objectContaining({
 				prePopulatedValues: expect.objectContaining({
-					projects: ["Hermes/obsidian-os", "[[Alpha]]"],
+					projects: ["Hermes/obsidian-os"],
 				}),
 			})
 		);

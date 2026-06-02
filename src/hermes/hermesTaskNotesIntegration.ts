@@ -10,16 +10,9 @@ import {
 	normalizeHermesUserFields,
 	normalizeHermesAssignee,
 } from "./hermesAssignee";
+import { HERMES_DEFAULT_BOARDS } from "./hermesRouting";
 
 const TASKNOTES_ROOT = "TaskNotes";
-const DEFAULT_HERMES_BOARDS = [
-	"obsidian-os",
-	"hhmi",
-	"job-hunt",
-	"vault-change-review",
-	"hermes-agent",
-	"default",
-];
 
 type HermesModalField = ModalFieldConfigLike & {
 	group: string;
@@ -71,7 +64,7 @@ function boardFromHermesTaskPath(path: string): string | null {
 }
 
 export function getHermesBoards(app: App): string[] {
-	const boards = new Set(DEFAULT_HERMES_BOARDS);
+	const boards = new Set<string>(HERMES_DEFAULT_BOARDS);
 	if (!app.vault?.getAbstractFileByPath) {
 		return [...boards].sort((a, b) => a.localeCompare(b));
 	}
@@ -104,7 +97,7 @@ function preferredBoard(app: App): string {
 
 function boardFromPrepopulated(
 	values?: TaskCreationPrepopulatedValues,
-	knownBoards: readonly string[] = DEFAULT_HERMES_BOARDS
+	knownBoards: readonly string[] = HERMES_DEFAULT_BOARDS
 ): string | null {
 	const projects = asStringArray(values?.projects);
 	for (const project of projects) {
@@ -222,7 +215,7 @@ export function buildHermesTaskCreationOptions(
 		prePopulatedValues: {
 			...prePopulatedValues,
 			status,
-			projects: uniqueStrings([`Hermes/${board}`, ...asStringArray(prePopulatedValues?.projects)]),
+			projects: [`Hermes/${board}`],
 			contexts: uniqueStrings([
 				...(legacyAssignee ? [legacyAssignee] : []),
 				...asStringArray(prePopulatedValues?.contexts).filter(

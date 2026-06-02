@@ -19,6 +19,7 @@ import {
 	renderSimplePropertyCard,
 	renderMetadataPropertyCard,
 } from "./taskProperties";
+import { defaultHermesAssignees } from "../../hermes/hermesRouting";
 
 /**
  * Renders the Task Properties tab - unified property cards
@@ -134,8 +135,15 @@ export function renderTaskPropertiesTab(
 		displayName: translate("settings.taskProperties.properties.contexts.name"),
 		description: translate("settings.taskProperties.properties.contexts.description"),
 		hasDefault: true,
-		defaultType: "text",
+		defaultType: "dropdown",
 		defaultPlaceholder: translate("settings.defaults.basicDefaults.defaultContexts.placeholder"),
+		defaultOptions: [
+			{ value: "", label: "None" },
+			...defaultHermesAssignees().map((assignee) => ({
+				value: assignee,
+				label: assignee,
+			})),
+		],
 		getDefaultValue: () => plugin.settings.taskCreationDefaults.defaultContexts,
 		setDefaultValue: (value) => {
 			plugin.settings.taskCreationDefaults.defaultContexts = value;

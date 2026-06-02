@@ -33,6 +33,26 @@ export interface HermesTaskIdentity {
 	id: string;
 }
 
+export interface HermesBoardRecord {
+	slug: string;
+	name?: string | null;
+	archived?: boolean | null;
+}
+
+export interface HermesAssigneeRecord {
+	name: string;
+	on_disk?: boolean | null;
+	counts?: Record<string, number>;
+}
+
+export interface HermesBoardsResponse {
+	boards?: HermesBoardRecord[];
+}
+
+export interface HermesAssigneesResponse {
+	assignees?: HermesAssigneeRecord[];
+}
+
 export interface HermesCreateTaskPayload {
 	title: string;
 	body?: string;
@@ -166,6 +186,17 @@ export class HermesKanbanApiClient {
 			child_id: identity.childId,
 		});
 		await this.request(`/links?${params.toString()}`, { method: "DELETE" });
+	}
+
+	async listBoards(): Promise<HermesBoardRecord[]> {
+		const response = await this.request<HermesBoardsResponse>("/boards");
+		return Array.isArray(response.boards) ? response.boards : [];
+	}
+
+	async listAssignees(board?: string): Promise<HermesAssigneeRecord[]> {
+		const params = board ? `?board=${encodeURIComponent(board)}` : "";
+		const response = await this.request<HermesAssigneesResponse>(`/assignees${params}`);
+		return Array.isArray(response.assignees) ? response.assignees : [];
 	}
 
 	private async request<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
