@@ -198,6 +198,52 @@ describe("HermesKanbanApiClient", () => {
 			})
 		);
 	});
+
+	it("creates Hermes boards through the board API", async () => {
+		requestUrlMock.mockResolvedValueOnce(
+			jsonResponse({
+				board: { slug: "new-board", name: "New Board" },
+			})
+		);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const board = await api.createBoard({
+			slug: "new-board",
+			name: "New Board",
+		});
+
+		expect(board.slug).toBe("new-board");
+		expect(requestUrlMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/boards",
+				method: "POST",
+				body: JSON.stringify({
+					slug: "new-board",
+					name: "New Board",
+				}),
+				throw: false,
+			})
+		);
+	});
+
+	it("archives Hermes boards through the board API by default", async () => {
+		requestUrlMock.mockResolvedValueOnce(
+			jsonResponse({
+				result: { slug: "old-board", action: "archived" },
+			})
+		);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		await api.deleteBoard("old-board");
+
+		expect(requestUrlMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/boards/old-board",
+				method: "DELETE",
+				throw: false,
+			})
+		);
+	});
 });
 
 function jsonResponse(body: unknown, status = 200, statusText = "OK") {

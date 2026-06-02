@@ -49,6 +49,10 @@ export interface HermesBoardsResponse {
 	boards?: HermesBoardRecord[];
 }
 
+export interface HermesBoardResponse {
+	board?: HermesBoardRecord;
+}
+
 export interface HermesAssigneesResponse {
 	assignees?: HermesAssigneeRecord[];
 }
@@ -85,6 +89,15 @@ export interface HermesUpdateTaskPayload {
 export interface HermesCommentPayload {
 	body: string;
 	author?: string;
+}
+
+export interface HermesCreateBoardPayload {
+	slug: string;
+	name?: string;
+	description?: string;
+	icon?: string;
+	color?: string;
+	switch?: boolean;
 }
 
 export interface HermesTaskResponse {
@@ -193,6 +206,19 @@ export class HermesKanbanApiClient {
 		return Array.isArray(response.boards) ? response.boards : [];
 	}
 
+	async createBoard(payload: HermesCreateBoardPayload): Promise<HermesBoardRecord> {
+		const response = await this.request<HermesBoardResponse>("/boards", {
+			method: "POST",
+			body: JSON.stringify(payload),
+		});
+		return requireBoard(response, "create board");
+	}
+
+	async deleteBoard(slug: string, options?: { hardDelete?: boolean }): Promise<void> {
+		const params = options?.hardDelete ? "?delete=true" : "";
+		await this.request(`/boards/${encodeURIComponent(slug)}${params}`, { method: "DELETE" });
+	}
+
 	async listAssignees(board?: string): Promise<HermesAssigneeRecord[]> {
 		const params = board ? `?board=${encodeURIComponent(board)}` : "";
 		const response = await this.request<HermesAssigneesResponse>(`/assignees${params}`);
@@ -278,6 +304,13 @@ function requireTask(response: HermesTaskResponse, action: string): HermesTaskRe
 		throw new Error(`Hermes API did not return a task for ${action}`);
 	}
 	return response.task;
+}
+
+function requireBoard(response: HermesBoardResponse, action: string): HermesBoardRecord {
+	if (!response.board) {
+		throw new Error(`Hermes API did not return a board for ${action}`);
+	}
+	return response.board;
 }
 
 function headersToRecord(headers: HeadersInit | undefined): Record<string, string> {
