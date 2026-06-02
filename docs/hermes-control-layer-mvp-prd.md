@@ -1,56 +1,64 @@
-# Hermes Control Layer MVP PRD
+# TaskNotes as Hermes Kanban Frontend MVP PRD
 
 ## Summary
 
-TaskNotes should act as the local control layer for Hermes kanban work. Users create, organize, and act on tasks from familiar TaskNotes surfaces, while Hermes remains the authoritative execution system. Mirror notes stay native to TaskNotes so they are searchable, linkable, and usable in Bases/Kanban views without carrying duplicate Hermes state.
+TaskNotes should become the primary Obsidian frontend for Hermes Kanban. Users should create, view, route, and update Hermes board tasks from normal TaskNotes surfaces: the task modal, Kanban/Bases views, task cards, task menus, and property controls.
+
+The MVP removes the idea that Hermes tasks are a separate classification of TaskNotes task. A TaskNotes board folder is a Hermes board surface. Ownership and execution routing are expressed through normal task properties, especially `assignee`.
 
 ## Problem
 
-The current workflow splits intent across two systems:
+The current implementation still carries old Hermes bridge concepts:
 
-- TaskNotes can display and edit task-like notes.
-- Hermes owns agent execution, board state, comments, run history, and task dependencies.
-- Mirror notes have historically carried Hermes-specific frontmatter, which turns the note into a second partial database.
-- Local TaskNotes edits can look real before Hermes accepts them.
-- Human-owned work needs to be visible in TaskNotes but should not be picked up by Hermes agents as runnable.
+- Some code treats Hermes tasks as a separate task class.
+- Some paths assume a legacy mirror folder such as `TaskNotes/Hermes/<board>/<task-id>.md`.
+- Some creation routes can collapse ordinary view defaults into triage submission.
+- Human-owned work can be treated as an exceptional blocked state instead of first-class board work.
+- The settings UI can expose stale Hermes-specific modal groups that are no longer useful.
 
-The MVP should remove this ambiguity. TaskNotes actions that affect Hermes work should call Hermes first, then refresh the mirror note from Hermes.
+This creates ambiguity. Users should not need to understand whether a task is “TaskNotes-local,” “Hermes-classified,” or “Hermes-mirror.” If TaskNotes is the frontend, then TaskNotes task actions should either create or update Hermes Kanban tasks directly, then reflect the accepted board state in the note.
 
-## Goals
+## MVP Goal
 
-- Use TaskNotes as the main UI for creating and controlling Hermes kanban tasks.
-- Submit new Hermes-targeted TaskNotes tasks directly to Hermes via API.
-- Keep Hermes mirror notes native to TaskNotes frontmatter conventions.
-- Derive Hermes identity from mirror path: `TaskNotes/Hermes/<board>/<task-id>.md`.
-- Sync TaskNotes status values to Hermes kanban status values.
-- Add a native `assignee` organizational property.
-- Treat human/user assignees as non-runnable work and block them in Hermes.
-- Support core actions: create, update title/body, change status, assign, comment, link blockers, archive/delete, and refresh.
+Ship a coherent MVP where TaskNotes is the usable control panel for Hermes Kanban tasks.
 
-## Non-Goals
-
-- Replacing the Hermes dashboard.
-- Rebuilding Hermes run execution inside TaskNotes.
-- Supporting offline-first divergent edits for Hermes tasks.
-- Adding swimlanes for full task runs.
-- Encoding all Hermes event/run history into mirror-note body/frontmatter.
-
-## Users
-
-- Primary user: an Obsidian user who manages agent work from TaskNotes and Bases views.
-- Secondary users: Hermes worker agents and orchestration logic that consume the Hermes kanban API.
+The user can create a task from TaskNotes, assign it to themself or an agent, see it on the appropriate TaskNotes board, update task fields, comment, manage blockers, and trust that Hermes is the system of record.
 
 ## Product Principles
 
-- API first: every Hermes mutation goes to Hermes before mirror notes change.
-- Mirror notes are cache and control surface, not source of truth.
-- Native TaskNotes fields should be preferred over custom Hermes fields.
-- If a TaskNotes action cannot be safely translated to a Hermes API call, fail visibly.
-- Read-only Hermes metadata belongs in the modal activity UI, not in the mirror body.
+- TaskNotes is the frontend; Hermes is the board state and execution backend.
+- Board identity comes from the TaskNotes board folder: `TaskNotes/<board>/<task-id>.md`.
+- There is no separate reserved local task folder model for board tasks in the MVP.
+- `assignee` controls ownership and execution routing.
+- Self-assigned work is valid board work, not an error case.
+- Agent-runnable work and human-owned work use the same task surfaces.
+- View defaults from Bases/Kanban creation must be preserved.
+- Local notes are a durable cache and interaction surface, not a second source of truth.
 
-## Native Mirror Note Contract
+## Users
 
-Mirror notes should use TaskNotes-native frontmatter only:
+- Primary user: an Obsidian user managing personal and agent work from TaskNotes boards.
+- Secondary users: Hermes workers and dispatchers that consume board tasks through the Hermes API.
+
+## Definitions
+
+| Term | Meaning |
+| --- | --- |
+| Board task | A Hermes Kanban task represented in TaskNotes. |
+| Board folder | A TaskNotes folder representing a Hermes board, for example `TaskNotes/hhmi/`. |
+| Self-assigned task | A board task whose `assignee` is the user, for example `yt`, `user`, or `human`. |
+| Agent-assigned task | A board task whose `assignee` is an executable worker, for example `codex` or `peacock`. |
+| Mirror note | The local markdown note that reflects the accepted Hermes task state. |
+
+## Data Contract
+
+Board task notes live at:
+
+```text
+TaskNotes/<board>/<task-id>.md
+```
+
+Example:
 
 ```yaml
 ---
@@ -58,30 +66,44 @@ type: task
 tags:
   - task
   - hermes-kanban
-title: Example task
-status: triage
+title: Draft packet cleanup
+status: ready
 priority: normal
 projects:
-  - Hermes/default
+  - Hermes/hhmi
 contexts:
-  - hermes-kanban
-assignee: orchestrator
+  - hhmi
+assignee: yt
 blockedBy:
-  - "[[TaskNotes/Hermes/default/t_parent]]"
-dateCreated: 2026-06-01T12:00:00.000Z
-completedDate: 2026-06-01T13:00:00.000Z
+  - "[[TaskNotes/hhmi/t_parent]]"
+dateCreated: 2026-06-02T12:00:00.000Z
 ---
 ```
 
-The Markdown body contains only the Hermes task body.
+The markdown body contains the task details/body accepted by Hermes.
 
-Do not write these fields to mirror notes:
+### Legacy Compatibility
+
+The MVP may continue to read legacy notes at:
+
+```text
+TaskNotes/Hermes/<board>/<task-id>.md
+```
+
+But new writes should use:
+
+```text
+TaskNotes/<board>/<task-id>.md
+```
+
+### Fields To Avoid
+
+New board notes should not use old bridge fields as the primary contract:
 
 - `hermes_id`
 - `hermes_board`
 - `hermes_status`
 - `hermes_assignee`
-- `hermes_priority`
 - `blocked_by`
 - `blocks`
 - `sync_origin`
@@ -89,52 +111,77 @@ Do not write these fields to mirror notes:
 - `last_synced`
 - writeback fields
 
-## Status Model
-
-TaskNotes status values for Hermes work should match Hermes kanban values:
-
-| Value | Label | Completed |
-| --- | --- | --- |
-| `triage` | Triage | No |
-| `todo` | Todo | No |
-| `scheduled` | Scheduled | No |
-| `ready` | Ready | No |
-| `running` | In Progress | No |
-| `blocked` | Blocked | No |
-| `review` | Review | No |
-| `done` | Done | Yes |
-
-Legacy or non-Hermes statuses like `open`, `none`, and `in-progress` may remain globally for ordinary TaskNotes tasks, but Hermes views should not depend on them.
+Legacy fields may be read only for migration and compatibility.
 
 ## Assignee Model
 
-Add a native organizational field:
+`assignee` is the primary routing property.
+
+Examples:
 
 ```yaml
-assignee: orchestrator
+assignee: yt
 ```
 
-MVP assignee classes:
+```yaml
+assignee: codex
+```
 
-- Human: `human`, `user`, `yt`, `vaitheesh`
-- Agent: `orchestrator`, `codex`, `peacock`, `research-librarian`, `reviewer-qa`, `ops-steward`, `default`
+### Self-Assignee
 
-Rules:
+Self-assigned tasks remain on the board and are visible in TaskNotes Kanban/Bases views. They are not agent-runnable unless the user changes the assignee to an agent.
 
-- Human assignee means the task is waiting on a person.
-- When `assignee` is set to a human value, TaskNotes should call Hermes API to set:
-  - `assignee`: human value
-  - `status`: `blocked`
-  - `block_reason`: `Waiting on human: <assignee>`
-- When `assignee` changes from human to an agent, TaskNotes should call Hermes API to update assignee and offer to move status to `ready` or `triage`.
-- The mirror note should reflect the accepted Hermes response.
+Self-assigned work should not automatically mean `blocked`. The user can still use statuses such as `triage`, `todo`, `ready`, `review`, or `done`.
+
+### Agent Assignee
+
+Agent-assigned tasks are eligible for Hermes dispatcher/worker handling when their status and backend policy allow it.
+
+### Suggested MVP Assignee Values
+
+- Self/human: `yt`, `user`, `human`, `vaitheesh`
+- Agents: `codex`, `orchestrator`, `peacock`, `research-librarian`, `reviewer-qa`
+
+The actual list should be configurable through TaskNotes user-field settings.
+
+## Status Model
+
+The MVP should use Hermes-compatible status values for board tasks:
+
+| Value | Meaning |
+| --- | --- |
+| `triage` | Needs routing or clarification |
+| `todo` | Accepted but not ready to run |
+| `scheduled` | Planned for a future time |
+| `ready` | Ready for the assigned owner |
+| `running` | Claimed or in progress |
+| `blocked` | Cannot proceed until blocker is resolved |
+| `review` | Awaiting review |
+| `done` | Completed |
+| `archived` | Hidden from active board surfaces |
+
+TaskNotes may still support broader global statuses, but board tasks should round-trip cleanly through Hermes status values.
 
 ## Create Flow
 
-1. User opens TaskNotes create modal.
-2. User chooses a Hermes board via the board control, or creates from a Hermes board/lane context.
-3. User enters title/body and optional assignee, priority, blockers.
-4. On save, TaskNotes calls Hermes:
+### Default Create
+
+1. User creates a task from TaskNotes, a TaskNotes board, or a Bases/Kanban view.
+2. TaskNotes preserves any view-derived defaults:
+   - status
+   - priority
+   - project
+   - context/board
+   - custom fields
+   - assignee
+3. If no board is explicit, TaskNotes chooses the active board or configured default board.
+4. If no status is explicit, TaskNotes defaults to `triage`.
+5. If no assignee is explicit, TaskNotes leaves it blank or uses the configured default.
+6. TaskNotes calls Hermes create API.
+7. Hermes returns the accepted task state and task ID.
+8. TaskNotes writes or refreshes the note at `TaskNotes/<board>/<task-id>.md`.
+
+### Create API Shape
 
 ```http
 POST /api/plugins/kanban/tasks?board=<board>
@@ -144,138 +191,171 @@ Payload:
 
 ```json
 {
-  "title": "Example task",
-  "body": "Task body",
+  "title": "Draft packet cleanup",
+  "body": "Clean up repeated claims and rebuild from facts.",
+  "status": "triage",
   "priority": 3,
-  "assignee": "orchestrator",
+  "assignee": "yt",
   "parents": ["t_parent"],
-  "triage": true,
   "idempotency_key": "<stable-client-key>"
 }
 ```
 
-5. Hermes returns task ID and accepted state.
-6. TaskNotes writes or refreshes mirror note at:
-
-```text
-TaskNotes/Hermes/<board>/<task-id>.md
-```
-
-7. TaskNotes opens or highlights the new mirror note according to existing TaskNotes settings.
+The MVP should preserve a user-specified status instead of forcing every create into `triage`.
 
 ## Update Flow
 
-For an existing mirror note, TaskNotes derives identity from path:
+For an existing board task, TaskNotes derives identity from the path:
 
 ```text
-TaskNotes/Hermes/default/t_123.md
+TaskNotes/hhmi/t_123.md
 ```
 
 Identity:
 
 ```json
-{ "board": "default", "id": "t_123" }
+{ "board": "hhmi", "id": "t_123" }
 ```
 
-When user edits task fields:
+Supported MVP actions:
 
-| TaskNotes Action | Hermes API Action |
+| TaskNotes action | Hermes behavior |
 | --- | --- |
-| Title edit | `PATCH /tasks/:id` with `title` |
-| Body/details edit | `PATCH /tasks/:id` with `body` |
-| Status change | `PATCH /tasks/:id` with `status` |
-| Priority change | `PATCH /tasks/:id` with numeric priority |
-| Assignee change | `PATCH /tasks/:id` with `assignee`; human assignee also blocks |
-| Add blocked-by task | Kanban link API with parent ID |
-| Remove blocked-by task | Kanban unlink API |
-| Add blocking task | Kanban link API with child ID |
-| Comment | Comment API |
-| Archive | Archive API or `PATCH status=archived` if supported |
-| Delete | Delete API, then remove or archive mirror |
+| Edit title | Patch title |
+| Edit details/body | Patch body or add comment if body is read-only |
+| Change status | Patch status |
+| Change priority | Patch priority |
+| Change assignee | Patch assignee |
+| Add blocker | Create parent link |
+| Remove blocker | Remove parent link |
+| Add comment | Create comment |
+| Archive | Patch status to `archived` or call archive endpoint |
+| Delete | Confirm and call Hermes delete/archive policy |
 
-After every accepted action, TaskNotes refreshes the mirror note from Hermes detail response.
+After every accepted mutation, TaskNotes refreshes the note from Hermes.
 
 ## Modal MVP
 
-The Hermes-aware edit modal should include:
+The task modal should feel like TaskNotes, not a Hermes admin panel.
 
-- Native TaskNotes title/details controls.
-- Status controls using Hermes status vocabulary.
-- Board display derived from path.
-- Assignee field.
-- Blocked By section using native TaskNotes dependency cards.
-- Blocking section using inverse native dependency cards and/or Hermes API child links.
-- Comments section with native-looking cards and an Add comment button.
-- Worker Log section.
-- Run History section.
-- Events section.
+Required sections:
 
-Comments, worker logs, run history, and events are displayed from Hermes API response and are not written into mirror note body.
+- Title
+- Details
+- Status
+- Board/context
+- Assignee
+- Priority
+- Blocked By
+- Blocking
+- Comments
+- Run History
+- Events
+
+The settings modal should use stable TaskNotes groups:
+
+- Task
+- Routing
+- Dependencies
+- TaskNotes Metadata
+- TaskNotes Organization
+- Other Fields
+
+There should be no empty Hermes-only groups in the modal fields configuration.
+
+## Bases and Kanban MVP
+
+Bases/Kanban creation must preserve the user’s current view context.
+
+Examples:
+
+- Creating from a `done` column should create with `status: done`.
+- Creating from a `Project Alpha` filtered view should preserve `projects: [[Project Alpha]]`.
+- Creating from a swimlane should preserve both column and swimlane defaults.
+- Creating from a board folder should infer that board.
+
+This is critical because TaskNotes is the frontend. A board submission path must not erase the meaning of the current TaskNotes view.
+
+## Execution Routing
+
+Hermes workers should decide runnable work from `assignee` plus backend policy.
+
+MVP rule:
+
+- `assignee` in self/human list: visible board work, not auto-claimed by workers.
+- `assignee` in agent list: eligible for worker handling if status allows.
+- blank assignee: remains triage/unassigned until routed.
+
+The UI should not need a separate “Hermes task classification” toggle.
 
 ## Error Handling
 
-- If Hermes API call fails, keep local mirror unchanged and show a clear notice.
-- If refresh fails after a successful mutation, show “Hermes accepted action, mirror refresh failed” and offer manual refresh.
-- If identity cannot be derived from path, disable Hermes actions and show “Not a Hermes mirror note.”
-- If a status is disallowed by Hermes, show Hermes error text.
-- Use idempotency keys on creation to avoid duplicate cards after retries.
+- If Hermes create/update fails, TaskNotes should not silently mutate the local note.
+- If Hermes accepts a mutation but note refresh fails, show a clear notice and keep the task discoverable.
+- If identity cannot be derived from path or legacy fields, disable board actions and show a direct message.
+- If a task is self-assigned, do not warn that it is not agent-runnable; that is expected.
+- If a worker-only status is selected for a self-assigned task, show a soft warning only when needed.
 
 ## MVP Acceptance Criteria
 
-- Creating a task with a Hermes board selected creates the task in Hermes first.
-- A successful create writes a native mirror note under `TaskNotes/Hermes/<board>/<task-id>.md`.
-- Mirror notes contain no `hermes_*`, `sync_*`, `blocked_by`, `blocks`, or writeback fields.
-- Mirror note body contains only the Hermes task body.
-- Status changes in TaskNotes call Hermes API and refresh the mirror note.
-- The Hermes status values available in TaskNotes match Hermes kanban values.
-- `assignee` exists as a TaskNotes-visible property.
-- Setting `assignee` to a human value blocks the Hermes task with a clear block reason.
-- Adding/removing blockers from TaskNotes updates Hermes links via API.
-- Comments can be added from the modal and appear after refresh.
-- Archive/delete actions call Hermes before changing the local mirror.
-- Failed API calls do not silently mutate mirror notes.
-- Existing focused Hermes unit tests pass.
+- New board task notes are written under `TaskNotes/<board>/<task-id>.md`.
+- Legacy `TaskNotes/Hermes/<board>/<task-id>.md` notes remain readable.
+- TaskNotes creation calls Hermes first, then writes/refreshes the note.
+- Bases/Kanban creation preserves column, swimlane, project, status, priority, and custom defaults.
+- User can set `assignee` to themself and keep the task on the board.
+- Self-assigned tasks are not treated as invalid or automatically blocked.
+- Agent-assigned tasks remain eligible for Hermes execution.
+- Modal field settings do not show empty Hermes-only groups.
+- Assignee appears as a first-class TaskNotes organization/routing field.
+- Comments can be added from the modal.
+- Run history and events render in the modal without being written into task body/frontmatter.
+- Blocker links round-trip through Hermes.
+- Archive/delete calls Hermes policy before changing local notes.
+- Focused unit tests pass for creation, identity, modal activity, assignee suggestions, and Bases/Kanban defaults.
+- Full suite passes under the repo’s expected test timezone.
 
-## Implementation Phases
+## Non-Goals
 
-### Phase 1: Contract Stabilization
+- Rebuilding the Hermes dashboard.
+- Making TaskNotes the backend source of truth.
+- Offline divergent edits that later merge into Hermes.
+- Full execution monitoring beyond comments, run history, and event display.
+- Multi-user permissioning.
+- Full migration of every legacy note in the MVP.
 
-- Keep mirror notes native-only.
-- Derive identity from path.
-- Add regression coverage for no custom Hermes fields.
-- Add `assignee` as a user-visible TaskNotes field.
+## Implementation Plan
 
-### Phase 2: API-First Mutations
+### Phase 1: Identity and Settings Contract
 
-- Route title/body/status/priority changes through Hermes API.
-- Refresh mirrors after accepted updates.
-- Add clear failure notices.
-- Use idempotency keys for create.
+- Use `TaskNotes/<board>/<task-id>.md` as the canonical identity path.
+- Keep legacy path read support.
+- Remove Hermes-only modal field groups.
+- Promote `assignee` to a visible TaskNotes routing/organization field.
 
-### Phase 3: Assignee and Human Blocking
+### Phase 2: Create and Update Routing
 
-- Implement human/agent assignee classification.
-- On human assignment, block task in Hermes.
-- On agent assignment, update assignee and optionally return to ready/triage.
-- Add tests for human blocking behavior.
+- Route TaskNotes creates through Hermes.
+- Preserve Bases/Kanban defaults on create.
+- Patch title, status, priority, assignee, comments, and blocker links through Hermes.
+- Refresh note after accepted mutations.
 
-### Phase 4: Dependencies and Activity
+### Phase 3: Self-Assignee Workflow
 
-- Convert blocked-by/blocking UI actions to Hermes link/unlink calls.
-- Render comments, worker log, run history, and events as native-feeling TaskNotes cards.
-- Keep activity read-only except comments.
+- Add configurable self/human assignee values.
+- Prevent self-assigned tasks from being auto-claimed by workers.
+- Keep self-assigned tasks visible and actionable in TaskNotes boards.
+- Add tests for self-assigned board tasks.
 
-### Phase 5: End-to-End Verification
+### Phase 4: Modal Activity
 
-- Test create, update, status change, human block, agent unblock, comment, link, archive, delete.
-- Verify Hermes dashboard and TaskNotes views stay in sync.
-- Verify no duplicate Hermes task on retry.
+- Render comments, run history, and events in the edit modal.
+- Open linked artifacts/tasks from activity cards.
+- Keep read-only activity out of task body/frontmatter.
 
 ## Open Questions
 
-- Should ordinary non-Hermes TaskNotes tasks keep `open`/`none` statuses globally?
-- What is the exact Hermes API shape for archive vs delete?
-- Should `assignee` be a core fork field or a default custom user field?
-- Should human assignment always force blocked, or ask when current status is `done`?
-- Should moving from human to agent automatically choose `ready` or preserve prior status?
-
+- What is the default self-assignee value: `yt`, `user`, or a setting?
+- Should blank assignee create as `triage`, or should TaskNotes prompt for owner?
+- Should self-assigned `ready` be allowed without warning?
+- Is `projects: Hermes/<board>` still useful, or should `contexts: [<board>]` be the only board marker?
+- Should delete mean true delete, archive, or move to `archived` status?
