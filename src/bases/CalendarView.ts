@@ -2470,7 +2470,8 @@ export class CalendarView extends BasesViewBase {
 							values,
 							(task) => {
 								void this.refreshAfterDirectCalendarTaskWrite(task);
-							}
+							},
+							this.plugin.settings.taskCreationDefaults.defaultProjects
 						)
 					);
 					modal.open();

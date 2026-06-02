@@ -1209,7 +1209,9 @@ export default class TaskNotesPlugin extends Plugin {
 		const options = buildHermesTaskCreationOptions(
 			this.app,
 			this.settings.userFields ?? [],
-			values
+			values,
+			undefined,
+			this.settings.taskCreationDefaults.defaultProjects
 		);
 		new TaskCreationModal(this.app, this, options).open();
 	}
@@ -2058,7 +2060,8 @@ export default class TaskNotesPlugin extends Plugin {
 				prePopulatedValues,
 				(task: TaskInfo) => {
 					this.handleInlineTaskCreated(task, insertionContext);
-				}
+				},
+				this.settings.taskCreationDefaults.defaultProjects
 			);
 			taskCreationOptions.creationContext = "modal-inline-creation";
 

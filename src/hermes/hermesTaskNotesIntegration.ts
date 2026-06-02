@@ -10,7 +10,11 @@ import {
 	normalizeHermesUserFields,
 	normalizeHermesAssignee,
 } from "./hermesAssignee";
-import { HERMES_DEFAULT_BOARDS } from "./hermesRouting";
+import {
+	HERMES_DEFAULT_BOARDS,
+	normalizeHermesBoardValue,
+	splitHermesList,
+} from "./hermesRouting";
 
 const TASKNOTES_ROOT = "TaskNotes";
 
@@ -99,15 +103,23 @@ function boardFromPrepopulated(
 	values?: TaskCreationPrepopulatedValues,
 	knownBoards: readonly string[] = HERMES_DEFAULT_BOARDS
 ): string | null {
-	const projects = asStringArray(values?.projects);
-	for (const project of projects) {
-		const match = project.match(/^Hermes\/([^/]+)$/);
-		if (match && knownBoards.includes(match[1])) {
-			return match[1];
-		}
-	}
+	const projectBoard = boardFromProjectsValue(values?.projects, knownBoards);
+	if (projectBoard) return projectBoard;
 	const contexts = asStringArray(values?.contexts);
 	return contexts.find((context) => knownBoards.includes(context)) ?? null;
+}
+
+function boardFromProjectsValue(
+	value: unknown,
+	knownBoards: readonly string[] = HERMES_DEFAULT_BOARDS
+): string | null {
+	for (const project of splitHermesList(value)) {
+		const board = normalizeHermesBoardValue(project);
+		if (board && knownBoards.includes(board)) {
+			return board;
+		}
+	}
+	return null;
 }
 
 function modalGroups(): HermesModalGroup[] {
@@ -193,12 +205,13 @@ export function buildHermesTaskCreationOptions(
 	app: App,
 	userFields: readonly UserMappedField[] = [],
 	prePopulatedValues?: TaskCreationPrepopulatedValues,
-	onTaskCreated?: (task: TaskInfo) => void
+	onTaskCreated?: (task: TaskInfo) => void,
+	defaultProjects?: unknown
 ): TaskCreationOptions {
 	const boards = getHermesBoards(app);
-	const explicitBoard =
-		boardFromPrepopulated(prePopulatedValues, boards) ?? getActiveHermesBoard(app);
-	const board = explicitBoard ?? preferredBoard(app);
+	const explicitBoard = boardFromPrepopulated(prePopulatedValues, boards);
+	const defaultBoard = boardFromProjectsValue(defaultProjects, boards);
+	const board = explicitBoard ?? defaultBoard ?? getActiveHermesBoard(app) ?? preferredBoard(app);
 	const boardOptions = uniqueStrings([board, ...boards]);
 	const incomingFrontmatter = customFrontmatter(prePopulatedValues);
 	const legacyAssignee = normalizeHermesAssignee(incomingFrontmatter.assignee);

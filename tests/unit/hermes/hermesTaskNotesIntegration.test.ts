@@ -55,6 +55,36 @@ describe("Hermes TaskNotes integration", () => {
 		expect(options.prePopulatedValues?.status).toBe("triage");
 	});
 
+	it("honors the configured default board when no board is prepopulated", () => {
+		const options = buildHermesTaskCreationOptions(
+			app,
+			[],
+			{ title: "Default board task" },
+			undefined,
+			"Hermes/default"
+		);
+
+		expect(options.hermesBoardPicker?.selectedBoard).toBe("default");
+		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:default");
+		expect(options.prePopulatedValues?.projects).toEqual(["Hermes/default"]);
+	});
+
+	it("lets an explicit board beat the configured default board", () => {
+		const options = buildHermesTaskCreationOptions(
+			app,
+			[],
+			{
+				title: "Explicit board task",
+				projects: ["Hermes/hhmi"],
+			},
+			undefined,
+			"Hermes/default"
+		);
+
+		expect(options.hermesBoardPicker?.selectedBoard).toBe("hhmi");
+		expect(options.prePopulatedValues?.projects).toEqual(["Hermes/hhmi"]);
+	});
+
 	it("keeps raw writeback fields out of the board edit modal", () => {
 		const task = {
 			title: "Synced task",
