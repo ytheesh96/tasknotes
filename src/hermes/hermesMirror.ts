@@ -13,15 +13,19 @@ export function hermesPriorityToTaskNotesPriority(priority: number | null | unde
 	return "normal";
 }
 
+export function hermesStatusToTaskNotesStatus(status: string | null | undefined): string {
+	const normalized = status?.trim() || "triage";
+	return normalized === "archived" ? "done" : normalized;
+}
+
 export function buildHermesMirrorUpdates(
 	board: string,
 	task: HermesTaskRecord,
 	now = getCurrentTimestamp()
 ): Partial<TaskInfo> & { customFrontmatter: Record<string, unknown> } {
-	const status = task.status || "triage";
 	return {
 		title: task.title,
-		status,
+		status: hermesStatusToTaskNotesStatus(task.status),
 		priority: hermesPriorityToTaskNotesPriority(task.priority),
 		customFrontmatter: buildHermesMirrorFrontmatter(board, task, now),
 	};
@@ -98,7 +102,7 @@ function buildHermesMirrorFrontmatter(
 	if (task.status === "archived") {
 		tags.push("archived");
 	}
-	const status = task.status || "triage";
+	const status = hermesStatusToTaskNotesStatus(task.status);
 	const assignee = task.assignee?.trim();
 	const frontmatter: Record<string, unknown> = {
 		type: "task",
@@ -110,7 +114,7 @@ function buildHermesMirrorFrontmatter(
 		contexts: assignee && assignee !== "none" ? [assignee] : [],
 		dateCreated: options.existingTaskInfo?.dateCreated ?? now,
 	};
-	if (status === "done" || status === "archived") {
+	if (status === "done") {
 		frontmatter.completedDate = options.existingTaskInfo?.completedDate ?? now;
 	}
 	const blockedBy = buildHermesBlockedByLinks(board, options.parents ?? []);
@@ -150,12 +154,13 @@ function fallbackTaskInfo(
 	}
 ): TaskInfo {
 	const frontmatter = buildHermesMirrorFrontmatter(board, task, getCurrentTimestamp(), options);
+	const tags = Array.isArray(frontmatter.tags) ? (frontmatter.tags as string[]) : ["task", "hermes-kanban"];
 	return {
 		title: task.title,
-		status: task.status || "triage",
+		status: hermesStatusToTaskNotesStatus(task.status),
 		priority: hermesPriorityToTaskNotesPriority(task.priority),
 		path,
-		tags: ["task", "hermes-kanban"],
+		tags,
 		archived: task.status === "archived",
 		contexts:
 			task.assignee?.trim() && task.assignee.trim() !== "none" ? [task.assignee.trim()] : [],

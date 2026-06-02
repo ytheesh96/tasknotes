@@ -112,6 +112,29 @@ describe("Hermes managed task sync", () => {
 		expect(plugin.emitter.trigger).not.toHaveBeenCalled();
 	});
 
+	it("treats Hermes archived tasks as done tasks with the native archive tag", async () => {
+		const localTask = createTask({
+			status: "done",
+			priority: "normal",
+			tags: ["task", "hermes-kanban", "archived"],
+			archived: true,
+		});
+		const remoteTask = createRemoteTask({
+			status: "archived",
+			priority: 5,
+		});
+		const api = createApi({ boardTasks: [remoteTask], detailTask: remoteTask });
+		const mirrorWriter = jest.fn();
+		const plugin = createPlugin([localTask]);
+
+		const result = await syncHermesManagedTasksFromHermes(plugin, { api, mirrorWriter });
+
+		expect(result.tasksChecked).toBe(1);
+		expect(result.updated).toBe(0);
+		expect(api.getTask).not.toHaveBeenCalled();
+		expect(mirrorWriter).not.toHaveBeenCalled();
+	});
+
 	it("ignores direct TaskNotes task ids that are not tagged as Hermes managed", async () => {
 		const localTask = createTask({ tags: ["task"] });
 		const api = createApi({ boardTasks: [createRemoteTask()], detailTask: createRemoteTask() });

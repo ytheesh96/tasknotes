@@ -7,7 +7,11 @@ import {
 	type HermesTaskRecord,
 	getHermesTaskIdentity,
 } from "./hermesApiClient";
-import { createOrUpdateHermesMirrorNote, hermesPriorityToTaskNotesPriority } from "./hermesMirror";
+import {
+	createOrUpdateHermesMirrorNote,
+	hermesPriorityToTaskNotesPriority,
+	hermesStatusToTaskNotesStatus,
+} from "./hermesMirror";
 
 export const HERMES_MANAGED_TASK_RECONCILE_INTERVAL_MS = 120_000;
 
@@ -193,7 +197,8 @@ function shouldRefreshFromHermes(
 	remoteTask: HermesTaskRecord
 ): boolean {
 	const remoteStatus = remoteTask.status || "triage";
-	if (localTask.status !== remoteStatus) {
+	const taskNotesStatus = hermesStatusToTaskNotesStatus(remoteStatus);
+	if (localTask.status !== taskNotesStatus) {
 		return true;
 	}
 	if (localTask.title !== remoteTask.title) {
@@ -209,7 +214,7 @@ function shouldRefreshFromHermes(
 		return true;
 	}
 	const hasArchivedTag = (localTask.tags ?? []).includes("archived");
-	return remoteStatus === "archived" && !hasArchivedTag;
+	return (remoteStatus === "archived") !== hasArchivedTag;
 }
 
 function getHermesAssigneeContexts(task: HermesTaskRecord): string[] {

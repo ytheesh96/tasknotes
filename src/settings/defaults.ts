@@ -93,17 +93,6 @@ export const DEFAULT_STATUSES: StatusConfig[] = [
 		autoArchive: false,
 		autoArchiveDelay: 5,
 	},
-	{
-		id: "archived",
-		value: "archived",
-		label: "Archived",
-		color: "#6b7280",
-		isCompleted: true,
-		excludeFromCycle: true,
-		order: 6,
-		autoArchive: false,
-		autoArchiveDelay: 5,
-	},
 ];
 
 // Default priority configuration matches current hardcoded behavior

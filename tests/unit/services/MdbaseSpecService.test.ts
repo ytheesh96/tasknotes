@@ -361,7 +361,7 @@ describe("MdbaseSpecService", () => {
 			const block = getFieldBlock(fm, "status");
 			expect(block).toContain("type: enum");
 			expect(block).toContain("required: true");
-			expect(block).toContain("values: [triage, todo, ready, running, blocked, done, archived]");
+			expect(block).toContain("values: [triage, todo, ready, running, blocked, done]");
 			expect(block).toContain("default: triage");
 		});
 

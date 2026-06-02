@@ -72,7 +72,7 @@ describe("Hermes board surface provisioning", () => {
 		expect(content).toContain('file.hasTag("task")');
 		expect(content).toContain('file.inFolder("TaskNotes/job-hunt")');
 		expect(content).toContain('list(projects).contains("Hermes/job-hunt")');
-		expect(content).toContain("pinnedColumns: triage,todo,ready,running,blocked,done,archived");
+		expect(content).toContain("pinnedColumns: triage,todo,ready,running,blocked,done");
 		expect(content).not.toContain("hermes_board");
 	});
 

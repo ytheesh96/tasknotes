@@ -1,4 +1,8 @@
-import { buildHermesMirrorContent } from "../../../src/hermes/hermesMirror";
+import {
+	buildHermesMirrorContent,
+	buildHermesMirrorUpdates,
+	hermesStatusToTaskNotesStatus,
+} from "../../../src/hermes/hermesMirror";
 import type { HermesTaskRecord } from "../../../src/hermes/hermesApiClient";
 
 describe("Hermes mirror note content", () => {
@@ -41,5 +45,23 @@ describe("Hermes mirror note content", () => {
 		expect(body).not.toContain("Dependency Links");
 		expect(body).not.toContain("Latest Run");
 		expect(body).not.toContain("tasknotes-hermes-api");
+	});
+
+	it("mirrors Hermes archived tasks through the native TaskNotes archive tag", () => {
+		const task: HermesTaskRecord = {
+			id: "t_archived",
+			title: "Archived without archived status column",
+			status: "archived",
+			priority: 5,
+		};
+
+		const content = buildHermesMirrorContent("default", task);
+		const updates = buildHermesMirrorUpdates("default", task, "2026-06-02T00:00:00Z");
+
+		expect(hermesStatusToTaskNotesStatus("archived")).toBe("done");
+		expect(updates.status).toBe("done");
+		expect(content).toContain("status: done");
+		expect(content).toContain("- archived");
+		expect(content).not.toContain("status: archived");
 	});
 });
