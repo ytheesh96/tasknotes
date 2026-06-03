@@ -232,20 +232,32 @@ describe("Issue #1921: direct frontmatter edits trigger lifecycle side effects",
 		service.destroy();
 	});
 
-	it("syncs existing unsynced #goal TaskNotes during startup snapshot", async () => {
+	it("schedules existing unsynced #goal TaskNotes after startup without blocking initialize", async () => {
 		const existingGoalTask = createTask({
 			tags: ["task", "hermes-goal"],
 			projects: ["Hermes/default"],
 			contexts: ["peacock"],
 		});
-		const { plugin, taskService } = createPlugin([existingGoalTask]);
+		let resolveSync: (() => void) | undefined;
+		mockSyncGoalModeTaskNoteToHermes.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveSync = () => resolve({ status: "created" });
+				})
+		);
+		const { emitter, plugin, taskService } = createPlugin([existingGoalTask]);
 		const service = new TaskFileLifecycleReconciliationService(plugin as any);
 
-		await service.initialize();
+		const initializePromise = service.initialize();
+		await flushPromises();
 
+		expect(emitter.on).toHaveBeenCalledWith(EVENT_TASK_UPDATED, expect.any(Function));
+		await expect(initializePromise).resolves.toBeUndefined();
 		expect(mockSyncGoalModeTaskNoteToHermes).toHaveBeenCalledWith(plugin, existingGoalTask);
 		expect(taskService.applyPropertyChangeSideEffects).not.toHaveBeenCalled();
 
+		resolveSync?.();
+		await flushPromises();
 		service.destroy();
 	});
 

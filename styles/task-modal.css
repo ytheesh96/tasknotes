@@ -356,6 +356,82 @@
     letter-spacing: 0.5px;
 }
 
+.tasknotes-plugin .tn-task-modal__hermes-availability {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-2-2);
+    margin-top: var(--size-4-3);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability-chip {
+    align-items: center;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    display: inline-flex;
+    flex: 0 1 auto;
+    gap: var(--size-2-1);
+    min-width: 0;
+    padding: 2px 8px;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability-dot {
+    background: var(--text-faint);
+    border-radius: 50%;
+    flex: 0 0 auto;
+    height: 8px;
+    width: 8px;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability--connected .tn-task-modal__hermes-availability-dot {
+    background: var(--color-green);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability--degraded .tn-task-modal__hermes-availability-dot,
+.tasknotes-plugin .tn-task-modal__hermes-availability--starting .tn-task-modal__hermes-availability-dot {
+    background: var(--color-yellow);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability--disconnected .tn-task-modal__hermes-availability-dot {
+    background: var(--color-red);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability-kicker {
+    color: var(--text-normal);
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+    min-width: 0;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability-title,
+.tasknotes-plugin .tn-task-modal__hermes-availability-mode {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+    min-width: 0;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability-title::before,
+.tasknotes-plugin .tn-task-modal__hermes-availability-mode::before {
+    content: "·";
+    margin-right: var(--size-2-1);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability-actions {
+    align-items: center;
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--size-2-1);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-availability-actions .tn-btn {
+    font-size: var(--font-ui-smaller);
+    height: 24px;
+    line-height: 1;
+    min-height: 24px;
+    padding: 0 8px;
+}
+
 .tasknotes-plugin .tn-task-modal__hermes-activity-section {
     border-top: 0.5px solid var(--background-modifier-border);
     margin-top: var(--size-4-3);
@@ -377,7 +453,12 @@
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-item {
-    margin-bottom: var(--size-4-2);
+    margin-bottom: 0;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-activity-card-host {
+    min-width: 0;
+    width: 100%;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card {
@@ -385,6 +466,24 @@
     width: 100%;
     min-width: 0;
     margin-bottom: 0;
+    padding: var(--size-2-3) var(--size-4-2);
+    border-radius: var(--radius-s);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card .task-card__main-row {
+    align-items: flex-start;
+    gap: var(--size-2-2);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card .task-card__content {
+    gap: 2px;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card .task-card__title {
+    align-items: baseline;
+    font-size: var(--font-ui-small);
+    gap: var(--size-2-1);
+    line-height: 1.3;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-card--expandable {
@@ -421,7 +520,18 @@
     display: flex;
     flex-direction: column;
     gap: var(--size-2-1);
-    margin-top: var(--size-2-2);
+    margin-top: var(--size-2-1);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-activity-overflow-summary {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+    line-height: 1.2;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-activity-item--expanded .tn-task-modal__hermes-activity-overflow-summary,
+.tasknotes-plugin .tn-task-modal__hermes-thread-card--expanded .tn-task-modal__hermes-activity-overflow-summary {
+    display: none;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-detail-row {
@@ -445,10 +555,10 @@
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-actions {
     display: flex;
-    flex-direction: column;
+    flex-flow: row wrap;
     align-items: flex-start;
-    gap: var(--size-2-1);
-    margin-top: var(--size-2-2);
+    gap: var(--size-2-1) var(--size-4-2);
+    margin-top: var(--size-2-1);
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-action {
@@ -471,14 +581,29 @@
     text-decoration: underline;
 }
 
+.tasknotes-plugin .tn-task-modal__hermes-activity-detail-row--overflow,
+.tasknotes-plugin .tn-task-modal__hermes-activity-action--overflow {
+    display: none;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-activity-item--expanded .tn-task-modal__hermes-activity-detail-row--overflow,
+.tasknotes-plugin .tn-task-modal__hermes-thread-card--expanded .tn-task-modal__hermes-activity-detail-row--overflow {
+    display: grid;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-activity-item--expanded .tn-task-modal__hermes-activity-action--overflow,
+.tasknotes-plugin .tn-task-modal__hermes-thread-card--expanded .tn-task-modal__hermes-activity-action--overflow {
+    display: inline-flex;
+}
+
 .tasknotes-plugin .tn-task-modal__hermes-activity-body {
     color: var(--text-normal);
     font-size: var(--font-ui-small);
-    line-height: 1.45;
+    line-height: 1.35;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
     display: -webkit-box;
-    -webkit-line-clamp: 4;
+    -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
@@ -509,7 +634,13 @@
 
 .tasknotes-plugin .tn-task-modal__hermes-review-thread {
     border-top: none;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0;
+    min-height: 0;
     margin-top: 0;
+    overflow: hidden;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-run-status-strip {
@@ -520,7 +651,6 @@
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-run-chip,
-.tasknotes-plugin .tn-task-modal__hermes-review-badge,
 .tasknotes-plugin .tn-task-modal__hermes-pinned-label {
     border: 1px solid var(--background-modifier-border);
     border-radius: 999px;
@@ -535,8 +665,7 @@
     border-color: rgba(var(--color-green-rgb), 0.35);
 }
 
-.tasknotes-plugin .tn-task-modal__hermes-run-chip--warning,
-.tasknotes-plugin .tn-task-modal__hermes-review-badge {
+.tasknotes-plugin .tn-task-modal__hermes-run-chip--warning {
     color: var(--color-yellow);
     border-color: rgba(var(--color-yellow-rgb), 0.35);
 }
@@ -554,22 +683,47 @@
 .tasknotes-plugin .tn-task-modal__hermes-thread-list {
     display: flex;
     flex-direction: column;
-    gap: var(--size-4-2);
+    flex: 1 1 auto;
+    gap: var(--size-2-2);
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-right: var(--size-2-1);
+    scrollbar-gutter: stable;
+}
+
+.tasknotes-plugin .task-projects-list.tn-task-modal__hermes-comment-list.tn-task-modal__hermes-thread-list {
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-card {
     display: grid;
-    grid-template-columns: 28px minmax(0, 1fr);
-    gap: var(--size-2-2);
-    padding: var(--size-2-3);
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: var(--size-2-1);
+    padding: var(--size-2-2) var(--size-4-2);
     border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-m);
+    border-radius: var(--radius-s);
     background: var(--background-secondary);
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-card--structured {
     border-left: 3px solid var(--background-modifier-border-focus);
     background: var(--background-secondary-alt);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-thread-card--expandable {
+    cursor: pointer;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-thread-card--expandable:hover {
+    border-color: var(--background-modifier-border-hover);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-thread-card--expandable:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-card--warning,
@@ -583,6 +737,97 @@
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-card--success {
     border-left-color: var(--color-green);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-item {
+    align-items: flex-start;
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: var(--size-2-1);
+    padding: var(--size-2-1) var(--size-4-2);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-indicator {
+    background: var(--text-faint);
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--background-primary);
+    height: 10px;
+    margin-top: 5px;
+    width: 10px;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-item--success .tn-task-modal__hermes-status-indicator {
+    background: var(--color-green);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-item--warning .tn-task-modal__hermes-status-indicator {
+    background: var(--color-yellow);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-item--danger .tn-task-modal__hermes-status-indicator {
+    background: var(--color-red);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-content {
+    min-width: 0;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-line {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-2-1);
+    line-height: 1.2;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-label {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-summary {
+    color: var(--text-muted);
+    display: -webkit-box;
+    font-size: var(--font-ui-small);
+    line-height: 1.35;
+    margin-top: 1px;
+    min-width: 0;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-meta {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-details {
+    display: flex;
+    flex-flow: row wrap;
+    gap: 2px var(--size-4-2);
+    margin-top: 1px;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-details .tn-task-modal__hermes-activity-detail-row {
+    display: flex;
+    gap: var(--size-2-1);
+    line-height: 1.2;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-details .tn-task-modal__hermes-activity-detail-label::after {
+    content: ":";
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-body {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    line-height: 1.3;
+    margin-top: 1px;
+    -webkit-line-clamp: 2;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-structured {
@@ -616,15 +861,16 @@
     display: flex;
     font-size: var(--font-ui-smaller);
     font-weight: 700;
-    height: 28px;
+    height: 22px;
     justify-content: center;
-    width: 28px;
+    width: 22px;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-header {
     color: var(--text-faint);
     font-size: var(--font-ui-smaller);
-    margin-bottom: 2px;
+    line-height: 1.2;
+    margin-bottom: 1px;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-author {
@@ -635,13 +881,69 @@
 .tasknotes-plugin .tn-task-modal__hermes-thread-body {
     color: var(--text-normal);
     font-size: var(--font-ui-small);
-    line-height: 1.45;
+    line-height: 1.35;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
 
+.tasknotes-plugin .tn-task-modal__hermes-thread-body--structured {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-thread-card--expanded .tn-task-modal__hermes-thread-body--structured {
+    display: block;
+    -webkit-line-clamp: unset;
+    overflow: visible;
+}
+
 .tasknotes-plugin .tn-task-modal__hermes-composer {
+    background: color-mix(in srgb, var(--background-primary) 88%, var(--interactive-accent) 12%);
+    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, var(--interactive-accent) 28%);
+    border-radius: var(--radius-m);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    flex: 0 0 auto;
     margin-top: var(--size-4-2);
+    padding: var(--size-2-2);
+    position: relative;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-composer:focus-within {
+    border-color: color-mix(in srgb, var(--interactive-accent) 60%, var(--background-modifier-border) 40%);
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--interactive-accent) 40%, transparent),
+        0 10px 26px rgba(0, 0, 0, 0.2);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-earlier-activity {
+    align-self: flex-start;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    color: var(--text-muted);
+    cursor: var(--cursor-link);
+    font-size: var(--font-ui-smaller);
+    line-height: 1.2;
+    margin: 0;
+    padding: 0;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-earlier-activity:hover,
+.tasknotes-plugin .tn-task-modal__hermes-earlier-activity:focus-visible {
+    color: var(--text-normal);
+    text-decoration: underline;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-earlier-activity-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-2);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-earlier-activity-list[hidden] {
+    display: none;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-raw-toggle {
@@ -652,7 +954,7 @@
     color: var(--text-muted);
     cursor: var(--cursor-link);
     font-size: var(--font-ui-smaller);
-    margin-top: var(--size-2-2);
+    margin-top: var(--size-2-1);
     padding: 0;
 }
 
@@ -679,10 +981,33 @@
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-comment-input {
+    background: transparent;
+    border: none;
+    box-shadow: none;
     box-sizing: border-box;
     display: block;
+    margin-bottom: 0;
+    min-height: 84px;
+    padding: var(--size-2-1) 76px 34px var(--size-2-1);
+    resize: vertical;
     width: 100%;
     max-width: 100%;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-comment-input:focus {
+    box-shadow: none;
+    outline: none;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-send-button {
+    bottom: 10px;
+    font-size: var(--font-ui-smaller);
+    height: 28px;
+    line-height: 1;
+    min-height: 28px;
+    padding: 0 12px;
+    position: absolute;
+    right: 10px;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-comment-input--hidden {
@@ -1370,8 +1695,7 @@ body.is-mobile .tasknotes-plugin .task-project-item--task-card .task-project-rem
     }
 
     .tasknotes-plugin.minimalist-task-modal.split-layout-enabled.expanded .modal-split-right.modal-split-right--with-readonly {
-        overflow-y: auto;
-        overflow-x: hidden;
+        overflow: hidden;
     }
 
     .tasknotes-plugin.minimalist-task-modal.split-layout-enabled.expanded .modal-split-right.modal-split-right--with-readonly .tn-task-modal__markdown-editor--details {
@@ -1397,6 +1721,10 @@ body.is-mobile .tasknotes-plugin .task-project-item--task-card .task-project-rem
         margin: 0;
         padding: var(--size-4-3) var(--size-4-4);
         border-top: 1px solid var(--background-modifier-border);
+    }
+
+    .tasknotes-plugin.minimalist-task-modal.split-layout-enabled.expanded .modal-split-right .tn-task-modal__hermes-review-thread {
+        height: 100%;
     }
 
     /* Button container needs proper positioning */

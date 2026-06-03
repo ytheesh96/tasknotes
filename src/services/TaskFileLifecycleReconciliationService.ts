@@ -88,13 +88,14 @@ export class TaskFileLifecycleReconciliationService {
 	constructor(private readonly plugin: TaskNotesPlugin) {}
 
 	async initialize(): Promise<void> {
-		await this.captureCurrentTasks();
+		const tasksToSync = await this.captureCurrentTasks();
 		this.taskUpdatedRef = this.plugin.emitter.on(
 			EVENT_TASK_UPDATED,
 			(payload: TaskUpdatePayload) => {
 				void this.handleTaskUpdatedEvent(payload);
 			}
 		);
+		void this.syncNewlyDiscoveredGoalTasks(tasksToSync);
 	}
 
 	destroy(): void {
@@ -166,19 +167,26 @@ export class TaskFileLifecycleReconciliationService {
 		}
 	}
 
-	private async captureCurrentTasks(): Promise<void> {
+	private async captureCurrentTasks(): Promise<TaskInfo[]> {
 		try {
 			const tasks = await this.plugin.cacheManager.getAllTasks();
 			for (const task of tasks) {
 				this.taskSnapshots.set(task.path, task);
-				await this.syncNewlyDiscoveredGoalTask(task.path, task);
 			}
+			return tasks;
 		} catch (error) {
 			tasknotesLogger.warn("Failed to snapshot tasks for direct file edit reconciliation:", {
 				category: "stale-data",
 				operation: "snapshot-direct-task-file-reconciliation",
 				error,
 			});
+			return [];
+		}
+	}
+
+	private async syncNewlyDiscoveredGoalTasks(tasks: TaskInfo[]): Promise<void> {
+		for (const task of tasks) {
+			await this.syncNewlyDiscoveredGoalTask(task.path, task);
 		}
 	}
 

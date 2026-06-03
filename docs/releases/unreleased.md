@@ -34,9 +34,15 @@ Example:
 
 ## Changed
 
-- Redesigned the Hermes task edit modal activity rail as a review thread with pinned handoffs, chat-style comments, compact run status chips, artifact links, and collapsible run/event history.
-- Rendered Hermes handoff and review-required thread comments as compact structured cards with chips, artifact actions, and a low-emphasis View raw affordance instead of showing raw JSON by default.
+- Redesigned the Hermes section of the task edit modal as a review-thread activity rail with pinned handoffs, chat-style comments, compact run status chips, artifact links, and inline status updates while preserving the existing TaskNotes editing experience.
+- Refined the Hermes task edit modal so the review comment Send button sits inside the composer, Hermes live status appears as a compact indicator, status updates appear inside the review thread, and the task information footer is hidden.
+- Pinned the Hermes review comment composer to the bottom of the activity rail so only the review cards scroll, with a cleaner composer treatment for writing comments.
+- Changed the Hermes task edit modal into a live API-backed surface by removing the legacy Save update/Cancel footer, autosaving supported title/status/priority/assignee/dependency edits through Hermes, and dropping the editable mirror-note Details field.
+- Added Hermes Board and Assignee controls to task edit and creation modal top icon rows so routing metadata is visible beside status, priority, dates, recurrence, and reminders without duplicate fields below the title area.
+- Tightened Hermes review-thread spacing so status updates use compact log rows with round indicators, structured review/handoff cards show collapsed previews instead of full reports, rely on the left-edge severity color instead of duplicate badges, and place the newest visible activity closest to the comment composer.
+- Rendered Hermes handoff and review-required thread comments as compact structured cards with readable status chips, artifact actions, and a low-emphasis View raw affordance instead of showing raw JSON by default.
 - Added a focused Hermes comment parser/presentation-model layer so review-thread comments with fenced JSON, prefixed prose, malformed payloads, or handoff metadata render as structured activity instead of raw JSON.
+- Replaced the Hermes task edit footer archive/delete controls with a single Block/Unblock status button backed by the live Hermes API.
 - Treat TaskNotes board folders as the native kanban control panel, using `TaskNotes/<board>/<task-id>.md` for board identity and removing empty Hermes-only modal field groups from settings.
 - Improved Hermes Goal Mode card creation duplicate-submit and partial-success handling with in-flight submit disabling, stable create idempotency keys, and notices that name the existing card when post-create sync is incomplete.
 

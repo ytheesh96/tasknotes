@@ -191,7 +191,10 @@ export function createHermesEditFieldConfig(
 	void userFields;
 	const fields: HermesModalField[] = [
 		field("title", "core", "basic", 0, "Title", true, true),
-		field("details", "core", "basic", 1, "Details", true, true),
+		{
+			...field("details", "core", "basic", 1, "Details", true, false),
+			enabled: false,
+		},
 		field("projects", "core", "routing", 0, "Board", true, true),
 		field("contexts", "core", "routing", 1, "Assignee", true, true),
 		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
@@ -301,7 +304,6 @@ export function buildHermesTaskEditOptions(
 		task,
 		onTaskUpdated,
 		modalTitle: "Update task",
-		saveButtonText: "Save update",
 		modalFieldsConfig: createHermesEditFieldConfig(userFields),
 	};
 }

@@ -135,19 +135,21 @@ describe("Hermes TaskNotes integration", () => {
 			},
 		]);
 		const fieldIds = options.modalFieldsConfig?.fields?.map((field) => field.id) ?? [];
+		const visibleEditFieldIds =
+			options.modalFieldsConfig?.fields
+				?.filter((field) => field.enabled && field.visibleInEdit)
+				.map((field) => field.id) ?? [];
+		const detailsField = options.modalFieldsConfig?.fields?.find(
+			(field) => field.id === "details"
+		);
 
 		expect(options.modalTitle).toBe("Update task");
-		expect(options.saveButtonText).toBe("Save update");
-		expect(fieldIds).toEqual(
-			expect.arrayContaining([
-				"title",
-				"details",
-				"projects",
-				"contexts",
-				"blocked-by",
-				"blocking",
-			])
+		expect(options.saveButtonText).toBeUndefined();
+		expect(visibleEditFieldIds).toEqual(
+			expect.arrayContaining(["title", "projects", "contexts", "blocked-by", "blocking"])
 		);
+		expect(detailsField).toMatchObject({ enabled: false, visibleInEdit: false });
+		expect(visibleEditFieldIds).not.toContain("details");
 		expect(fieldIds).not.toContain("assignee");
 		expect(fieldIds).not.toEqual(
 			expect.arrayContaining([

@@ -5,32 +5,34 @@ This is an Obsidian plugin. The plugin ID is `tasknotes`.
 ## Build & Test
 
 ```bash
-# Build the plugin and copy files to the vault's plugin directory
+# Build the plugin and copy files to the repo e2e vault
 npm run build:test
 
-# After building, reload the plugin in the running Obsidian instance
-obsidian vault=test plugin:reload id=tasknotes
+# Build, copy to the running Obsidian vault, reload, and check errors
+npm run verify:obsidian
 ```
 
-Always run both commands after making changes. Obsidian must be running for the CLI to work.
+Always run both commands after making plugin source changes. Obsidian must be running for the live-vault CLI checks to work.
+
+The live-vault scripts default to the running vault named `Obsidian` and the plugin directory `~/Documents/Obsidian/.obsidian/plugins/tasknotes`. Override with `TASKNOTES_OBSIDIAN_VAULT_NAME` and `TASKNOTES_OBSIDIAN_PLUGIN_PATH` when testing another vault. Do not use `vault=test` unless that vault alias is actually registered and open.
 
 ## Useful Obsidian CLI Commands
 
 ```bash
 # Check for JavaScript errors after reload
-obsidian vault=test dev:errors
+npm run errors:obsidian
 
 # View console output
-obsidian vault=test dev:console
+obsidian vault=Obsidian dev:console
 
 # Run JavaScript in the Obsidian context
-obsidian vault=test eval code="app.vault.getFiles().length"
+obsidian vault=Obsidian eval code="app.vault.getFiles().length"
 
 # Take a screenshot to verify UI changes
-obsidian vault=test dev:screenshot path=screenshot.png
+obsidian vault=Obsidian dev:screenshot path=screenshot.png
 
 # Open developer tools
-obsidian vault=test devtools
+obsidian vault=Obsidian devtools
 ```
 
 ## Other Build Commands

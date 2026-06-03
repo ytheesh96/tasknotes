@@ -130,6 +130,23 @@ jest.mock("../../../src/services/NaturalLanguageParser", () => {
 	};
 });
 
+class TestTaskCreationModal extends TaskCreationModal {
+	renderActionBarForTest(container: HTMLElement): void {
+		this.createActionBar(container);
+	}
+
+	renderRoutingFieldsForTest(container: HTMLElement): void {
+		this.createProjectsField(container);
+		this.createContextsField(container);
+	}
+
+	setRoutingState(options: { contexts?: string }): void {
+		if (options.contexts !== undefined) {
+			this.contexts = options.contexts;
+		}
+	}
+}
+
 describe("withHermesBoardProject", () => {
 	it("replaces the previous board and removes ordinary projects", () => {
 		expect(
@@ -629,6 +646,73 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 	});
 
 	describe("Hermes availability controls", () => {
+			it("adds Hermes board and assignee icons before the standard create action icons", () => {
+				modal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+					hermesBoardPicker: { boards: ["job-hunt-team"], selectedBoard: "job-hunt-team" },
+				});
+			(modal as TestTaskCreationModal).setRoutingState({ contexts: "orchestrator" });
+			const container = document.createElement("div");
+
+			(modal as TestTaskCreationModal).renderActionBarForTest(container);
+
+			const types = Array.from(container.querySelectorAll<HTMLElement>(".action-icon"))
+				.map((icon) => icon.dataset.type)
+				.filter((type): type is string => Boolean(type));
+			expect(types).toEqual([
+				"hermes-board",
+				"hermes-assignee",
+				"status",
+				"priority",
+				"due-date",
+				"scheduled-date",
+				"recurrence",
+				"reminders",
+			]);
+			const boardIcon = container.querySelector<HTMLElement>('[data-type="hermes-board"]')!;
+			const assigneeIcon = container.querySelector<HTMLElement>(
+				'[data-type="hermes-assignee"]'
+			)!;
+			expect(boardIcon.classList.contains("has-value")).toBe(true);
+			expect(boardIcon.getAttribute("data-tooltip")).toBe("Board: job-hunt-team");
+				expect(assigneeIcon.classList.contains("has-value")).toBe(true);
+				expect(assigneeIcon.getAttribute("data-tooltip")).toBe("Assignee: orchestrator");
+			});
+
+			it("does not render duplicate Hermes board and assignee fields below the title area", () => {
+				modal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+					hermesBoardPicker: { boards: ["job-hunt-team"], selectedBoard: "job-hunt-team" },
+				});
+				const container = document.createElement("div");
+
+				(modal as TestTaskCreationModal).renderRoutingFieldsForTest(container);
+
+				expect(container.textContent).not.toContain("Board");
+				expect(container.textContent).not.toContain("Assignee");
+				expect(container.querySelector("select")).toBeNull();
+				expect(container.querySelector("input")).toBeNull();
+			});
+
+			it("keeps ordinary create modals on the standard action icon set", () => {
+				modal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin);
+				const container = document.createElement("div");
+
+			(modal as TestTaskCreationModal).renderActionBarForTest(container);
+
+			const types = Array.from(container.querySelectorAll<HTMLElement>(".action-icon"))
+				.map((icon) => icon.dataset.type)
+				.filter((type): type is string => Boolean(type));
+			expect(types).toEqual([
+				"status",
+				"priority",
+				"due-date",
+				"scheduled-date",
+				"recurrence",
+				"reminders",
+			]);
+			expect(container.querySelector('[data-type="hermes-board"]')).toBeNull();
+			expect(container.querySelector('[data-type="hermes-assignee"]')).toBeNull();
+		});
+
 		it("refreshes live board and assignee options after desktop startup succeeds", async () => {
 			const startDashboard = jest
 				.spyOn(HermesAvailabilityService.prototype, "startDashboard")

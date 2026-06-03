@@ -1,4 +1,4 @@
-import { App, Menu, Notice, Setting, setIcon, setTooltip, TFile } from "obsidian";
+import { App, Menu, Notice, setIcon, setTooltip, TFile } from "obsidian";
 import TaskNotesPlugin from "../main";
 import { TaskModal } from "./TaskModal";
 import { TaskInfo } from "../types";
@@ -44,7 +44,6 @@ import {
 	validateHermesAssigneeSelection,
 	validateHermesBoardSelection,
 } from "../hermes/hermesRouting";
-import { createTaskModalContextsField } from "./taskModalMetadataFields";
 import {
 	HermesAvailabilityService,
 	type HermesAvailabilityHealth,
@@ -528,9 +527,17 @@ export class TaskCreationModal extends TaskModal {
 				iconName: "columns-3",
 				tooltip: this.getHermesBoardTooltip(),
 				onClick: (_, event) => {
-					this.showHermesBoardContextMenu(event);
+					void this.showHermesBoardContextMenu(event);
 				},
 				dataType: "hermes-board",
+			},
+			{
+				iconName: "user",
+				tooltip: this.getHermesAssigneeTooltip(),
+				onClick: (_, event) => {
+					void this.showHermesAssigneeContextMenu(event);
+				},
+				dataType: "hermes-assignee",
 			},
 			...specs,
 		];
@@ -1180,30 +1187,6 @@ export class TaskCreationModal extends TaskModal {
 			super.createContextsField(container);
 			return;
 		}
-
-		this.contextsInput = createTaskModalContextsField(
-			{
-				app: this.app,
-				plugin: this.plugin,
-				translate: (key) => this.t(key),
-				attachMobileKeyboardScrollGuard: (input) => {
-					this.attachMobileKeyboardScrollGuard(input);
-				},
-			},
-			{
-				container,
-				value: this.contexts,
-				label: "Assignee",
-				placeholder: "orchestrator",
-				onChange: (value) => {
-					this.contexts = value;
-				},
-				contextSuggestOptions: {
-					getValues: () =>
-						this.resolveHermesAssigneeOptions(this.getSelectedHermesBoard()),
-				},
-			}
-		);
 	}
 
 	protected createProjectsField(container: HTMLElement): void {
@@ -1212,33 +1195,7 @@ export class TaskCreationModal extends TaskModal {
 			return;
 		}
 
-		const setting = new Setting(container);
-		setting.setName("Board").addDropdown((dropdown) => {
-			this.hermesBoardSelectEl = dropdown.selectEl;
-			const renderOptions = (boards: readonly string[]) => {
-				while (dropdown.selectEl.firstChild) {
-					dropdown.selectEl.removeChild(dropdown.selectEl.firstChild);
-				}
-				for (const board of boards) {
-					dropdown.addOption(board, board);
-				}
-				const currentBoard = this.getSelectedHermesBoard();
-				const nextBoard = boards.includes(currentBoard) ? currentBoard : boards[0];
-				if (nextBoard) {
-					dropdown.setValue(nextBoard);
-					this.setCreationTarget(this.getHermesTargetId(nextBoard));
-				}
-			};
-
-			renderOptions(this.getHermesBoardOptions());
-			dropdown.onChange((board) => {
-				this.setCreationTarget(this.getHermesTargetId(board));
-			});
-
-			void this.resolveHermesBoardOptions().then((boards) => {
-				renderOptions(boards);
-			});
-		});
+		this.hermesBoardSelectEl = null;
 	}
 
 	private getHermesBoardTooltip(): string {
@@ -1247,6 +1204,11 @@ export class TaskCreationModal extends TaskModal {
 			return `Board: ${board}`;
 		}
 		return board ? `Choose board: ${board}` : "Choose board";
+	}
+
+	private getHermesAssigneeTooltip(): string {
+		const assignee = normalizeHermesAssignee(this.contexts);
+		return assignee ? `Assignee: ${assignee}` : "Assignee: Unassigned";
 	}
 
 	private getSelectedHermesBoard(): string {
@@ -1276,8 +1238,8 @@ export class TaskCreationModal extends TaskModal {
 		return "Board";
 	}
 
-	private showHermesBoardContextMenu(event: UIEvent): void {
-		const boards = this.getHermesBoardOptions();
+	private async showHermesBoardContextMenu(event: UIEvent): Promise<void> {
+		const boards = await this.resolveHermesBoardOptions();
 		if (boards.length === 0) return;
 
 		const menu = new Menu();
@@ -1295,6 +1257,45 @@ export class TaskCreationModal extends TaskModal {
 		}
 
 		this.showMenuForEvent(menu, event);
+	}
+
+	private async showHermesAssigneeContextMenu(event: UIEvent): Promise<void> {
+		const currentAssignee = normalizeHermesAssignee(this.contexts);
+		const assignees = uniqueNonEmpty([
+			...(currentAssignee ? [currentAssignee] : []),
+			...(await this.resolveHermesAssigneeOptions(this.getSelectedHermesBoard())),
+		]);
+		const menu = new Menu();
+		menu.addItem((item) => {
+			const isSelected = !currentAssignee;
+			item.setTitle("Unassigned");
+			item.setIcon(isSelected ? "check" : "user-x");
+			item.setChecked(isSelected);
+			item.onClick(() => {
+				this.setHermesAssignee("");
+			});
+		});
+		for (const assignee of assignees) {
+			menu.addItem((item) => {
+				const isSelected = assignee === currentAssignee;
+				item.setTitle(assignee);
+				item.setIcon(isSelected ? "check" : "user");
+				item.setChecked(isSelected);
+				item.onClick(() => {
+					this.setHermesAssignee(assignee);
+				});
+			});
+		}
+
+		this.showMenuForEvent(menu, event);
+	}
+
+	private setHermesAssignee(assignee: string): void {
+		this.contexts = assignee;
+		if (this.contextsInput) {
+			this.contextsInput.value = assignee;
+		}
+		this.updateIconStates();
 	}
 
 	private showMenuForEvent(menu: Menu, event: UIEvent): void {
@@ -1374,6 +1375,9 @@ export class TaskCreationModal extends TaskModal {
 		if (this.tagsInput) {
 			this.tagsInput.value = this.tags;
 		}
+		if (this.contextsInput) {
+			this.contextsInput.value = this.contexts;
+		}
 		if (this.hermesBoardSelectEl) {
 			const board = this.getSelectedHermesBoard();
 			if (board) {
@@ -1401,13 +1405,30 @@ export class TaskCreationModal extends TaskModal {
 
 	protected updateIconStates(): void {
 		super.updateIconStates();
-		const boardIcon = this.actionBar?.querySelector<HTMLElement>('[data-type="hermes-board"]');
-		if (!boardIcon) return;
+		this.updateHermesRoutingIconState(
+			"hermes-board",
+			this.getHermesBoardTooltip(),
+			this.isHermesCreationTarget()
+		);
+		this.updateHermesRoutingIconState(
+			"hermes-assignee",
+			this.getHermesAssigneeTooltip(),
+			Boolean(normalizeHermesAssignee(this.contexts))
+		);
+	}
 
-		boardIcon.toggleClass("has-value", this.isHermesCreationTarget());
-		const tooltip = this.getHermesBoardTooltip();
-		boardIcon.setAttribute("aria-label", tooltip);
-		setTooltip(boardIcon, tooltip, { placement: "top" });
+	private updateHermesRoutingIconState(
+		dataType: string,
+		tooltip: string,
+		hasValue: boolean
+	): void {
+		const icon = this.actionBar?.querySelector<HTMLElement>(`[data-type="${dataType}"]`);
+		if (!icon) return;
+
+		icon.toggleClass("has-value", hasValue);
+		icon.setAttribute("aria-label", tooltip);
+		icon.setAttribute("data-initial-tooltip", tooltip);
+		setTooltip(icon, tooltip, { placement: "top" });
 	}
 
 	// Override to prevent creating duplicate title input when NLP is enabled
