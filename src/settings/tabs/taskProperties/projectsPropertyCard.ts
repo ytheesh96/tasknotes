@@ -115,7 +115,7 @@ export function renderProjectsPropertyCard(
 			return;
 		}
 		if (board === "default") {
-			new Notice("The default Hermes board cannot be deleted.");
+			new Notice("The default board cannot be deleted.");
 			return;
 		}
 
@@ -166,7 +166,7 @@ export function renderProjectsPropertyCard(
 		);
 		defaultBoardSelect.disabled = isSyncingBoards;
 		defaultBoardSelect.addEventListener("change", () => {
-			const board = (defaultBoardSelect as HTMLSelectElement).value;
+			const board = defaultBoardSelect.value;
 			plugin.settings.taskCreationDefaults.defaultProjects = board
 				? canonicalHermesBoardProjects(board)
 				: "";

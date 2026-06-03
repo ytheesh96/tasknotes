@@ -753,7 +753,7 @@ export const en: TranslationTree = {
 				},
 				defaultContexts: {
 					name: "Default assignee",
-					description: "Default Hermes profile for new tasks",
+					description: "Default profile for new tasks",
 					placeholder: "orchestrator",
 				},
 				defaultTags: {
@@ -763,9 +763,9 @@ export const en: TranslationTree = {
 				},
 				defaultProjects: {
 					name: "Default board",
-					description: "Default Hermes board for new tasks",
+					description: "Default board for new tasks",
 					selectButton: "Select board",
-					selectTooltip: "Choose a Hermes board",
+					selectTooltip: "Choose a board",
 					removeTooltip: "Remove {name} from default boards",
 				},
 				useParentNoteAsProject: {
@@ -1000,7 +1000,7 @@ export const en: TranslationTree = {
 				datePropertiesDesc: "Configure when tasks are due and scheduled.",
 				organizationProperties: "Organization properties",
 				organizationPropertiesDesc:
-					"Route tasks with Hermes assignees, Hermes boards, and tags.",
+					"Route tasks with assignees, boards, and tags.",
 				taskDetails: "Task details",
 				taskDetailsDesc:
 					"Additional details like time estimates, recurrence, and reminders.",
@@ -2596,7 +2596,7 @@ export const en: TranslationTree = {
 			detailsPlaceholder: "Add more details...",
 			projectsLabel: "Board",
 			projectsAdd: "Add board",
-			projectsTooltip: "Select a Hermes board",
+			projectsTooltip: "Select a board",
 			projectsRemoveTooltip: "Remove board",
 			contextsLabel: "Assignee",
 			contextsPlaceholder: "orchestrator",

@@ -55,3 +55,4 @@ Example:
 - Fixed Hermes review activity frontmatter so later mirror-note rewrites preserve cached activity summaries instead of removing them, and the Start Hermes action can find common local Hermes installs from Obsidian on macOS.
 - Fixed Hermes startup from the TaskNotes modal so it does not try to start a duplicate dashboard when localhost is already reachable but the Kanban API is degraded.
 - Fixed newly created or rediscovered #goal TaskNotes not starting Hermes Goal Mode sync when they were first seen after the lifecycle snapshot.
+- Fixed Hermes board surface provisioning so generated TaskNotes board views are created, updated, and removed through TaskNotes' standard vault mutation boundary.

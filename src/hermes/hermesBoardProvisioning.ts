@@ -1,6 +1,7 @@
 import { TFile, type App } from "obsidian";
 import { normalizePath } from "obsidian";
 import { ensureFolderHierarchy } from "../bootstrap/defaultBasesFiles";
+import { createVaultFile, deleteVaultFile, modifyVaultFile } from "../core/VaultMutationService";
 import { DEFAULT_STATUSES } from "../settings/defaults";
 import type { FieldMapping } from "../types";
 import type { TaskNotesSettings } from "../types/settings";
@@ -65,13 +66,13 @@ export async function provisionHermesBoardSurfaces(
 		if (existingView instanceof TFile) {
 			const existingContent = await vault.read(existingView);
 			if (existingContent !== viewContent && isGeneratedHermesBoardView(existingContent, board)) {
-				await vault.modify(existingView, viewContent);
+				await modifyVaultFile(host.app, existingView, viewContent);
 				result.viewsUpdated.push(viewPath);
 			} else {
 				result.viewsSkipped.push(viewPath);
 			}
 		} else {
-			await vault.create(viewPath, viewContent);
+			await createVaultFile(host.app, viewPath, viewContent);
 			result.viewsCreated.push(viewPath);
 		}
 
@@ -250,7 +251,7 @@ async function removeLegacyHermesBoardView(
 		return;
 	}
 
-	await vault.delete(legacyView);
+	await deleteVaultFile({ vault }, legacyView);
 	result.legacyViewsRemoved.push(legacyPath);
 }
 

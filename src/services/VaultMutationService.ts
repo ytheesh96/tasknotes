@@ -1,6 +1,7 @@
 export {
 	createVaultFile,
 	createVaultFolder,
+	deleteVaultFile,
 	modifyVaultFile,
 	processVaultFrontMatter,
 	renameVaultFile,

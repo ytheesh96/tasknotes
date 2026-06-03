@@ -4,13 +4,10 @@ import { NaturalLanguageParser } from "../services/NaturalLanguageParser";
 import { ProjectEntry, ProjectMetadataResolver } from "../utils/projectMetadataResolver";
 import { parseDisplayFieldsRow } from "../utils/projectAutosuggestDisplayFieldsParser";
 import { filterTagsForTaskModalSuggestions } from "../utils/taskTagFiltering";
-import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import {
 	filterHermesBoardSuggestionValues,
 	getHermesBoardSuggestionValues,
 } from "../hermes/hermesBoardSuggestions";
-
-const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationSuggest" });
 
 /**
  * Auto-suggestion provider for NLP textarea with @, #, and + triggers
