@@ -133,7 +133,7 @@ function toMenuTitle(value: unknown, fallback = ""): string {
 }
 
 function isHermesManagedTask(task: TaskInfo): boolean {
-	return getHermesTaskIdentity(task) !== null && task.tags?.includes("hermes-kanban") === true;
+	return getHermesTaskIdentity(task) !== null;
 }
 
 export interface TaskContextMenuOptions {

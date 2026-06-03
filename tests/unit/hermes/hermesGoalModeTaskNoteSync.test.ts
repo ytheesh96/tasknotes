@@ -51,6 +51,12 @@ function createPlugin(options: { processFrontMatterRejects?: boolean } = {}) {
 	return { file, frontmatter, plugin, processFrontMatter };
 }
 
+function liveWriteGuard() {
+	return {
+		assertCanCreateHermesTask: jest.fn(async () => undefined),
+	};
+}
+
 describe("#goal TaskNote to Hermes Goal Mode sync", () => {
 	it("detects unsynced TaskNotes tagged with #goal or hermes-goal", () => {
 		expect(isGoalModeTaskNoteSyncEligible(createTask({ tags: ["task", "goal"] }))).toBe(true);
@@ -94,8 +100,14 @@ describe("#goal TaskNote to Hermes Goal Mode sync", () => {
 			addComment: jest.fn().mockResolvedValue(undefined),
 		};
 
-		const result = await syncGoalModeTaskNoteToHermes(plugin, createTask(), { api, now: "2026-06-02T12:00:00Z" });
+		const writeGuard = liveWriteGuard();
+		const result = await syncGoalModeTaskNoteToHermes(plugin, createTask(), {
+			api,
+			now: "2026-06-02T12:00:00Z",
+			writeGuard,
+		});
 
+		expect(writeGuard.assertCanCreateHermesTask).toHaveBeenCalledWith("default");
 		expect(result).toEqual({ status: "created", board: "default", cardId: "t_created" });
 		expect(api.createTask).toHaveBeenCalledWith(
 			"default",
@@ -137,8 +149,30 @@ describe("#goal TaskNote to Hermes Goal Mode sync", () => {
 			addComment: jest.fn(),
 		};
 
-		await expect(syncGoalModeTaskNoteToHermes(plugin, createTask(), { api })).rejects.toThrow("api down");
+		await expect(
+			syncGoalModeTaskNoteToHermes(plugin, createTask(), { api, writeGuard: liveWriteGuard() })
+		).rejects.toThrow("api down");
 
+		expect(processFrontMatter).not.toHaveBeenCalled();
+	});
+
+	it("does not create Goal Mode cards when the Hermes write guard blocks", async () => {
+		const { plugin, processFrontMatter } = createPlugin();
+		const api = {
+			createTask: jest.fn(),
+			addComment: jest.fn(),
+		};
+		const writeGuard = {
+			assertCanCreateHermesTask: jest.fn(async () => {
+				throw new Error("Hermes is unavailable. Start or reconnect Hermes before editing board tasks.");
+			}),
+		};
+
+		await expect(syncGoalModeTaskNoteToHermes(plugin, createTask(), { api, writeGuard })).rejects.toThrow(
+			"Hermes is unavailable"
+		);
+
+		expect(api.createTask).not.toHaveBeenCalled();
 		expect(processFrontMatter).not.toHaveBeenCalled();
 	});
 
@@ -149,7 +183,9 @@ describe("#goal TaskNote to Hermes Goal Mode sync", () => {
 			addComment: jest.fn().mockResolvedValue(undefined),
 		};
 
-		await expect(syncGoalModeTaskNoteToHermes(plugin, createTask(), { api })).rejects.toThrow(
+		await expect(
+			syncGoalModeTaskNoteToHermes(plugin, createTask(), { api, writeGuard: liveWriteGuard() })
+		).rejects.toThrow(
 			"Created Hermes Goal Mode card t_created, but failed to write sync metadata"
 		);
 	});

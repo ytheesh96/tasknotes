@@ -9,6 +9,7 @@ import {
 	type HermesTaskRecord,
 } from "./hermesApiClient";
 import { normalizeHermesBoardValue, splitHermesList } from "./hermesRouting";
+import { HermesWriteGuard } from "./hermesWriteGuard";
 
 const GOAL_TAGS = new Set(["goal", "#goal", "hermes-goal"]);
 const DEFAULT_GOAL_BOARD = "default";
@@ -24,6 +25,7 @@ export type SyncedHermesGoalMetadata = {
 };
 
 type HermesGoalModeTaskNoteSyncApi = Pick<HermesKanbanApiClient, "createTask" | "addComment">;
+type HermesGoalModeWriteGuard = Pick<HermesWriteGuard, "assertCanCreateHermesTask">;
 
 type HermesFrontmatterWriter = (
 	plugin: TaskNotesPlugin,
@@ -77,6 +79,7 @@ export async function syncGoalModeTaskNoteToHermes(
 		api?: HermesGoalModeTaskNoteSyncApi;
 		now?: string;
 		frontmatterWriter?: HermesFrontmatterWriter;
+		writeGuard?: HermesGoalModeWriteGuard;
 	} = {}
 ): Promise<HermesGoalModeTaskNoteSyncResult> {
 	const existing = getSyncedHermesGoalMetadata(task);
@@ -93,6 +96,7 @@ export async function syncGoalModeTaskNoteToHermes(
 	}
 
 	const board = getGoalModeTaskNoteBoard(task);
+	await (options.writeGuard ?? new HermesWriteGuard()).assertCanCreateHermesTask(board);
 	const api = options.api ?? new HermesKanbanApiClient();
 	const payload = buildGoalModeCreatePayloadFromTaskNote(task);
 	const created = await api.createTask(board, payload);

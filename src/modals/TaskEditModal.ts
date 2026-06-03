@@ -30,6 +30,7 @@ import {
 	type HermesAvailabilityHealth,
 	type HermesDashboardStartResult,
 } from "../hermes/hermesAvailabilityService";
+import { HermesWriteGuard } from "../hermes/hermesWriteGuard";
 import {
 	createOrUpdateHermesMirrorNote,
 	hermesPriorityToTaskNotesPriority,
@@ -1787,6 +1788,25 @@ export class TaskEditModal extends TaskModal {
 		return false;
 	}
 
+	private async ensureHermesWriteAvailable(): Promise<boolean> {
+		const readiness = await new HermesWriteGuard().canWriteHermesTask(this.task);
+		if (readiness.allowed) {
+			this.hermesAvailabilityHealth = readiness.health;
+			return true;
+		}
+		this.hermesAvailabilityHealth = readiness.health;
+		if (this.hermesActivityElements) {
+			this.renderHermesAvailabilitySnapshot(
+				this.hermesActivityElements.availabilityContainer,
+				readiness.health,
+				this.hermesActivityElements
+			);
+			this.applyHermesAvailabilityToActivity(this.hermesActivityElements, readiness.health);
+		}
+		new Notice(readiness.reason);
+		return false;
+	}
+
 	private getHermesStartCommand(): string {
 		return this.plugin.getHermesDashboardStartCommand?.() ?? HERMES_DASHBOARD_START_COMMAND;
 	}
@@ -3296,6 +3316,10 @@ export class TaskEditModal extends TaskModal {
 			return false;
 		}
 
+		if (!(await this.ensureHermesWriteAvailable())) {
+			return false;
+		}
+
 		const routing = await this.validateHermesEditRouting(identity);
 		if (routing.error) {
 			new Notice(routing.error);
@@ -3662,6 +3686,10 @@ export class TaskEditModal extends TaskModal {
 
 		if (!getHermesTaskIdentity(this.task)) {
 			new Notice("This task is missing a board or task ID.");
+			return;
+		}
+
+		if (!(await this.ensureHermesWriteAvailable())) {
 			return;
 		}
 

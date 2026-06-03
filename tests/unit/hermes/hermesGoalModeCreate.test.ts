@@ -4,6 +4,7 @@ import {
 	buildHermesGoalModeCreateIdempotencyKey,
 	getHermesPartialSuccessNoticeMessage,
 } from "../../../src/modals/TaskCreationModal";
+import { HermesAvailabilityService } from "../../../src/hermes/hermesAvailabilityService";
 
 const mockHermesApi = {
 	createTask: jest.fn(),
@@ -46,6 +47,13 @@ describe("Hermes Goal Mode create behavior", () => {
 		mockHermesApi.listBoards.mockReset();
 		mockHermesApi.listAssignees.mockReset();
 		mockCreateOrUpdateHermesMirrorNote.mockReset();
+		jest.spyOn(HermesAvailabilityService.prototype, "recheckHealth").mockResolvedValue({
+			status: "connected",
+			mode: "live",
+			rootUrl: "http://127.0.0.1:9119/",
+			apiUrl: "http://127.0.0.1:9119/api/plugins/kanban",
+			canStart: true,
+		});
 	});
 
 	it("builds the same idempotency key for identical create submissions", () => {
@@ -80,6 +88,57 @@ describe("Hermes Goal Mode create behavior", () => {
 		).toBe(
 			"Created Goal Mode card Clarify research goal (t_created), but TaskNotes could not finish syncing the comment or mirror note: mirror write failed. Do not submit again; use the existing Hermes card or retry after reconciling the mirror note."
 		);
+	});
+
+	it("blocks direct Hermes card creation while Hermes is unavailable", async () => {
+		(
+			HermesAvailabilityService.prototype.recheckHealth as jest.MockedFunction<
+				HermesAvailabilityService["recheckHealth"]
+			>
+		).mockResolvedValueOnce({
+			status: "disconnected",
+			mode: "cache-only",
+			rootUrl: "http://127.0.0.1:9119/",
+			apiUrl: "http://127.0.0.1:9119/api/plugins/kanban",
+			canStart: true,
+		});
+		const app = {} as never;
+		const plugin = {
+			settings: {
+				customStatuses: [],
+				customPriorities: [],
+				nlpDefaultToScheduled: true,
+				nlpLanguage: "en",
+				nlpTriggers: undefined,
+				userFields: [],
+				taskIdentificationMethod: "none",
+				taskTag: "task",
+				openTaskAfterCreation: "none",
+				defaultTaskStatus: "open",
+			},
+			i18n: {
+				translate: (key: string, params?: Record<string, string | number>) =>
+					params?.message ? `${key}: ${params.message}` : key,
+			},
+			cacheManager: {
+				getTaskInfo: jest.fn(),
+			},
+		} as never;
+		const modal = new TaskCreationModal(app, plugin, {
+			hermesBoardPicker: { boards: ["default"], selectedBoard: "default" },
+			creationTargetPicker: { boards: ["default"], selectedTarget: "hermes:default" },
+		});
+		const modalHarness = modal as never as Record<string, unknown>;
+		modalHarness.title = "Clarify research goal";
+		modalHarness.validateHermesCreationRouting = jest
+			.fn()
+			.mockResolvedValue({ assignee: "peacock" });
+
+		await expect((modalHarness.handleHermesApiCreate as () => Promise<void>)()).rejects.toThrow(
+			"Hermes is unavailable"
+		);
+
+		expect(mockHermesApi.createTask).not.toHaveBeenCalled();
 	});
 
 	it("keeps the created Hermes card visible when goal-tag comment sync fails after create", async () => {

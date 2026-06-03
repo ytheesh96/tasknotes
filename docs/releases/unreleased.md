@@ -38,6 +38,8 @@ Example:
 
 - Redesigned the Hermes section of the task edit modal as a review-thread activity rail with pinned handoffs, chat-style comments, compact run status chips, artifact links, and inline status updates while preserving the existing TaskNotes editing experience.
 - Added a Hermes TaskNotes API and webhook sync PRD that shifts the integration plan toward TaskNotes-owned task state, webhooks as change signals, and the TaskNotes HTTP API as the read/write boundary.
+- Added a Hermes managed write guard PRD that defines read-only cache behavior and live-Hermes requirements for board task creation and editing.
+- Changed Hermes-managed task creation and editing so board writes are blocked while Hermes is disconnected, starting, or degraded.
 - Refined the Hermes task edit modal so the review comment Send button sits inside the composer, Hermes live status appears as a compact indicator, status updates appear inside the review thread, and the task information footer is hidden.
 - Pinned the Hermes review comment composer to the bottom of the activity rail so only the review cards scroll, with a cleaner composer treatment for writing comments.
 - Changed the Hermes task edit modal to autosave supported title/status/priority/assignee/dependency edits through TaskNotes, leaving Hermes to consume those changes through the API/webhook sync path.

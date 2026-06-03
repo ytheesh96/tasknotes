@@ -67,6 +67,7 @@ import {
 import { resolveTaskPropertyFrontmatterField } from "./task-service/taskPropertyFrontmatterField";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import { getHermesTaskIdentity } from "../hermes/hermesApiClient";
+import { HermesWriteGuard } from "../hermes/hermesWriteGuard";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/TaskService" });
 
@@ -861,6 +862,7 @@ export class TaskService {
 			customFrontmatter?: Record<string, unknown>;
 		}
 	): Promise<TaskInfo> {
+		await new HermesWriteGuard().assertCanWriteHermesTask(originalTask);
 		return this.taskUpdateService.updateTask(originalTask, updates);
 	}
 
@@ -870,6 +872,8 @@ export class TaskService {
 		removedBlockedTaskPaths: string[],
 		rawEntries: Record<string, TaskDependency | string> = {}
 	): Promise<void> {
+		await new HermesWriteGuard().assertCanWriteHermesTask(currentTask);
+
 		// This method is called when the current task's "blocking" list is updated in the UI.
 		// The current task is the one blocking other tasks.
 		// We need to update the blockedBy field of the tasks that this task is blocking.
@@ -1015,7 +1019,7 @@ export class TaskService {
 	}
 
 	private isHermesManagedTask(task: TaskInfo): boolean {
-		return getHermesTaskIdentity(task) !== null && task.tags?.includes("hermes-kanban") === true;
+		return getHermesTaskIdentity(task) !== null;
 	}
 
 	private async archiveHermesManagedTaskFromDelete(task: TaskInfo): Promise<void> {

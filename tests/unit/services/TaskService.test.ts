@@ -15,6 +15,7 @@ import { FileSystemFactory, PluginFactory, TaskFactory } from "../../helpers/moc
 import { MockObsidian, TFile } from "../../__mocks__/obsidian";
 import { TaskCreationData, TaskService } from "../../../src/services/TaskService";
 import { TaskInfo, TimeEntry } from "../../../src/types";
+import { HermesAvailabilityService } from "../../../src/hermes/hermesAvailabilityService";
 
 // Mock external dependencies
 jest.mock("../../../src/utils/dateUtils", () => {
@@ -1210,6 +1211,28 @@ describe("TaskService", () => {
 
 			expect(result).toMatchObject(updates);
 			expect(result.dateModified).toBe("2025-01-01T12:00:00Z");
+		});
+
+		it("should block updates to Hermes-managed tasks while Hermes is unavailable", async () => {
+			const recheckHealth = jest.spyOn(HermesAvailabilityService.prototype, "recheckHealth").mockResolvedValue({
+				status: "disconnected",
+				mode: "cache-only",
+				rootUrl: "http://127.0.0.1:9119/",
+				apiUrl: "http://127.0.0.1:9119/api/plugins/kanban",
+				canStart: true,
+			});
+			const hermesTask = TaskFactory.createTask({
+				path: "TaskNotes/default/t_blocked.md",
+				tags: ["task", "hermes-kanban"],
+			});
+			mockPlugin.app.vault.getAbstractFileByPath.mockReturnValue(new TFile(hermesTask.path));
+
+			await expect(taskService.updateTask(hermesTask, { status: "blocked" })).rejects.toThrow(
+				"Hermes is unavailable"
+			);
+
+			expect(mockPlugin.app.fileManager.processFrontMatter).not.toHaveBeenCalled();
+			recheckHealth.mockRestore();
 		});
 
 		it("should handle completion date for status changes", async () => {

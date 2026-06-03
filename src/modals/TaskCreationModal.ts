@@ -49,6 +49,10 @@ import {
 	type HermesAvailabilityHealth,
 	type HermesDashboardStartResult,
 } from "../hermes/hermesAvailabilityService";
+import {
+	getHermesManagedCreationBoard,
+	HermesWriteGuard,
+} from "../hermes/hermesWriteGuard";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationModal" });
 export type { StatusSuggestion } from "./taskCreationSuggest";
@@ -702,6 +706,7 @@ export class TaskCreationModal extends TaskModal {
 				}
 
 				const taskData = this.buildTaskData();
+				await this.assertHermesManagedCreationAllowed(taskData);
 				// Disable defaults since they were already applied to form fields in initializeFormData()
 				const result = await this.plugin.taskService.createTask(taskData, {
 					applyDefaults: false,
@@ -793,6 +798,8 @@ export class TaskCreationModal extends TaskModal {
 		if (!board) {
 			throw new Error("Choose a board before submitting.");
 		}
+
+		await new HermesWriteGuard().assertCanCreateHermesTask(board);
 
 		const routing = await this.validateHermesCreationRouting(board);
 		if (routing.error) {
@@ -1142,6 +1149,23 @@ export class TaskCreationModal extends TaskModal {
 
 	private getHermesAvailabilityService(): HermesAvailabilityService {
 		return new HermesAvailabilityService();
+	}
+
+	private async assertHermesManagedCreationAllowed(
+		taskData: HermesCreationTaskData
+	): Promise<void> {
+		const board =
+			getHermesManagedCreationBoard({
+				projects: taskData.projects ?? this.projects,
+				tags: taskData.tags ?? this.tags,
+			}) ??
+			(this.options.hermesBoardPicker || this.options.creationTargetPicker
+				? this.getSelectedHermesBoard()
+				: null);
+		if (!board) {
+			return;
+		}
+		await new HermesWriteGuard().assertCanCreateHermesTask(board);
 	}
 
 	private renderHermesBoardSelectOptions(boards: readonly string[]): void {
