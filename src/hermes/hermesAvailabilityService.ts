@@ -61,10 +61,18 @@ interface SpawnedDashboardProcess {
 	pid?: number;
 }
 
+interface SpawnedDashboardChildProcess extends SpawnedDashboardProcess {
+	on?(event: "error", listener: (error: Error) => void): this;
+	on?(event: "spawn", listener: () => void): this;
+	unref?: () => void;
+}
+
 interface ChildProcessModuleLike {
-	spawn(command: string, args: string[], options: { detached: boolean; stdio: "ignore" }): SpawnedDashboardProcess & {
-		unref?: () => void;
-	};
+	spawn(
+		command: string,
+		args: string[],
+		options: { detached: boolean; stdio: "ignore" }
+	): SpawnedDashboardChildProcess;
 }
 
 export interface HermesAvailabilityServiceDeps {
@@ -155,12 +163,13 @@ export class HermesAvailabilityService {
 		};
 	}
 
-	async startDashboard(): Promise<HermesDashboardStartResult> {
+	async startDashboard(commandLine = HERMES_DASHBOARD_START_COMMAND): Promise<HermesDashboardStartResult> {
+		const startCommand = normalizeHermesDashboardStartCommand(commandLine);
 		const currentHealth = await this.checkHealth();
 		if (currentHealth.status === "connected") {
 			return {
 				started: false,
-				command: HERMES_DASHBOARD_START_COMMAND,
+				command: startCommand,
 				health: currentHealth,
 				message: "Hermes dashboard is already running on localhost:9119.",
 			};
@@ -169,7 +178,7 @@ export class HermesAvailabilityService {
 		if (currentHealth.status === "degraded") {
 			return {
 				started: false,
-				command: HERMES_DASHBOARD_START_COMMAND,
+				command: startCommand,
 				health: currentHealth,
 				message:
 					"Hermes dashboard is already reachable on localhost:9119, but the Kanban API is unavailable. Recheck health after resolving the API failure.",
@@ -179,30 +188,30 @@ export class HermesAvailabilityService {
 		if (!currentHealth.canStart) {
 			return {
 				started: false,
-				command: HERMES_DASHBOARD_START_COMMAND,
+				command: startCommand,
 				health: currentHealth,
-				error: startupUnavailableError(),
+				error: startupUnavailableError(startCommand),
 			};
 		}
 
 		try {
-			const process = await this.spawnDashboard();
+			const process = await this.spawnDashboard(startCommand);
 			const health = await this.healthAfterStart(process.pid);
 			return {
 				started: true,
 				pid: process.pid,
-				command: HERMES_DASHBOARD_START_COMMAND,
+				command: startCommand,
 				health,
 			};
 		} catch (error) {
 			return {
 				started: false,
-				command: HERMES_DASHBOARD_START_COMMAND,
+				command: startCommand,
 				health: currentHealth,
 				error: {
 					code: "startup-failed",
 					message: errorMessage(error),
-					action: `Run ${HERMES_DASHBOARD_START_COMMAND} from a local terminal, then recheck health.`,
+					action: `Run ${startCommand} from a local terminal, then recheck health.`,
 				},
 			};
 		}
@@ -244,11 +253,12 @@ export class HermesAvailabilityService {
 		return this.deps.isStartupAvailable?.() ?? (Boolean(Platform.isDesktop) && !Platform.isMobile);
 	}
 
-	private async spawnDashboard(): Promise<SpawnedDashboardProcess> {
+	private async spawnDashboard(commandLine: string): Promise<SpawnedDashboardProcess> {
+		const parsed = parseHermesDashboardStartCommand(commandLine);
 		if (this.deps.spawnDashboard) {
-			return this.deps.spawnDashboard("hermes", dashboardStartArgs());
+			return this.deps.spawnDashboard(parsed.command, parsed.args);
 		}
-		return defaultSpawnDashboard("hermes", dashboardStartArgs());
+		return defaultSpawnDashboard(parsed.command, parsed.args);
 	}
 
 	private async detectDashboardProcessCount(): Promise<number | null> {
@@ -259,6 +269,30 @@ export class HermesAvailabilityService {
 	}
 }
 
+interface ParsedHermesDashboardStartCommand {
+	command: string;
+	args: string[];
+}
+
+export function normalizeHermesDashboardStartCommand(commandLine?: string): string {
+	const trimmed = commandLine?.trim();
+	return trimmed || HERMES_DASHBOARD_START_COMMAND;
+}
+
+export function parseHermesDashboardStartCommand(
+	commandLine: string
+): ParsedHermesDashboardStartCommand {
+	const parts = splitCommandLine(normalizeHermesDashboardStartCommand(commandLine));
+	const command = parts[0];
+	if (!command) {
+		throw new Error("Hermes start command is empty.");
+	}
+	return {
+		command,
+		args: parts.slice(1),
+	};
+}
+
 async function defaultRequest(url: string): Promise<HermesRequestResponse> {
 	return new HermesKanbanApiClient(`${url.replace(/\/$/, "")}/api/plugins/kanban`).checkRoot();
 }
@@ -267,23 +301,128 @@ async function defaultSpawnDashboard(command: string, args: string[]): Promise<S
 	// Lazy-load Node child_process so mobile/browser contexts can import this module safely.
 	// eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules -- desktop-only Hermes startup requires Node child_process.
 	const childProcess = require("child_process") as ChildProcessModuleLike;
-	const process = childProcess.spawn(command, args, { detached: true, stdio: "ignore" });
-	process.unref?.();
-	return { pid: process.pid };
+	let lastError: unknown;
+	const candidates = shouldUseHermesExecutableCandidates(command)
+		? hermesExecutableCandidates(command)
+		: [command];
+	for (const candidate of candidates) {
+		try {
+			return await spawnDashboardProcess(childProcess, candidate, args);
+		} catch (error) {
+			lastError = error;
+			if (!isSpawnEnoent(error)) {
+				throw error;
+			}
+		}
+	}
+	if (lastError instanceof Error) {
+		throw lastError;
+	}
+	throw new Error(`Unable to start ${command}`);
 }
 
-function dashboardStartArgs(): string[] {
-	return ["dashboard", "--host", HERMES_DASHBOARD_HOST, "--port", String(HERMES_DASHBOARD_PORT), "--no-open", "--skip-build", "--tui"];
+function hermesExecutableCandidates(command: string): string[] {
+	const home = process.env.HOME?.trim();
+	return [
+		process.env.HERMES_EXECUTABLE?.trim(),
+		command,
+		home ? `${home}/.local/bin/hermes` : undefined,
+		home ? `${home}/.hermes/hermes-agent/venv/bin/hermes` : undefined,
+		"/opt/homebrew/bin/hermes",
+		"/usr/local/bin/hermes",
+	].filter((candidate): candidate is string => Boolean(candidate));
 }
 
-function startupUnavailableError(): HermesStartupErrorData {
+function shouldUseHermesExecutableCandidates(command: string): boolean {
+	return command === "hermes";
+}
+
+function spawnDashboardProcess(
+	childProcess: ChildProcessModuleLike,
+	command: string,
+	args: string[]
+): Promise<SpawnedDashboardProcess> {
+	return new Promise((resolve, reject) => {
+		const process = childProcess.spawn(command, args, { detached: true, stdio: "ignore" });
+		let settled = false;
+		process.on?.("error", (error) => {
+			if (!settled) {
+				settled = true;
+				reject(error);
+			}
+		});
+		process.on?.("spawn", () => {
+			if (!settled) {
+				settled = true;
+				process.unref?.();
+				resolve({ pid: process.pid });
+			}
+		});
+		if (!process.on) {
+			process.unref?.();
+			resolve({ pid: process.pid });
+		}
+	});
+}
+
+function isSpawnEnoent(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function startupUnavailableError(commandLine: string): HermesStartupErrorData {
 	return {
 		code: "startup-unavailable",
 		message: "Starting Hermes is only available in Obsidian desktop with Node child_process access.",
-		action: `Run ${HERMES_DASHBOARD_START_COMMAND} from a local terminal, then recheck health.`,
+		action: `Run ${commandLine} from a local terminal, then recheck health.`,
 	};
 }
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error && error.message ? error.message : String(error);
+}
+
+function splitCommandLine(commandLine: string): string[] {
+	const parts: string[] = [];
+	let current = "";
+	let quote: "'" | '"' | null = null;
+	let escaping = false;
+
+	for (const char of commandLine) {
+		if (escaping) {
+			current += char;
+			escaping = false;
+			continue;
+		}
+		if (char === "\\" && quote !== "'") {
+			escaping = true;
+			continue;
+		}
+		if ((char === "'" || char === '"') && !quote) {
+			quote = char;
+			continue;
+		}
+		if (quote === char) {
+			quote = null;
+			continue;
+		}
+		if (!quote && /\s/.test(char)) {
+			if (current) {
+				parts.push(current);
+				current = "";
+			}
+			continue;
+		}
+		current += char;
+	}
+
+	if (escaping) {
+		current += "\\";
+	}
+	if (quote) {
+		throw new Error("Hermes start command has an unterminated quote.");
+	}
+	if (current) {
+		parts.push(current);
+	}
+	return parts;
 }

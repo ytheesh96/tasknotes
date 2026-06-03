@@ -20,6 +20,15 @@ describe("Hermes mirror note content", () => {
 		const content = buildHermesMirrorContent("job-hunt", task, {
 			parents: ["t_parent"],
 			children: ["t_child"],
+			activity: {
+				syncedAt: "2026-06-02T02:00:00Z",
+				commentCount: 1,
+				runCount: 1,
+				eventCount: 1,
+				comments: [{ author: "reviewer", body: "Please review.", created_at: 1770000000 }],
+				runs: [{ id: "12", status: "blocked", profile: "reviewer-qa" }],
+				events: [{ kind: "review_required", payload: { summary: "Needs human review." } }],
+			},
 		});
 		const body = content.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
 
@@ -33,6 +42,17 @@ describe("Hermes mirror note content", () => {
 		expect(content).not.toContain("assignee: research-librarian");
 		expect(content).toContain("blockedBy:");
 		expect(content).toContain("[[TaskNotes/job-hunt/t_parent]]");
+		expect(content).toContain("comments:");
+		expect(content).toContain("runs:");
+		expect(content).toContain("events:");
+		expect(content).toContain("[[TaskNotes/job-hunt/activity/comments/comment1|Comment 1]]");
+		expect(content).toContain("[[TaskNotes/job-hunt/activity/runs/run12|Run 12]]");
+		expect(content).toContain("[[TaskNotes/job-hunt/activity/events/event1|Event 1]]");
+		expect(content).not.toContain("Please review.");
+		expect(content).not.toContain("hermesActivitySyncedAt:");
+		expect(content).not.toContain("hermesActivityCommentCount:");
+		expect(content).not.toContain("hermesActivityLatestComment:");
+		expect(content).not.toContain("hermesActivity:");
 		expect(content).not.toContain("hermes_board:");
 		expect(content).not.toContain("hermes_id:");
 		expect(content).not.toContain("hermes_status:");
@@ -44,6 +64,8 @@ describe("Hermes mirror note content", () => {
 		expect(body).not.toContain("Hermes Snapshot");
 		expect(body).not.toContain("Dependency Links");
 		expect(body).not.toContain("Latest Run");
+		expect(body).not.toContain("Please review.");
+		expect(body).not.toContain("review_required");
 		expect(body).not.toContain("tasknotes-hermes-api");
 	});
 
@@ -63,6 +85,35 @@ describe("Hermes mirror note content", () => {
 		expect(content).toContain("status: done");
 		expect(content).toContain("- archived");
 		expect(content).not.toContain("status: archived");
+	});
+
+	it("preserves cached Hermes activity when rewriting an existing mirror note", () => {
+		const task: HermesTaskRecord = {
+			id: "t_existing",
+			title: "Existing mirror",
+			status: "done",
+			priority: 5,
+		};
+
+		const content = buildHermesMirrorContent("default", task, {
+			existingActivity: {
+				syncedAt: "2026-06-02T03:00:00Z",
+				commentCount: 2,
+				runCount: 0,
+				eventCount: 0,
+				comments: [
+					{ author: "orchestrator", body: "review-required handoff" },
+				],
+				runs: [],
+				events: [],
+			},
+		});
+
+		expect(content).toContain("comments:");
+		expect(content).toContain("[[TaskNotes/default/activity/comments/comment1|Comment 1]]");
+		expect(content).not.toContain("review-required handoff");
+		expect(content).not.toContain("hermesActivityCommentCount:");
+		expect(content).not.toContain("hermesActivity:");
 	});
 
 	it("marks Goal Mode mirror notes with stable frontmatter and tags", () => {

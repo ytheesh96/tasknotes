@@ -1,4 +1,12 @@
-import { HermesAvailabilityService, HERMES_DASHBOARD_START_COMMAND } from "../../../src/hermes/hermesAvailabilityService";
+jest.mock("child_process", () => ({
+	spawn: jest.fn(),
+}));
+
+import {
+	HERMES_DASHBOARD_START_COMMAND,
+	HermesAvailabilityService,
+	parseHermesDashboardStartCommand,
+} from "../../../src/hermes/hermesAvailabilityService";
 
 describe("HermesAvailabilityService", () => {
 	it("reports connected when the localhost root and kanban API are reachable", async () => {
@@ -171,6 +179,102 @@ describe("HermesAvailabilityService", () => {
 		});
 	});
 
+	it("starts Hermes with a configured helper command", async () => {
+		const spawn = jest.fn(async () => ({ pid: 4321 }));
+		const request = jest
+			.fn()
+			.mockRejectedValueOnce(new Error("ECONNREFUSED"))
+			.mockRejectedValueOnce(new Error("still starting"));
+		const service = new HermesAvailabilityService({
+			request,
+			spawnDashboard: spawn,
+		});
+		const commandLine = "/Users/example/bin/start-hermes --profile local";
+
+		const result = await service.startDashboard(commandLine);
+
+		expect(spawn).toHaveBeenCalledWith("/Users/example/bin/start-hermes", [
+			"--profile",
+			"local",
+		]);
+		expect(result).toMatchObject({
+			started: true,
+			pid: 4321,
+			command: commandLine,
+			health: { status: "starting" },
+		});
+	});
+
+	it("parses quoted configured helper commands", () => {
+		expect(
+			parseHermesDashboardStartCommand(
+				"'/Users/example/Local Tools/start hermes' --label \"task notes\""
+			)
+		).toEqual({
+			command: "/Users/example/Local Tools/start hermes",
+			args: ["--label", "task notes"],
+		});
+	});
+
+	it("falls back to the local Hermes executable when the GUI PATH cannot resolve hermes", async () => {
+		const childProcess = jest.requireMock("child_process") as {
+			spawn: jest.Mock;
+		};
+		const originalHome = process.env.HOME;
+		const originalExecutable = process.env.HERMES_EXECUTABLE;
+		process.env.HOME = "/Users/example";
+		delete process.env.HERMES_EXECUTABLE;
+		childProcess.spawn
+			.mockReturnValueOnce(
+				createSpawnProcess(
+					0,
+					"error",
+					Object.assign(new Error("spawn hermes ENOENT"), { code: "ENOENT" })
+				)
+			)
+			.mockReturnValueOnce(createSpawnProcess(2468, "spawn"));
+		const request = jest
+			.fn()
+			.mockRejectedValueOnce(new Error("ECONNREFUSED"))
+			.mockRejectedValueOnce(new Error("still starting"));
+		const service = new HermesAvailabilityService({ request });
+
+		try {
+			const result = await service.startDashboard();
+
+			expect(childProcess.spawn).toHaveBeenNthCalledWith(1, "hermes", expect.any(Array), {
+				detached: true,
+				stdio: "ignore",
+			});
+			expect(childProcess.spawn).toHaveBeenNthCalledWith(
+				2,
+				"/Users/example/.local/bin/hermes",
+				expect.any(Array),
+				{
+					detached: true,
+					stdio: "ignore",
+				}
+			);
+			expect(result).toMatchObject({
+				started: true,
+				pid: 2468,
+				command: HERMES_DASHBOARD_START_COMMAND,
+				health: { status: "starting" },
+			});
+		} finally {
+			if (originalHome === undefined) {
+				delete process.env.HOME;
+			} else {
+				process.env.HOME = originalHome;
+			}
+			if (originalExecutable === undefined) {
+				delete process.env.HERMES_EXECUTABLE;
+			} else {
+				process.env.HERMES_EXECUTABLE = originalExecutable;
+			}
+		}
+	});
+
 	it("returns actionable startup error data when startup is unavailable", async () => {
 		const spawn = jest.fn();
 		const service = new HermesAvailabilityService({
@@ -195,3 +299,27 @@ describe("HermesAvailabilityService", () => {
 		expect(spawn).not.toHaveBeenCalled();
 	});
 });
+
+function createSpawnProcess(
+	pid: number,
+	event: "error" | "spawn",
+	error?: Error
+): {
+	pid: number;
+	on: jest.Mock;
+	unref: jest.Mock;
+} {
+	const process = {
+		pid,
+		on: jest.fn((eventName: string, listener: (value?: Error) => void) => {
+			if (eventName === event) {
+				queueMicrotask(() => {
+					listener(error);
+				});
+			}
+			return process;
+		}),
+		unref: jest.fn(),
+	};
+	return process;
+}

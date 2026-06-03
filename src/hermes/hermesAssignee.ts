@@ -1,4 +1,5 @@
 import type { FieldGroup, TaskModalFieldsConfig, UserMappedField } from "../types/settings";
+import { HERMES_ACTIVITY_USER_FIELDS } from "./hermesActivityFrontmatter";
 
 const CONTROL_PANEL_FIELD_GROUPS: TaskModalFieldsConfig["groups"] = [
 	{
@@ -103,6 +104,30 @@ const CONTROL_PANEL_BOARD_PATH = /^TaskNotes\/[^/]+\/t_[^/]+\.md$/;
 const CONTROL_PANEL_GROUP_IDS = new Set<FieldGroup>(
 	CONTROL_PANEL_FIELD_GROUPS.map((group) => group.id)
 );
+export const HERMES_REVIEW_RAIL_FIELD_ID = "hermes-review-rail";
+const HERMES_ACTIVITY_USER_FIELD_IDS = new Set(
+	HERMES_ACTIVITY_USER_FIELDS.flatMap((field) => [field.id, field.key])
+);
+const RETIRED_HERMES_ACTIVITY_USER_FIELD_IDS = new Set([
+	"hermesActivityComments",
+	"hermesActivityRuns",
+	"hermesActivityEvents",
+	"hermesActivityArtifacts",
+	"hermesActivityChangedFiles",
+	"hermesComments",
+	"hermesRuns",
+	"hermesEvents",
+	"hermesArtifacts",
+	"hermesChangedFiles",
+	"hermesActivitySyncedAt",
+	"hermesActivityCommentCount",
+	"hermesActivityRunCount",
+	"hermesActivityEventCount",
+	"hermesActivityNeedsReview",
+	"hermesActivityLatestComment",
+	"hermesActivityLatestRun",
+	"hermesActivityLatestEvent",
+]);
 
 export function ensureHermesAssigneeUserField(
 	userFields: readonly UserMappedField[] | undefined,
@@ -140,7 +165,15 @@ export function isHermesAssigneePropertyId(propertyId: string | undefined): bool
 }
 
 export function isLegacyHermesUserField(field: Pick<UserMappedField, "id" | "key">): boolean {
-	return LEGACY_HERMES_USER_FIELD_IDS.has(field.id) || LEGACY_HERMES_USER_FIELD_IDS.has(field.key);
+	if (HERMES_ACTIVITY_USER_FIELD_IDS.has(field.id) || HERMES_ACTIVITY_USER_FIELD_IDS.has(field.key)) {
+		return false;
+	}
+	return (
+		LEGACY_HERMES_USER_FIELD_IDS.has(field.id) ||
+		LEGACY_HERMES_USER_FIELD_IDS.has(field.key) ||
+		RETIRED_HERMES_ACTIVITY_USER_FIELD_IDS.has(field.id) ||
+		RETIRED_HERMES_ACTIVITY_USER_FIELD_IDS.has(field.key)
+	);
 }
 
 export function mergeHermesAssigneeDefaultValues(...sources: readonly unknown[]): string[] {
@@ -246,7 +279,10 @@ export function collectHermesAssigneesFromMirrorNotes(app: unknown): string[] {
 }
 
 function isLegacyHermesFieldId(id: string | undefined): boolean {
-	return Boolean(id && LEGACY_HERMES_USER_FIELD_IDS.has(id));
+	return Boolean(
+		id &&
+			(LEGACY_HERMES_USER_FIELD_IDS.has(id) || RETIRED_HERMES_ACTIVITY_USER_FIELD_IDS.has(id))
+	);
 }
 
 function normalizeModalFieldGroup(group: unknown): FieldGroup {
@@ -260,11 +296,27 @@ export function normalizeHermesUserFields(
 	userFields: readonly UserMappedField[] | undefined
 ): { fields: UserMappedField[]; changed: boolean } {
 	const fieldsWithoutLegacy = (userFields ?? []).filter((field) => !isLegacyHermesUserField(field));
+	const fields = [...fieldsWithoutLegacy];
+	for (const activityField of HERMES_ACTIVITY_USER_FIELDS) {
+		const existingIndex = fields.findIndex(
+			(field) => field.id === activityField.id || field.key === activityField.key
+		);
+		if (existingIndex >= 0) {
+			fields[existingIndex] = {
+				...fields[existingIndex],
+				id: activityField.id,
+				displayName: activityField.displayName,
+				key: activityField.key,
+				type: activityField.type,
+			};
+		} else {
+			fields.push({ ...activityField });
+		}
+	}
 	return {
-		fields: fieldsWithoutLegacy,
+		fields,
 		changed:
-			fieldsWithoutLegacy.length !== (userFields ?? []).length ||
-			fieldsWithoutLegacy.some((field, index) => field !== userFields?.[index]),
+			JSON.stringify(fields) !== JSON.stringify(userFields ?? []),
 	};
 }
 
@@ -280,13 +332,40 @@ export function normalizeHermesModalFieldsConfig(
 			...field,
 			group: normalizeModalFieldGroup(field.group),
 		}));
+	const fields = [...fieldsWithoutLegacy];
+	if (!fields.some((field) => field.id === HERMES_REVIEW_RAIL_FIELD_ID)) {
+		fields.push({
+			id: HERMES_REVIEW_RAIL_FIELD_ID,
+			fieldType: "integration",
+			group: "custom",
+			displayName: "Hermes review rail",
+			visibleInCreation: false,
+			visibleInEdit: true,
+			order: 90,
+			enabled: true,
+		});
+	}
+	for (const [index, activityField] of HERMES_ACTIVITY_USER_FIELDS.entries()) {
+		if (fields.some((field) => field.id === activityField.id)) {
+			continue;
+		}
+		fields.push({
+			id: activityField.id,
+			fieldType: "user",
+			group: "custom",
+			displayName: activityField.displayName,
+			visibleInCreation: false,
+			visibleInEdit: true,
+			order: 100 + index,
+			enabled: true,
+		});
+	}
 	const changed =
 		JSON.stringify(config.groups) !== JSON.stringify(CONTROL_PANEL_FIELD_GROUPS) ||
-		fieldsWithoutLegacy.length !== config.fields.length ||
-		fieldsWithoutLegacy.some((field, index) => field !== config.fields[index]);
+		JSON.stringify(fields) !== JSON.stringify(config.fields);
 	return {
 		config: changed
-			? { ...config, groups: [...CONTROL_PANEL_FIELD_GROUPS], fields: fieldsWithoutLegacy }
+			? { ...config, groups: [...CONTROL_PANEL_FIELD_GROUPS], fields }
 			: config,
 		changed,
 	};

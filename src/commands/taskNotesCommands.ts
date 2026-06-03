@@ -80,6 +80,13 @@ export function createTaskNotesCommandDefinitions(
 			},
 		},
 		{
+			id: "start-hermes",
+			nameKey: "commands.startHermes",
+			callback: async (ctx) => {
+				await ctx.startHermesDashboard();
+			},
+		},
+		{
 			id: "convert-current-note-to-task",
 			nameKey: "commands.convertCurrentNoteToTask.name",
 			callback: async (ctx) => {

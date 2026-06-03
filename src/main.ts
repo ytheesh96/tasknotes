@@ -21,7 +21,6 @@ import { generateBasesFileTemplate } from "./templates/defaultBasesFiles";
 import {
 	MINI_CALENDAR_VIEW_TYPE,
 	TaskInfo,
-	TaskDependency,
 	EVENT_DATA_CHANGED,
 	EVENT_TASK_UPDATED,
 	EVENT_DATE_CHANGED,
@@ -92,7 +91,12 @@ import {
 	normalizeHermesUserFields,
 } from "./hermes/hermesTaskNotesIntegration";
 import { HermesKanbanApiClient, getHermesTaskIdentity } from "./hermes/hermesApiClient";
-import { createOrUpdateHermesMirrorNote } from "./hermes/hermesMirror";
+import {
+	HERMES_DASHBOARD_START_COMMAND,
+	HermesAvailabilityService,
+	type HermesDashboardStartResult,
+	normalizeHermesDashboardStartCommand,
+} from "./hermes/hermesAvailabilityService";
 import {
 	HERMES_MANAGED_TASK_RECONCILE_INTERVAL_MS,
 	getHermesManagedBoardFromTaskEvent,
@@ -101,6 +105,7 @@ import {
 	syncHermesManagedTaskFromHermes,
 	syncHermesManagedTasksFromHermes,
 } from "./hermes/hermesTaskSync";
+import { getHermesTaskNotesBoardFromTaskEvent } from "./hermes/hermesTaskNotesApiSync";
 import { createTaskNotesLogger } from "./utils/tasknotesLogger";
 import {
 	createTaskNotesPerformanceProfiler,
@@ -108,6 +113,7 @@ import {
 } from "./utils/PerformanceProfiler";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Main" });
+const HERMES_AUTO_START_COOLDOWN_MS = 5 * 60 * 1000;
 
 type DailyNoteMoment = Parameters<typeof getDailyNote>[0];
 type TaskLinkDetectionServiceInstance =
@@ -146,6 +152,8 @@ export default class TaskNotesPlugin extends Plugin {
 	private hermesEventReconnectTimers = new Map<string, number>();
 	private hermesEventReconnectDelayByBoard = new Map<string, number>();
 	private hermesEventCursorByBoard = new Map<string, number>();
+	private hermesAutoStartInFlight = false;
+	private hermesAutoStartLastAttemptAt = 0;
 
 	// Ready promise to signal when initialization is complete
 	private readyPromise: Promise<void>;
@@ -323,6 +331,7 @@ export default class TaskNotesPlugin extends Plugin {
 		});
 
 		await initializePluginRuntime(this);
+		this.registerHermesAutoStartOnTaskChanges();
 		this.registerTaskNotesFileMenuActions();
 
 		// Start migration check early (before views can be opened)
@@ -398,7 +407,87 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	async initializeAfterLayoutReady(): Promise<void> {
 		await initializeAfterLayoutReady(this);
-		this.startHermesManagedTaskSync();
+		tasknotesLogger.debug("Hermes mirror import sync is legacy and is not started", {
+			category: "provider",
+			operation: "hermes-tasknotes-api-sync",
+		});
+	}
+
+	private registerHermesAutoStartOnTaskChanges(): void {
+		this.registerEvent(
+			this.emitter.on(EVENT_TASK_UPDATED, (eventData: unknown) => {
+				void this.maybeAutoStartHermesForTaskEvent(eventData);
+			})
+		);
+	}
+
+	private async maybeAutoStartHermesForTaskEvent(eventData: unknown): Promise<void> {
+		if (!this.settings.hermesAutoStartOnTaskChange) {
+			return;
+		}
+		const board = getHermesTaskNotesBoardFromTaskEvent(eventData, { includeArchived: true });
+		if (!board || this.hermesAutoStartInFlight) {
+			return;
+		}
+		const now = Date.now();
+		if (now - this.hermesAutoStartLastAttemptAt < HERMES_AUTO_START_COOLDOWN_MS) {
+			return;
+		}
+		this.hermesAutoStartInFlight = true;
+		try {
+			const result = await this.startHermesDashboard({ showNotice: false });
+			if (result.started) {
+				new Notice("Starting hermes for tasknotes sync.");
+			}
+			if (result.health.status !== "connected") {
+				this.hermesAutoStartLastAttemptAt = Date.now();
+			}
+			if (result.error) {
+				new Notice("Could not start hermes automatically. Use the start hermes command.");
+			}
+		} catch (error) {
+			this.hermesAutoStartLastAttemptAt = Date.now();
+			tasknotesLogger.debug("Hermes auto-start failed after task change", {
+				category: "provider",
+				operation: "hermes-auto-start",
+				details: { board },
+				error,
+			});
+		} finally {
+			this.hermesAutoStartInFlight = false;
+		}
+	}
+
+	getHermesDashboardStartCommand(): string {
+		return normalizeHermesDashboardStartCommand(
+			this.settings.hermesStartCommand || HERMES_DASHBOARD_START_COMMAND
+		);
+	}
+
+	async startHermesDashboard(
+		options: { showNotice?: boolean } = {}
+	): Promise<HermesDashboardStartResult> {
+		const result = await new HermesAvailabilityService().startDashboard(
+			this.getHermesDashboardStartCommand()
+		);
+		if (options.showNotice ?? true) {
+			this.showHermesDashboardStartNotice(result);
+		}
+		return result;
+	}
+
+	private showHermesDashboardStartNotice(result: HermesDashboardStartResult): void {
+		if (result.error) {
+			new Notice(`${result.error.message} ${result.error.action}`);
+			return;
+		}
+		if (result.message) {
+			new Notice(result.message);
+			return;
+		}
+		if (result.started) {
+			new Notice("Starting hermes dashboard.");
+		}
 	}
 
 	private startHermesManagedTaskSync(): void {
@@ -1242,99 +1331,6 @@ export default class TaskNotesPlugin extends Plugin {
 		activeDocument.head.appendChild(styleEl);
 	}
 
-	private async updateHermesTaskProperty(
-		task: TaskInfo,
-		property: keyof TaskInfo,
-		value: TaskInfo[keyof TaskInfo]
-	): Promise<TaskInfo | null> {
-		if (!["status", "priority", "title", "blockedBy"].includes(String(property))) {
-			return null;
-		}
-		const identity = getHermesTaskIdentity(task);
-		if (!identity) {
-			throw new Error("Task is missing board or task id");
-		}
-
-		const api = new HermesKanbanApiClient();
-		if (property === "blockedBy") {
-			const nextDependencies = Array.isArray(value) ? (value as TaskDependency[]) : [];
-			const before = new Set(
-				(task.blockedBy ?? [])
-					.map((dependency) => this.hermesIdFromDependency(dependency))
-					.filter(Boolean)
-			);
-			const after = new Set(
-				nextDependencies
-					.map((dependency) => this.hermesIdFromDependency(dependency))
-					.filter(Boolean)
-			);
-			for (const parentId of after) {
-				if (!before.has(parentId)) {
-					await api.addLink({ board: identity.board, parentId, childId: identity.id });
-				}
-			}
-			for (const parentId of before) {
-				if (!after.has(parentId)) {
-					await api.deleteLink({ board: identity.board, parentId, childId: identity.id });
-				}
-			}
-		} else {
-			const payload: {
-				status?: string;
-				priority?: number;
-				title?: string;
-				result?: string;
-				summary?: string;
-				block_reason?: string;
-			} = {};
-			if (property === "status") {
-				const status = String(value);
-				if (status === "running") {
-					throw new Error(
-						"Hermes running state is claimed by the dispatcher, not TaskNotes."
-					);
-				}
-				payload.status = status;
-				if (status === "blocked") payload.block_reason = "Blocked from TaskNotes";
-				if (status === "done") {
-					payload.result = "Completed from TaskNotes";
-					payload.summary = "Completed from TaskNotes";
-				}
-			}
-			if (property === "priority") {
-				payload.priority = this.hermesPriorityFromTaskNotesPriority(String(value));
-			}
-			if (property === "title") {
-				payload.title = String(value);
-			}
-			await api.updateTask(identity, payload);
-		}
-
-		const detail = await api.getTask(identity);
-		if (!detail.task) return task;
-		const { taskInfo } = await createOrUpdateHermesMirrorNote(
-			this,
-			identity.board,
-			detail.task,
-			{
-				parents: detail.links?.parents ?? [],
-				children: detail.links?.children ?? [],
-			}
-		);
-		return taskInfo;
-	}
-
-	private hermesPriorityFromTaskNotesPriority(priority: string): number {
-		if (priority === "high") return 8;
-		if (priority === "normal") return 5;
-		if (priority === "low") return 2;
-		return 0;
-	}
-
-	private hermesIdFromDependency(dependency: TaskDependency): string {
-		return dependency.uid.match(/\b(t_[A-Za-z0-9]+)\b/)?.[1] ?? "";
-	}
-
 	async updateTaskProperty(
 		task: TaskInfo,
 		property: keyof TaskInfo,
@@ -1342,10 +1338,12 @@ export default class TaskNotesPlugin extends Plugin {
 		options: { silent?: boolean } = {}
 	): Promise<TaskInfo> {
 		try {
-			const updatedTask = getHermesTaskIdentity(task)
-				? ((await this.updateHermesTaskProperty(task, property, value)) ??
-					(await this.taskService.updateProperty(task, property, value, options)))
-				: await this.taskService.updateProperty(task, property, value, options);
+			const updatedTask = await this.taskService.updateProperty(
+				task,
+				property,
+				value,
+				options
+			);
 
 			// Provide user feedback unless silent
 			if (!options.silent) {
@@ -1419,13 +1417,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 	async toggleTaskStatus(task: TaskInfo): Promise<TaskInfo> {
 		try {
-			const updatedTask = getHermesTaskIdentity(task)
-				? await this.updateTaskProperty(
-						task,
-						"status",
-						this.getNextHermesToggleStatus(task)
-					)
-				: await this.taskService.toggleStatus(task);
+			const updatedTask = await this.taskService.toggleStatus(task);
 			const statusConfig = this.statusManager.getStatusConfig(updatedTask.status);
 			new Notice(`Task marked as '${statusConfig?.label || updatedTask.status}'`);
 			return updatedTask;
@@ -1438,10 +1430,6 @@ export default class TaskNotesPlugin extends Plugin {
 			new Notice("Failed to update task status");
 			throw error;
 		}
-	}
-
-	private getNextHermesToggleStatus(task: TaskInfo): string {
-		return task.status === "done" ? "ready" : "done";
 	}
 
 	openTaskCreationModal(prePopulatedValues?: Partial<TaskInfo>) {
@@ -1613,7 +1601,12 @@ export default class TaskNotesPlugin extends Plugin {
 	async openTaskEditModal(task: TaskInfo, onTaskUpdated?: (task: TaskInfo) => void) {
 		// With native cache, task data is always current - no need to refetch
 		const options = getHermesTaskIdentity(task)
-			? buildHermesTaskEditOptions(task, this.settings.userFields ?? [], onTaskUpdated)
+			? buildHermesTaskEditOptions(
+				task,
+				this.settings.userFields ?? [],
+				onTaskUpdated,
+				this.settings.modalFieldsConfig
+			)
 			: { task, onTaskUpdated };
 		new TaskEditModal(this.app, this, options).open();
 	}

@@ -202,10 +202,13 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 		mockApp = createMockApp(MockObsidian.createMockApp());
 
 		// Mock plugin with all required properties
-		mockPlugin = {
-			app: mockApp,
-			selectedDate: new Date("2025-01-15"),
-			settings: {
+			mockPlugin = {
+				app: mockApp,
+				selectedDate: new Date("2025-01-15"),
+				startHermesDashboard: jest.fn(async () =>
+					new HermesAvailabilityService().startDashboard()
+				),
+				settings: {
 				defaultTaskPriority: "normal",
 				defaultTaskStatus: "open",
 				taskTag: "task",

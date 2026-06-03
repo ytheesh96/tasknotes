@@ -5,6 +5,9 @@ import {
 	buildHermesTaskCreationOptions,
 	buildHermesGoalModeTaskCreationOptions,
 } from "../../../src/hermes/hermesTaskNotesIntegration";
+import { HERMES_REVIEW_RAIL_FIELD_ID } from "../../../src/hermes/hermesAssignee";
+import { HERMES_ACTIVITY_USER_FIELDS } from "../../../src/hermes/hermesActivityFrontmatter";
+import { HERMES_TASKNOTES_LOCAL_CREATION_TARGET } from "../../../src/hermes/hermesTaskNotesApiSync";
 
 describe("Hermes TaskNotes integration", () => {
 	const app = {} as App;
@@ -27,7 +30,9 @@ describe("Hermes TaskNotes integration", () => {
 			selectedBoard: "hhmi",
 		});
 		expect(options.hermesBoardPicker?.boards).toContain("hhmi");
-		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:hhmi");
+		expect(options.creationTargetPicker?.selectedTarget).toBe(
+			HERMES_TASKNOTES_LOCAL_CREATION_TARGET
+		);
 		expect(options.prePopulatedValues?.status).toBe("ready");
 		expect(options.prePopulatedValues?.projects).toEqual(["Hermes/hhmi"]);
 		expect(options.prePopulatedValues?.contexts).toEqual(["yt"]);
@@ -44,7 +49,9 @@ describe("Hermes TaskNotes integration", () => {
 		expect(options.modalFieldsConfig?.fields.map((field) => field.id)).toEqual(
 			expect.arrayContaining(["title", "details", "projects", "contexts"])
 		);
-		expect(options.modalFieldsConfig?.fields.map((field) => field.id)).not.toContain("assignee");
+		expect(options.modalFieldsConfig?.fields.map((field) => field.id)).not.toContain(
+			"assignee"
+		);
 	});
 
 	it("defaults new board tasks to triage when no status is supplied", () => {
@@ -66,7 +73,9 @@ describe("Hermes TaskNotes integration", () => {
 		);
 
 		expect(options.hermesBoardPicker?.selectedBoard).toBe("default");
-		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:default");
+		expect(options.creationTargetPicker?.selectedTarget).toBe(
+			HERMES_TASKNOTES_LOCAL_CREATION_TARGET
+		);
 		expect(options.prePopulatedValues?.projects).toEqual(["Hermes/default"]);
 	});
 
@@ -96,7 +105,9 @@ describe("Hermes TaskNotes integration", () => {
 		expect(options.hermesCreationMode).toBe("goal");
 		expect(options.modalTitle).toBe("Create Goal Mode card");
 		expect(options.saveButtonText).toBe("Create Goal Mode card");
-		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:default");
+		expect(options.creationTargetPicker?.selectedTarget).toBe(
+			HERMES_TASKNOTES_LOCAL_CREATION_TARGET
+		);
 		expect(options.prePopulatedValues?.tags).toEqual(
 			expect.arrayContaining(["hermes-kanban", "hermes-goal", "planning"])
 		);
@@ -161,5 +172,108 @@ describe("Hermes TaskNotes integration", () => {
 				"requires_human_decision",
 			])
 		);
+	});
+
+	it("shows synced Hermes activity fields in the board edit modal when registered", () => {
+		const task = {
+			title: "Synced activity task",
+			status: "ready",
+			priority: "normal",
+			path: "TaskNotes/hhmi/t_456.md",
+			archived: false,
+		} as TaskInfo;
+		const options = buildHermesTaskEditOptions(task, HERMES_ACTIVITY_USER_FIELDS);
+		const visibleEditFieldIds =
+			options.modalFieldsConfig?.fields
+				?.filter((field) => field.enabled && field.visibleInEdit)
+				.map((field) => field.id) ?? [];
+
+		expect(visibleEditFieldIds).toEqual(
+			expect.arrayContaining(HERMES_ACTIVITY_USER_FIELDS.map((field) => field.id))
+		);
+		expect(options.modalFieldsConfig?.fields).toEqual(
+			expect.arrayContaining(
+				HERMES_ACTIVITY_USER_FIELDS.map((field, index) =>
+					expect.objectContaining({
+						id: field.id,
+						fieldType: "user",
+						group: "custom",
+						visibleInCreation: false,
+						visibleInEdit: true,
+						order: index,
+						enabled: true,
+					})
+				)
+			)
+		);
+		expect(options.modalFieldsConfig?.fields).toContainEqual(
+			expect.objectContaining({
+				id: HERMES_REVIEW_RAIL_FIELD_ID,
+				fieldType: "integration",
+				group: "custom",
+				visibleInCreation: false,
+				visibleInEdit: true,
+				enabled: true,
+			})
+		);
+	});
+
+	it("respects disabled Modal Fields entries for Hermes activity fields", () => {
+		const task = {
+			title: "Disabled activity task",
+			status: "ready",
+			priority: "normal",
+			path: "TaskNotes/hhmi/t_789.md",
+			archived: false,
+		} as TaskInfo;
+		const options = buildHermesTaskEditOptions(
+			task,
+			HERMES_ACTIVITY_USER_FIELDS,
+			undefined,
+			{
+				fields: [
+					{
+						id: "comments",
+						enabled: false,
+						visibleInEdit: true,
+					},
+				],
+			}
+		);
+
+		const visibleEditFieldIds =
+			options.modalFieldsConfig?.fields
+				?.filter((field) => field.enabled && field.visibleInEdit)
+				.map((field) => field.id) ?? [];
+
+		expect(visibleEditFieldIds).not.toContain("comments");
+	});
+
+	it("respects disabled Modal Fields entries for the Hermes review rail", () => {
+		const task = {
+			title: "Disabled review rail task",
+			status: "ready",
+			priority: "normal",
+			path: "TaskNotes/hhmi/t_rail.md",
+			archived: false,
+		} as TaskInfo;
+		const options = buildHermesTaskEditOptions(task, [], undefined, {
+			fields: [
+				{
+					id: HERMES_REVIEW_RAIL_FIELD_ID,
+					enabled: false,
+					visibleInEdit: true,
+				},
+			],
+		});
+		const reviewRailField = options.modalFieldsConfig?.fields?.find(
+			(field) => field.id === HERMES_REVIEW_RAIL_FIELD_ID
+		);
+
+		expect(reviewRailField).toMatchObject({
+			id: HERMES_REVIEW_RAIL_FIELD_ID,
+			enabled: false,
+			visibleInEdit: true,
+		});
 	});
 });

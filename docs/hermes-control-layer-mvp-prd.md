@@ -1,5 +1,13 @@
 # TaskNotes as Hermes Kanban Frontend MVP PRD
 
+## Status
+
+This PRD is superseded by [Hermes TaskNotes API and Webhook Sync PRD](hermes-tasknotes-api-webhook-sync-prd.md).
+
+The older direction made TaskNotes call Hermes-specific APIs for live board
+state. The newer direction keeps TaskNotes as the owner of task state and uses
+the TaskNotes HTTP API plus webhooks as the integration boundary for Hermes.
+
 ## Summary
 
 TaskNotes should become the primary Obsidian frontend for Hermes Kanban. Users should create, view, route, and update Hermes board tasks from normal TaskNotes surfaces: the task modal, Kanban/Bases views, task cards, task menus, and property controls.

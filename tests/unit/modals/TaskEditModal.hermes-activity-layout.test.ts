@@ -1,14 +1,16 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { App } from "obsidian";
+import { Modal, type App } from "obsidian";
 import { HermesKanbanApiClient } from "../../../src/hermes/hermesApiClient";
 import {
 	HERMES_DASHBOARD_START_COMMAND,
 	HermesAvailabilityService,
 	type HermesAvailabilityHealth,
 } from "../../../src/hermes/hermesAvailabilityService";
+import { HERMES_ACTIVITY_FIELD_KEYS } from "../../../src/hermes/hermesActivityFrontmatter";
 import { TaskEditModal } from "../../../src/modals/TaskEditModal";
 import { createHermesEditFieldConfig } from "../../../src/hermes/hermesTaskNotesIntegration";
+import { HERMES_REVIEW_RAIL_FIELD_ID } from "../../../src/hermes/hermesAssignee";
 import type { TaskInfo } from "../../../src/types";
 import { MockObsidian } from "../../__mocks__/obsidian";
 
@@ -118,14 +120,22 @@ function createPlugin(app: App) {
 			toUserField: jest.fn((key: string) => key),
 		},
 		taskService: {
-			deleteTask: jest.fn(),
-			toggleArchive: jest.fn(),
-			updateTask: jest.fn(),
-		},
-		openHermesArtifactPath: jest.fn(),
-		openHermesTaskEditModalById: jest.fn(),
-	};
-}
+			deleteTask: jest.fn(async () => undefined),
+			toggleArchive: jest.fn(async (task: TaskInfo) => ({ ...task, archived: !task.archived })),
+			updateTask: jest.fn(async (task: TaskInfo, changes: Partial<TaskInfo>) => ({
+				...task,
+				...changes,
+			})),
+			updateBlockingRelationships: jest.fn(async () => undefined),
+			},
+			openHermesArtifactPath: jest.fn(),
+			openHermesTaskEditModalById: jest.fn(),
+			getHermesDashboardStartCommand: jest.fn(() => HERMES_DASHBOARD_START_COMMAND),
+			startHermesDashboard: jest.fn(async () =>
+				new HermesAvailabilityService().startDashboard()
+			),
+		};
+	}
 
 describe("TaskEditModal Hermes activity layout", () => {
 	beforeEach(() => {
@@ -218,7 +228,8 @@ describe("TaskEditModal Hermes activity layout", () => {
 		const buttonTexts = Array.from(buttonBar.querySelectorAll("button")).map((button) =>
 			button.textContent?.trim()
 		);
-		expect(buttonTexts).toEqual(["modals.task.buttons.openNote", "Block"]);
+		expect(buttonTexts).toEqual(["Recheck", "modals.task.buttons.openNote", "Block"]);
+		expect(buttonBar.querySelector(".tn-task-modal__hermes-availability")).not.toBeNull();
 		expect(buttonTexts).not.toContain("modals.taskEdit.buttons.archive");
 		expect(buttonTexts).not.toContain("contextMenus.task.delete");
 		expect(buttonTexts).not.toContain("Save update");
@@ -235,19 +246,11 @@ describe("TaskEditModal Hermes activity layout", () => {
 		});
 		const updateTask = jest
 			.spyOn(HermesKanbanApiClient.prototype, "updateTask")
-			.mockResolvedValueOnce({
-				id: "t_activity",
-				title: "Hermes activity task",
-				status: "blocked",
-			})
-			.mockResolvedValueOnce({
-				id: "t_activity",
-				title: "Hermes activity task",
-				status: "ready",
-			});
+			.mockResolvedValue({ id: "t_activity", title: "Hermes activity task" });
 		const app = MockObsidian.createMockApp() as unknown as App;
+		const plugin = createPlugin(app);
 		const task = { ...createHermesTask(), status: "todo" };
-		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+		const modal = new TestTaskEditModal(app, plugin as never, {
 			task,
 			modalFieldsConfig: createHermesEditFieldConfig([]),
 		});
@@ -256,16 +259,6 @@ describe("TaskEditModal Hermes activity layout", () => {
 			modal as unknown as { hasUnsavedHermesModalChanges: () => boolean },
 			"hasUnsavedHermesModalChanges"
 		).mockReturnValue(false);
-		jest.spyOn(
-			modal as unknown as {
-				promptHermesActionText: (options: {
-					title: string;
-					placeholder: string;
-					confirmText: string;
-				}) => Promise<string | null>;
-			},
-			"promptHermesActionText"
-		).mockResolvedValue("Waiting on QA.");
 		modal.setFormStateForTest(task);
 		modal.renderContentForTest();
 		await flushPromises();
@@ -278,25 +271,24 @@ describe("TaskEditModal Hermes activity layout", () => {
 		await (modal as unknown as {
 			toggleHermesBlockedStatus: (button: HTMLButtonElement) => Promise<void>;
 		}).toggleHermesBlockedStatus(blockToggleButton);
-		expect(updateTask).toHaveBeenLastCalledWith(
-			{ board: "default", id: "t_activity" },
-			{ status: "blocked", block_reason: "Waiting on QA." }
-		);
+		expect(plugin.taskService.updateTask).toHaveBeenLastCalledWith(task, { status: "blocked" });
+		expect(updateTask).not.toHaveBeenCalled();
 		expect(blockToggleButton.textContent).toBe("Unblock");
 		expect(blockToggleButton.disabled).toBe(false);
 
 		await (modal as unknown as {
 			toggleHermesBlockedStatus: (button: HTMLButtonElement) => Promise<void>;
 		}).toggleHermesBlockedStatus(blockToggleButton);
-		expect(updateTask).toHaveBeenLastCalledWith(
-			{ board: "default", id: "t_activity" },
+		expect(plugin.taskService.updateTask).toHaveBeenLastCalledWith(
+			expect.objectContaining({ status: "blocked" }),
 			{ status: "ready" }
 		);
+		expect(updateTask).not.toHaveBeenCalled();
 		expect(blockToggleButton.textContent).toBe("Block");
 		expect(forceClose).not.toHaveBeenCalled();
 	});
 
-	it("commits Hermes title edits through the API without closing the modal", async () => {
+	it("commits Hermes title edits through TaskNotes without closing the modal", async () => {
 		const updateTask = jest
 			.spyOn(HermesKanbanApiClient.prototype, "updateTask")
 			.mockResolvedValue(undefined);
@@ -307,8 +299,9 @@ describe("TaskEditModal Hermes activity layout", () => {
 			events: [],
 		});
 		const app = MockObsidian.createMockApp() as unknown as App;
+		const plugin = createPlugin(app);
 		const task = createHermesTask();
-		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+		const modal = new TestTaskEditModal(app, plugin as never, {
 			task,
 			modalFieldsConfig: createHermesEditFieldConfig([]),
 		});
@@ -331,10 +324,11 @@ describe("TaskEditModal Hermes activity layout", () => {
 			}
 		).flushHermesLiveSave();
 
-		expect(updateTask).toHaveBeenCalledWith(
-			{ board: "default", id: "t_activity" },
+		expect(plugin.taskService.updateTask).toHaveBeenCalledWith(
+			task,
 			expect.objectContaining({ title: "Updated live title" })
 		);
+		expect(updateTask).not.toHaveBeenCalled();
 		expect(forceClose).not.toHaveBeenCalled();
 	});
 
@@ -398,6 +392,42 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(rightColumn.querySelector(".tn-task-modal__hermes-activity-expand")).toBeNull();
 	});
 
+	it("hides the Hermes review rail when disabled in Modal Fields", () => {
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+			task: createHermesTask(),
+			modalFieldsConfig: createHermesEditFieldConfig([], {
+				fields: [
+					{
+						id: HERMES_REVIEW_RAIL_FIELD_ID,
+						enabled: false,
+						visibleInEdit: true,
+					},
+				],
+			}),
+		});
+		const splitContentWrapper = document.createElement("div");
+		const leftColumn = document.createElement("div");
+		const detailsContainer = document.createElement("div");
+		const rightColumn = document.createElement("div");
+		splitContentWrapper.classList.add("modal-split-content--right-empty");
+		leftColumn.append(detailsContainer, rightColumn);
+		splitContentWrapper.append(leftColumn);
+		modal.setSplitContainers({
+			detailsContainer,
+			splitRightColumn: rightColumn,
+			splitContentWrapper,
+		});
+
+		modal.renderAdditionalSections(leftColumn);
+
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-review-thread")).toBeNull();
+		expect(rightColumn.classList.contains("modal-split-right--with-readonly")).toBe(false);
+		expect(splitContentWrapper.classList.contains("modal-split-content--right-empty")).toBe(
+			true
+		);
+	});
+
 	it("renders cached fallback activity as a compact card", () => {
 		const app = MockObsidian.createMockApp() as unknown as App;
 		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
@@ -423,6 +453,38 @@ describe("TaskEditModal Hermes activity layout", () => {
 		);
 		expect(card).not.toBeNull();
 		expect(card!.textContent).toContain("Event payload summary");
+	});
+
+	it("renders cached Hermes activity from task frontmatter", () => {
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const task = {
+			...createHermesTask(),
+			details: "",
+			customProperties: {
+				[HERMES_ACTIVITY_FIELD_KEYS.comments]: ["reviewer-qa: Cached YAML review comment."],
+				[HERMES_ACTIVITY_FIELD_KEYS.runs]: ["Run 12 - reviewer-qa - blocked"],
+				[HERMES_ACTIVITY_FIELD_KEYS.events]: ["review_required: Cached YAML event summary."],
+			},
+		};
+		const modal = new TestTaskEditModal(app, createPlugin(app) as never, { task });
+		const splitContentWrapper = document.createElement("div");
+		const leftColumn = document.createElement("div");
+		const detailsContainer = document.createElement("div");
+		const rightColumn = document.createElement("div");
+		splitContentWrapper.classList.add("modal-split-content--right-empty");
+		leftColumn.append(detailsContainer, rightColumn);
+		splitContentWrapper.append(leftColumn);
+		modal.setSplitContainers({
+			detailsContainer,
+			splitRightColumn: rightColumn,
+			splitContentWrapper,
+		});
+
+		modal.renderAdditionalSections(leftColumn);
+
+		expect(rightColumn.textContent).toContain("Cached YAML review comment.");
+		expect(rightColumn.textContent).toContain("Cached YAML event summary.");
+		expect(rightColumn.textContent).not.toContain("No review activity yet.");
 	});
 
 	it("shows relative activity timestamps", async () => {
@@ -688,8 +750,9 @@ describe("TaskEditModal Hermes activity layout", () => {
 		);
 		expect(pinnedCard).not.toBeNull();
 		expect(pinnedCard!.querySelector(".tn-task-modal__hermes-review-badge")).toBeNull();
-		expect(pinnedCard!.classList.contains("tn-task-modal__hermes-activity-card--expandable")).toBe(true);
-		expect(pinnedCard!.getAttribute("aria-expanded")).toBe("false");
+		expect(pinnedCard!.classList.contains("tn-task-modal__hermes-activity-card--openable")).toBe(true);
+		expect(pinnedCard!.getAttribute("aria-haspopup")).toBe("dialog");
+		expect(pinnedCard!.getAttribute("aria-expanded")).toBeNull();
 		expect(pinnedCard!.textContent).toContain("Review required");
 		expect(pinnedCard!.textContent).toContain("Changed files");
 		expect(pinnedCard!.textContent).toContain("1 file");
@@ -701,8 +764,13 @@ describe("TaskEditModal Hermes activity layout", () => {
 			pinnedCard!.querySelectorAll(".tn-task-modal__hermes-activity-detail-row--overflow")
 		).toHaveLength(2);
 
+		const openSpy = jest.spyOn(Modal.prototype, "open");
 		pinnedCard!.click();
-		expect(pinnedCard!.getAttribute("aria-expanded")).toBe("true");
+		expect(openSpy).toHaveBeenCalledTimes(1);
+		const detailModal = openSpy.mock.instances[0] as Modal;
+		expect(detailModal.contentEl.textContent).toContain("Review required");
+		expect(detailModal.contentEl.textContent).toContain("Decisions");
+		expect(detailModal.contentEl.textContent).toContain("Open review.md");
 
 		pinnedCard!.querySelector<HTMLButtonElement>(".tn-task-modal__hermes-raw-toggle")!.click();
 		expect(pinnedCard!.textContent).toContain("review-required handoff:");
@@ -866,14 +934,21 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(structuredCard!.textContent).toContain("Open tasknotes-hermes.diff");
 		expect(structuredCard!.textContent).toContain("View raw");
 		expect(structuredCard!.textContent).not.toContain('"changed_files"');
-		expect(structuredCard!.classList.contains("tn-task-modal__hermes-thread-card--expandable")).toBe(true);
-		expect(structuredCard!.getAttribute("aria-expanded")).toBe("false");
+		expect(structuredCard!.classList.contains("tn-task-modal__hermes-thread-card--openable")).toBe(true);
+		expect(structuredCard!.getAttribute("aria-haspopup")).toBe("dialog");
+		expect(structuredCard!.getAttribute("aria-expanded")).toBeNull();
 		expect(
 			structuredCard!.querySelectorAll(".tn-task-modal__hermes-activity-detail-row--overflow")
 		).toHaveLength(1);
 
+		const openSpy = jest.spyOn(Modal.prototype, "open");
 		structuredCard!.click();
-		expect(structuredCard!.getAttribute("aria-expanded")).toBe("true");
+		expect(openSpy).toHaveBeenCalledTimes(1);
+		const detailModal = openSpy.mock.instances[0] as Modal;
+		expect(detailModal.contentEl.textContent).toContain("Agent handoff");
+		expect(detailModal.contentEl.textContent).toContain("Run");
+		expect(detailModal.contentEl.textContent).toContain("139");
+		expect(detailModal.contentEl.textContent).toContain("Open tasknotes-hermes.diff");
 
 		const diffAction = Array.from(
 			structuredCard!.querySelectorAll<HTMLButtonElement>(
@@ -1119,24 +1194,30 @@ describe("TaskEditModal Hermes activity layout", () => {
 			runs: [],
 			events: [],
 		});
-		const app = MockObsidian.createMockApp() as unknown as App;
-		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
-			task: createHermesTask(),
+			const app = MockObsidian.createMockApp() as unknown as App;
+			const task = createHermesTask();
+			const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+				task,
+			});
+			modal.setFormStateForTest(task);
+			modal.renderContentForTest();
+
+			await flushPromises();
+
+			const footer = getHermesFooter(modal);
+			expect(footer.textContent).toContain("Hermes live");
+			expect(footer.textContent).toContain("Connected");
+			expect(footer.querySelector(".tn-task-modal__hermes-availability-chip")).not.toBeNull();
+			expect(
+				modal.contentEl.querySelector(".modal-split-left .tn-task-modal__hermes-availability")
+			).toBeNull();
+			expect(footer.textContent).not.toContain("Live board, profile, status");
+			expect(modal.contentEl.textContent).not.toContain("Cache only");
+			expect(
+				modal.contentEl.querySelector<HTMLTextAreaElement>(".tn-task-modal__hermes-comment-input")
+					?.disabled
+			).toBe(false);
 		});
-		const { leftColumn, rightColumn } = renderHermesSections(modal);
-
-		await flushPromises();
-
-		expect(leftColumn.textContent).toContain("Hermes live");
-		expect(leftColumn.textContent).toContain("Connected");
-		expect(leftColumn.querySelector(".tn-task-modal__hermes-availability-chip")).not.toBeNull();
-		expect(leftColumn.textContent).not.toContain("Live board, profile, status");
-		expect(rightColumn.textContent).not.toContain("Cache only");
-		expect(
-			rightColumn.querySelector<HTMLTextAreaElement>(".tn-task-modal__hermes-comment-input")
-				?.disabled
-		).toBe(false);
-	});
 
 	it("labels cached Hermes mirrors, disables live controls, and offers desktop startup when disconnected", async () => {
 		jest.spyOn(HermesAvailabilityService.prototype, "recheckHealth").mockResolvedValue(
@@ -1149,32 +1230,35 @@ describe("TaskEditModal Hermes activity layout", () => {
 		);
 		jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockRejectedValue(
 			new Error("offline")
-		);
-		const app = MockObsidian.createMockApp() as unknown as App;
-		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
-			task: createHermesTask(),
+			);
+			const app = MockObsidian.createMockApp() as unknown as App;
+			const task = createHermesTask();
+			const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+				task,
+			});
+			modal.setFormStateForTest(task);
+			modal.renderContentForTest();
+
+			await flushPromises();
+
+			const footer = getHermesFooter(modal);
+			expect(footer.textContent).toContain("Cache only");
+			expect(footer.textContent).toContain("Disconnected");
+			expect(footer.textContent).not.toContain(HERMES_DASHBOARD_START_COMMAND);
+			expect(footer.textContent).toContain("Start");
+			expect(footer.textContent).not.toContain("Start Hermes");
+			expect(footer.textContent).toContain("Recheck");
+			expect(modal.contentEl.textContent).toContain("Cached Hermes activity");
+			expect(modal.contentEl.textContent).toContain("Review thread (cache-only)");
+			expect(
+				modal.contentEl.querySelector<HTMLTextAreaElement>(".tn-task-modal__hermes-comment-input")
+					?.disabled
+			).toBe(true);
+			expect(
+				modal.contentEl.querySelector<HTMLButtonElement>("button[aria-label='Send comment']")
+					?.disabled
+			).toBe(true);
 		});
-		const { leftColumn, rightColumn } = renderHermesSections(modal);
-
-		await flushPromises();
-
-		expect(leftColumn.textContent).toContain("Cache only");
-		expect(leftColumn.textContent).toContain("Disconnected");
-		expect(leftColumn.textContent).not.toContain(HERMES_DASHBOARD_START_COMMAND);
-		expect(leftColumn.textContent).toContain("Start");
-		expect(leftColumn.textContent).not.toContain("Start Hermes");
-		expect(leftColumn.textContent).toContain("Recheck");
-		expect(rightColumn.textContent).toContain("Cached Hermes activity");
-		expect(rightColumn.textContent).toContain("Review thread (cache-only)");
-		expect(
-			rightColumn.querySelector<HTMLTextAreaElement>(".tn-task-modal__hermes-comment-input")
-				?.disabled
-		).toBe(true);
-		expect(
-			rightColumn.querySelector<HTMLButtonElement>("button[aria-label='Send comment']")
-				?.disabled
-		).toBe(true);
-	});
 
 	it("starts Hermes from the modal, rechecks health, and reloads live activity", async () => {
 		const recheckHealth = jest
@@ -1194,27 +1278,30 @@ describe("TaskEditModal Hermes activity layout", () => {
 			comments: [{ author: "peacock", body: "Live comment", created_at: 1780430000 }],
 			runs: [],
 			events: [],
-		});
-		const app = MockObsidian.createMockApp() as unknown as App;
-		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
-			task: createHermesTask(),
-		});
-		const { leftColumn, rightColumn } = renderHermesSections(modal);
-		await flushPromises();
+			});
+			const app = MockObsidian.createMockApp() as unknown as App;
+			const task = createHermesTask();
+			const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+				task,
+			});
+			modal.setFormStateForTest(task);
+			modal.renderContentForTest();
+			await flushPromises();
 
-		leftColumn.querySelector<HTMLButtonElement>("button[aria-label='Start Hermes dashboard']")!.click();
-		await flushPromises();
+			const footer = getHermesFooter(modal);
+			footer.querySelector<HTMLButtonElement>("button[aria-label='Start Hermes dashboard']")!.click();
+			await flushPromises();
 
-		expect(startDashboard).toHaveBeenCalledTimes(1);
-		expect(recheckHealth).toHaveBeenCalledTimes(2);
-		expect(getTask).toHaveBeenCalled();
-		expect(leftColumn.textContent).toContain("Hermes live");
-		expect(rightColumn.textContent).toContain("Live comment");
-		expect(
-			rightColumn.querySelector<HTMLTextAreaElement>(".tn-task-modal__hermes-comment-input")
-				?.disabled
-		).toBe(false);
-	});
+			expect(startDashboard).toHaveBeenCalledTimes(1);
+			expect(recheckHealth).toHaveBeenCalledTimes(2);
+			expect(getTask).toHaveBeenCalled();
+			expect(footer.textContent).toContain("Hermes live");
+			expect(modal.contentEl.textContent).toContain("Live comment");
+			expect(
+				modal.contentEl.querySelector<HTMLTextAreaElement>(".tn-task-modal__hermes-comment-input")
+					?.disabled
+			).toBe(false);
+		});
 
 	it("pins the Hermes composer while only the thread cards scroll", () => {
 		const cssContent = fs.readFileSync(cssFilePath, "utf-8");
@@ -1282,6 +1369,18 @@ describe("TaskEditModal Hermes activity layout", () => {
 			cssContent,
 			".tasknotes-plugin .tn-task-modal__hermes-thread-body--structured"
 		);
+		const activityOpenableBlock = extractCssBlock(
+			cssContent,
+			".tasknotes-plugin .tn-task-modal__hermes-activity-card--openable"
+		);
+		const threadOpenableBlock = extractCssBlock(
+			cssContent,
+			".tasknotes-plugin .tn-task-modal__hermes-thread-card--openable"
+		);
+		const detailModalContentBlock = extractCssBlock(
+			cssContent,
+			".tasknotes-plugin .tn-task-modal__hermes-activity-detail-modal-content"
+		);
 
 		expect(statusItemBlock).toContain("display: grid");
 		expect(statusItemBlock).toContain("grid-template-columns: 22px minmax(0, 1fr)");
@@ -1293,6 +1392,10 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(threadCardBlock).toContain("padding: var(--size-2-2) var(--size-4-2)");
 		expect(activityBodyBlock).toContain("-webkit-line-clamp: 2");
 		expect(structuredBodyBlock).toContain("-webkit-line-clamp: 2");
+		expect(activityOpenableBlock).toContain("cursor: pointer");
+		expect(threadOpenableBlock).toContain("cursor: pointer");
+		expect(detailModalContentBlock).toContain("max-height: min(72vh, 760px)");
+		expect(detailModalContentBlock).toContain("overflow: auto");
 		expect(cssContent).toContain("tn-task-modal__hermes-activity-detail-row--overflow");
 		expect(cssContent).toContain("tn-task-modal__hermes-activity-action--overflow");
 		expect(cssContent).toContain("tn-task-modal__hermes-activity-overflow-summary");
@@ -1306,7 +1409,11 @@ describe("TaskEditModal Hermes activity layout", () => {
 			)
 		);
 	});
-});
+	});
+
+function getHermesFooter(modal: TestTaskEditModal): HTMLElement {
+	return modal.contentEl.querySelector<HTMLElement>(".tn-task-modal__button-bar--hermes-live")!;
+}
 
 function renderHermesSections(modal: TestTaskEditModal): {
 	leftColumn: HTMLElement;

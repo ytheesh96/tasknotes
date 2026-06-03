@@ -356,7 +356,12 @@ export function addFieldManagerStyles(): void {
 				background: var(--color-green);
 				color: var(--text-on-accent);
 			}
-	`;
+
+			.field-card__type--integration {
+				background: var(--color-blue);
+				color: var(--text-on-accent);
+			}
+		`;
 
 	activeDocument.head.appendChild(style);
 }

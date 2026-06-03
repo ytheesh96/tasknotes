@@ -8,6 +8,14 @@ import {
 	getHermesTaskIdentity,
 } from "./hermesApiClient";
 import {
+	buildHermesActivitySnapshot,
+	getHermesActivityFrontmatterStateFromTask,
+	getHermesActivitySnapshotFromTask,
+	hasHermesActivityFrontmatterPropertiesChanged,
+	hasHermesActivityNotesChanged,
+	type HermesActivitySnapshot,
+} from "./hermesActivityFrontmatter";
+import {
 	createOrUpdateHermesMirrorNote,
 	hermesPriorityToTaskNotesPriority,
 	hermesStatusToTaskNotesStatus,
@@ -24,6 +32,7 @@ type HermesMirrorWriter = (
 	options?: {
 		parents?: string[];
 		children?: string[];
+		activity?: HermesActivitySnapshot;
 	}
 ) => Promise<{ taskInfo: TaskInfo }>;
 
@@ -84,10 +93,6 @@ export async function syncHermesManagedTasksFromHermes(
 		for (const [id, remoteTask] of remoteTasksById.entries()) {
 			const localTask = localTasksById.get(id) ?? null;
 			result.tasksChecked += 1;
-			if (localTask && !shouldRefreshFromHermes(board, localTask, remoteTask)) {
-				result.skipped += 1;
-				continue;
-			}
 
 			let detail: HermesTaskDetailResponse;
 			try {
@@ -100,10 +105,30 @@ export async function syncHermesManagedTasksFromHermes(
 				result.skipped += 1;
 				continue;
 			}
+			const existingActivity = localTask
+				? getHermesActivitySnapshotFromTask(plugin, localTask)
+				: null;
+			const existingActivityFrontmatter = localTask
+				? getHermesActivityFrontmatterStateFromTask(plugin, localTask)
+				: null;
+			const activity = buildHermesActivitySnapshot(detail, { existing: existingActivity });
+			if (
+				localTask &&
+				!shouldRefreshFromHermes(board, localTask, remoteTask) &&
+				!hasHermesActivityFrontmatterPropertiesChanged(existingActivityFrontmatter, activity, {
+					board,
+					taskId: id,
+				}) &&
+				!hasHermesActivityNotesChanged(plugin, activity, { board, taskId: id })
+			) {
+				result.skipped += 1;
+				continue;
+			}
 
 			const { taskInfo } = await mirrorWriter(plugin, board, detail.task, {
 				parents: detail.links?.parents ?? [],
 				children: detail.links?.children ?? [],
+				activity,
 			});
 			triggerHermesTaskUpdated(plugin, taskInfo, localTask);
 			result.updated += 1;
@@ -135,7 +160,28 @@ export async function syncHermesManagedTaskFromHermes(
 	}
 	const api = options.api ?? new HermesKanbanApiClient();
 	const detail = await api.getTask(identity);
-	if (!detail.task || (localTask && !shouldRefreshFromHermes(identity.board, localTask, detail.task))) {
+	if (!detail.task) {
+		return false;
+	}
+	const existingActivity = localTask
+		? getHermesActivitySnapshotFromTask(plugin, localTask)
+		: null;
+	const existingActivityFrontmatter = localTask
+		? getHermesActivityFrontmatterStateFromTask(plugin, localTask)
+		: null;
+	const activity = buildHermesActivitySnapshot(detail, { existing: existingActivity });
+	if (
+		localTask &&
+		!shouldRefreshFromHermes(identity.board, localTask, detail.task) &&
+		!hasHermesActivityFrontmatterPropertiesChanged(existingActivityFrontmatter, activity, {
+			board: identity.board,
+			taskId: identity.id,
+		}) &&
+		!hasHermesActivityNotesChanged(plugin, activity, {
+			board: identity.board,
+			taskId: identity.id,
+		})
+	) {
 		return false;
 	}
 
@@ -143,6 +189,7 @@ export async function syncHermesManagedTaskFromHermes(
 	const { taskInfo } = await mirrorWriter(plugin, identity.board, detail.task, {
 		parents: detail.links?.parents ?? [],
 		children: detail.links?.children ?? [],
+		activity,
 	});
 	triggerHermesTaskUpdated(plugin, taskInfo, localTask);
 	return true;

@@ -5,7 +5,9 @@ import {
 	hasHermesAssigneeUserField,
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
+	HERMES_REVIEW_RAIL_FIELD_ID,
 } from "../../../src/hermes/hermesAssignee";
+import { HERMES_ACTIVITY_USER_FIELDS } from "../../../src/hermes/hermesActivityFrontmatter";
 import { MockObsidian } from "../../__mocks__/obsidian";
 
 describe("Hermes assignee helpers", () => {
@@ -73,6 +75,12 @@ describe("Hermes assignee helpers", () => {
 				type: "text",
 			},
 			{
+				id: "hermesActivityCommentCount",
+				displayName: "Hermes comment count",
+				key: "hermesActivityCommentCount",
+				type: "number",
+			},
+			{
 				id: "review",
 				displayName: "Review",
 				key: "review",
@@ -81,14 +89,24 @@ describe("Hermes assignee helpers", () => {
 		]);
 
 		expect(result.changed).toBe(true);
-		expect(result.fields).toEqual([
-			{
-				id: "review",
-				displayName: "Review",
-				key: "review",
-				type: "text",
-			},
-		]);
+		expect(result.fields).toEqual(
+			expect.arrayContaining([
+				{
+					id: "review",
+					displayName: "Review",
+					key: "review",
+					type: "text",
+				},
+				...HERMES_ACTIVITY_USER_FIELDS.map((field) => ({ ...field })),
+			])
+		);
+	});
+
+	it("registers curated Hermes activity user fields when missing", () => {
+		const result = normalizeHermesUserFields([]);
+
+		expect(result.changed).toBe(true);
+		expect(result.fields).toEqual(HERMES_ACTIVITY_USER_FIELDS.map((field) => ({ ...field })));
 	});
 
 	it("keeps human and self assignees as assignment-only updates", () => {
@@ -129,7 +147,37 @@ describe("Hermes assignee helpers", () => {
 		});
 
 		expect(result.changed).toBe(true);
-		expect(result.config?.fields.map((field) => field.id)).toEqual(["title"]);
+		expect(result.config?.fields.map((field) => field.id)).toEqual([
+			"title",
+			HERMES_REVIEW_RAIL_FIELD_ID,
+			...HERMES_ACTIVITY_USER_FIELDS.map((field) => field.id),
+		]);
+		expect(result.config?.fields.find((field) => field.id === HERMES_REVIEW_RAIL_FIELD_ID)).toEqual(
+			expect.objectContaining({
+				id: HERMES_REVIEW_RAIL_FIELD_ID,
+				fieldType: "integration",
+				group: "custom",
+				displayName: "Hermes review rail",
+				visibleInCreation: false,
+				visibleInEdit: true,
+				order: 90,
+				enabled: true,
+			})
+		);
+		expect(
+			result.config?.fields.filter((field) => HERMES_ACTIVITY_USER_FIELDS.some((activityField) => activityField.id === field.id))
+		).toEqual(
+			HERMES_ACTIVITY_USER_FIELDS.map((field, index) =>
+				expect.objectContaining({
+					id: field.id,
+					fieldType: "user",
+					visibleInCreation: false,
+					visibleInEdit: true,
+					order: 100 + index,
+					enabled: true,
+				})
+			)
+		);
 	});
 
 	it("keeps agent assignees as assignment-only updates", () => {

@@ -9,12 +9,11 @@ import {
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
 	normalizeHermesAssignee,
+	HERMES_REVIEW_RAIL_FIELD_ID,
 } from "./hermesAssignee";
-import {
-	HERMES_DEFAULT_BOARDS,
-	normalizeHermesBoardValue,
-	splitHermesList,
-} from "./hermesRouting";
+import { HERMES_ACTIVITY_USER_FIELDS } from "./hermesActivityFrontmatter";
+import { HERMES_DEFAULT_BOARDS, normalizeHermesBoardValue, splitHermesList } from "./hermesRouting";
+import { HERMES_TASKNOTES_LOCAL_CREATION_TARGET } from "./hermesTaskNotesApiSync";
 
 const TASKNOTES_ROOT = "TaskNotes";
 
@@ -25,7 +24,7 @@ type HermesModalField = ModalFieldConfigLike & {
 	visibleInEdit: boolean;
 	enabled: boolean;
 	order: number;
-	fieldType: "core" | "user" | "dependency" | "organization";
+	fieldType: "core" | "user" | "dependency" | "organization" | "integration";
 };
 
 type HermesModalGroup = {
@@ -145,6 +144,13 @@ function modalGroups(): HermesModalGroup[] {
 			collapsible: true,
 			defaultCollapsed: false,
 		},
+		{
+			id: "custom",
+			displayName: "Other Fields",
+			order: 3,
+			collapsible: true,
+			defaultCollapsed: false,
+		},
 	];
 }
 
@@ -186,9 +192,9 @@ export function createHermesCreationFieldConfig(
 }
 
 export function createHermesEditFieldConfig(
-	userFields: readonly UserMappedField[] = []
+	userFields: readonly UserMappedField[] = [],
+	modalFieldsConfig?: ModalFieldsConfigLike
 ): ModalFieldsConfigLike {
-	void userFields;
 	const fields: HermesModalField[] = [
 		field("title", "core", "basic", 0, "Title", true, true),
 		{
@@ -199,9 +205,62 @@ export function createHermesEditFieldConfig(
 		field("contexts", "core", "routing", 1, "Assignee", true, true),
 		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
 		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
+		getHermesReviewRailModalField(modalFieldsConfig),
+		...getHermesActivityModalFields(userFields, modalFieldsConfig),
 	];
 
 	return { groups: modalGroups(), fields };
+}
+
+function getHermesReviewRailModalField(
+	modalFieldsConfig?: ModalFieldsConfigLike
+): HermesModalField {
+	const configuredField = modalFieldsConfig?.fields?.find(
+		(fieldConfig) => fieldConfig.id === HERMES_REVIEW_RAIL_FIELD_ID
+	);
+	return {
+		id: HERMES_REVIEW_RAIL_FIELD_ID,
+		fieldType: "integration",
+		group: "custom",
+		displayName: "Hermes review rail",
+		order: configuredField?.order ?? 90,
+		enabled: configuredField?.enabled ?? true,
+		visibleInCreation: false,
+		visibleInEdit: configuredField?.visibleInEdit ?? true,
+	};
+}
+
+function getHermesActivityModalFields(
+	userFields: readonly UserMappedField[],
+	modalFieldsConfig?: ModalFieldsConfigLike
+): HermesModalField[] {
+	return HERMES_ACTIVITY_USER_FIELDS.flatMap((activityField, index) => {
+		const isRegistered = userFields.some(
+			(userField) => userField.id === activityField.id || userField.key === activityField.key
+		);
+		if (!isRegistered) {
+			return [];
+		}
+
+		const configuredField = modalFieldsConfig?.fields?.find(
+			(fieldConfig) => fieldConfig.id === activityField.id
+		);
+		if (configuredField && (!configuredField.enabled || !configuredField.visibleInEdit)) {
+			return [];
+		}
+
+		return [
+			field(
+				activityField.id,
+				"user",
+				"custom",
+				configuredField?.order ?? index,
+				activityField.displayName,
+				false,
+				true
+			),
+		];
+	});
 }
 
 export function buildHermesTaskCreationOptions(
@@ -247,7 +306,7 @@ export function buildHermesTaskCreationOptions(
 		modalFieldsConfig: createHermesCreationFieldConfig(userFields),
 		creationTargetPicker: {
 			boards: boardOptions,
-			selectedTarget: `hermes:${board}`,
+			selectedTarget: HERMES_TASKNOTES_LOCAL_CREATION_TARGET,
 		},
 		hermesBoardPicker: {
 			boards: boardOptions,
@@ -290,20 +349,18 @@ export function buildHermesGoalModeTaskCreationOptions(
 	};
 }
 
-export {
-	normalizeHermesModalFieldsConfig,
-	normalizeHermesUserFields,
-};
+export { normalizeHermesModalFieldsConfig, normalizeHermesUserFields };
 
 export function buildHermesTaskEditOptions(
 	task: TaskInfo,
 	userFields: readonly UserMappedField[] = [],
-	onTaskUpdated?: (task: TaskInfo) => void
+	onTaskUpdated?: (task: TaskInfo) => void,
+	modalFieldsConfig?: ModalFieldsConfigLike
 ): TaskEditOptions {
 	return {
 		task,
 		onTaskUpdated,
 		modalTitle: "Update task",
-		modalFieldsConfig: createHermesEditFieldConfig(userFields),
+		modalFieldsConfig: createHermesEditFieldConfig(userFields, modalFieldsConfig),
 	};
 }

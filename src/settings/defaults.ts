@@ -9,6 +9,7 @@ import {
 	GoogleCalendarExportSettings,
 } from "../types/settings";
 import { DEFAULT_FIELD_MAPPING } from "../core/defaultFieldMapping";
+import { HERMES_DASHBOARD_START_COMMAND } from "../hermes/hermesAvailabilityService";
 export { DEFAULT_FIELD_MAPPING } from "../core/defaultFieldMapping";
 
 /**
@@ -280,6 +281,9 @@ export const DEFAULT_SETTINGS: TaskNotesSettings = {
 	defaultTaskPriority: "normal",
 	defaultTaskStatus: "triage",
 	taskOrgFiltersCollapsed: false, // Default to expanded
+	// Hermes integration defaults
+	hermesStartCommand: HERMES_DASHBOARD_START_COMMAND,
+	hermesAutoStartOnTaskChange: false,
 	// Task filename defaults
 	taskFilenameFormat: "zettel", // Keep existing behavior as default
 	storeTitleInFilename: true,

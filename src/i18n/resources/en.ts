@@ -1686,6 +1686,27 @@ export const en: TranslationTree = {
 			},
 		},
 		integrations: {
+			hermes: {
+				header: "Hermes",
+				description:
+					"Configure the local hermes launcher used by review activity and sync helpers. Task notes still save normally when hermes is offline.",
+				startCommand: {
+					name: "Start command",
+					description:
+						"Command or helper run by this plugin when you use the start command.",
+				},
+				autoStart: {
+					name: "Start hermes after task changes",
+					description:
+						"When enabled, editing a hermes-linked task note can quietly start hermes if it is offline.",
+				},
+				startNow: {
+					name: "Start hermes",
+					description:
+						"Run the configured command now. This is optional and only affects hermes activity features.",
+					buttonText: "Start",
+				},
+			},
 			mobileCalendar: {
 				disable: {
 					name: "Disable calendar integrations on mobile",
@@ -2358,6 +2379,7 @@ export const en: TranslationTree = {
 		openStatisticsView: "Open task & project statistics",
 		createNewTask: "Create new task",
 		createHermesGoalModeCard: "Create hermes goal mode card",
+		startHermes: "Start hermes",
 		convertCurrentNoteToTask: {
 			name: "Convert current note to task",
 			noActiveFile: "No active file to convert",

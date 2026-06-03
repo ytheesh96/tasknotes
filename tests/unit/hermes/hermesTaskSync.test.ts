@@ -17,6 +17,9 @@ describe("Hermes managed task sync", () => {
 			detailTask: remoteTask,
 			parents: ["t_parent"],
 			children: ["t_child"],
+			comments: [{ author: "worker", body: "done", created_at: 1770000000 }],
+			runs: [{ id: "1", status: "done", profile: "default" }],
+			events: [{ kind: "completed", payload: { summary: "done" } }],
 		});
 		const mirrorWriter = jest.fn().mockResolvedValue({ taskInfo: updatedTask });
 		const plugin = createPlugin([localTask]);
@@ -26,10 +29,20 @@ describe("Hermes managed task sync", () => {
 		expect(result.updated).toBe(1);
 		expect(api.getBoard).toHaveBeenCalledWith("default", { includeArchived: true });
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
-		expect(mirrorWriter).toHaveBeenCalledWith(plugin, "default", remoteTask, {
-			parents: ["t_parent"],
-			children: ["t_child"],
-		});
+		expect(mirrorWriter).toHaveBeenCalledWith(
+			plugin,
+			"default",
+			remoteTask,
+			expect.objectContaining({
+				parents: ["t_parent"],
+				children: ["t_child"],
+					activity: expect.objectContaining({
+						commentCount: 1,
+						runCount: 1,
+						eventCount: 1,
+					}),
+				})
+			);
 		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
 			path: updatedTask.path,
 			originalTask: localTask,
@@ -63,10 +76,15 @@ describe("Hermes managed task sync", () => {
 		expect(result.updated).toBe(1);
 		expect(result.skipped).toBe(1);
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_missing" });
-		expect(mirrorWriter).toHaveBeenCalledWith(plugin, "default", remoteTask, {
-			parents: [],
-			children: [],
-		});
+		expect(mirrorWriter).toHaveBeenCalledWith(
+			plugin,
+			"default",
+			remoteTask,
+			expect.objectContaining({
+				parents: [],
+				children: [],
+			})
+		);
 		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
 			path: mirroredTask.path,
 			updatedTask: mirroredTask,
@@ -94,10 +112,15 @@ describe("Hermes managed task sync", () => {
 		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith("TaskNotes/default/t_sync.md");
 		expect(api.getBoard).not.toHaveBeenCalled();
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
-		expect(mirrorWriter).toHaveBeenCalledWith(plugin, "default", remoteTask, {
-			parents: [],
-			children: [],
-		});
+		expect(mirrorWriter).toHaveBeenCalledWith(
+			plugin,
+			"default",
+			remoteTask,
+			expect.objectContaining({
+				parents: [],
+				children: [],
+			})
+		);
 		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
 			path: updatedTask.path,
 			originalTask: localTask,
@@ -130,10 +153,15 @@ describe("Hermes managed task sync", () => {
 		expect(changed).toBe(true);
 		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith("TaskNotes/default/t_sync.md");
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
-		expect(mirrorWriter).toHaveBeenCalledWith(plugin, "default", remoteTask, {
-			parents: [],
-			children: [],
-		});
+		expect(mirrorWriter).toHaveBeenCalledWith(
+			plugin,
+			"default",
+			remoteTask,
+			expect.objectContaining({
+				parents: [],
+				children: [],
+			})
+		);
 		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
 			path: mirroredTask.path,
 			updatedTask: mirroredTask,
@@ -160,7 +188,7 @@ describe("Hermes managed task sync", () => {
 		expect(mirrorWriter).not.toHaveBeenCalled();
 	});
 
-	it("does not rewrite a task that already matches Hermes", async () => {
+	it("does not rewrite a task that already matches Hermes activity", async () => {
 		const localTask = createTask({
 			status: "done",
 			priority: "normal",
@@ -171,7 +199,13 @@ describe("Hermes managed task sync", () => {
 			priority: 5,
 			assignee: "codex",
 		});
-		const api = createApi({ boardTasks: [remoteTask], detailTask: remoteTask });
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+			comments: [],
+			runs: [],
+			events: [],
+		});
 		const mirrorWriter = jest.fn();
 		const plugin = createPlugin([localTask]);
 
@@ -179,9 +213,74 @@ describe("Hermes managed task sync", () => {
 
 		expect(result.tasksChecked).toBe(1);
 		expect(result.updated).toBe(0);
-		expect(api.getTask).not.toHaveBeenCalled();
+		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
 		expect(mirrorWriter).not.toHaveBeenCalled();
 		expect(plugin.emitter.trigger).not.toHaveBeenCalled();
+	});
+
+	it("refreshes a matching task when only Hermes review-thread activity changed", async () => {
+		const localTask = createTask({
+			status: "done",
+			priority: "normal",
+			contexts: ["codex"],
+			customProperties: {
+				hermesActivity: {
+					syncedAt: "2026-06-02T01:00:00Z",
+					commentCount: 0,
+					runCount: 0,
+					eventCount: 0,
+					comments: [],
+					runs: [],
+					events: [],
+				},
+			},
+		});
+		const remoteTask = createRemoteTask({
+			status: "done",
+			priority: 5,
+			assignee: "codex",
+		});
+		const updatedTask = {
+			...localTask,
+			customProperties: {
+				hermesActivity: {
+					syncedAt: "2026-06-02T02:00:00Z",
+					commentCount: 1,
+					runCount: 0,
+					eventCount: 0,
+					comments: [{ author: "reviewer", body: "Needs review." }],
+					runs: [],
+					events: [],
+				},
+			},
+		};
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+			comments: [{ author: "reviewer", body: "Needs review." }],
+		});
+		const mirrorWriter = jest.fn().mockResolvedValue({ taskInfo: updatedTask });
+		const plugin = createPlugin([localTask]);
+
+		const result = await syncHermesManagedTasksFromHermes(plugin, { api, mirrorWriter });
+
+		expect(result.updated).toBe(1);
+		expect(mirrorWriter).toHaveBeenCalledWith(
+			plugin,
+			"default",
+			remoteTask,
+			expect.objectContaining({
+				activity: expect.objectContaining({
+					commentCount: 1,
+					comments: [expect.objectContaining({ body: "Needs review." })],
+				}),
+			})
+		);
+		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
+			path: updatedTask.path,
+			originalTask: localTask,
+			updatedTask,
+		});
 	});
 
 	it("treats Hermes archived tasks as done tasks with the native archive tag", async () => {
@@ -195,7 +294,13 @@ describe("Hermes managed task sync", () => {
 			status: "archived",
 			priority: 5,
 		});
-		const api = createApi({ boardTasks: [remoteTask], detailTask: remoteTask });
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+			comments: [],
+			runs: [],
+			events: [],
+		});
 		const mirrorWriter = jest.fn();
 		const plugin = createPlugin([localTask]);
 
@@ -203,7 +308,7 @@ describe("Hermes managed task sync", () => {
 
 		expect(result.tasksChecked).toBe(1);
 		expect(result.updated).toBe(0);
-		expect(api.getTask).not.toHaveBeenCalled();
+		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
 		expect(mirrorWriter).not.toHaveBeenCalled();
 	});
 
@@ -259,6 +364,13 @@ describe("Hermes managed task sync", () => {
 		const api = createApi({
 			boardTasks: [sameRemote, changedRemote],
 			detailTask: changedRemote,
+			detailTasks: {
+				t_same: sameRemote,
+				t_changed: changedRemote,
+			},
+			comments: [],
+			runs: [],
+			events: [],
 		});
 		const mirrorWriter = jest.fn().mockResolvedValue({
 			taskInfo: { ...changed, status: "done" },
@@ -271,7 +383,8 @@ describe("Hermes managed task sync", () => {
 		expect(result.tasksChecked).toBe(2);
 		expect(result.updated).toBe(1);
 		expect(api.getBoard).toHaveBeenCalledTimes(1);
-		expect(api.getTask).toHaveBeenCalledTimes(1);
+		expect(api.getTask).toHaveBeenCalledTimes(2);
+		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_same" });
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_changed" });
 	});
 
@@ -284,13 +397,32 @@ describe("Hermes managed task sync", () => {
 });
 
 function createPlugin(tasks: TaskInfo[]) {
+	const frontmatterByPath = new Map(
+		tasks.map((task) => [
+			task.path,
+			{
+				frontmatter: {
+					...(task.customProperties ?? {}),
+				},
+			},
+		])
+	);
 	return {
-		cacheManager: {
-			getAllTasks: jest.fn().mockResolvedValue(tasks),
-			getTaskInfo: jest.fn().mockImplementation((path: string) => {
-				return Promise.resolve(tasks.find((task) => task.path === path) ?? null);
-			}),
+		app: {
+			metadataCache: {
+				getCache: jest.fn((path: string) => frontmatterByPath.get(path) ?? null),
+				getFileCache: jest.fn((file: { path: string }) => frontmatterByPath.get(file.path) ?? null),
+			},
+			vault: {
+				getAbstractFileByPath: jest.fn(() => null),
+			},
 		},
+			cacheManager: {
+				getAllTasks: jest.fn().mockResolvedValue(tasks),
+				getTaskInfo: jest.fn().mockImplementation((path: string) => {
+					return Promise.resolve(tasks.find((task) => task.path === path) ?? null);
+				}),
+			},
 		emitter: {
 			trigger: jest.fn(),
 		},
@@ -300,20 +432,27 @@ function createPlugin(tasks: TaskInfo[]) {
 function createApi(options: {
 	boardTasks: HermesTaskRecord[];
 	detailTask: HermesTaskRecord;
+	detailTasks?: Record<string, HermesTaskRecord>;
 	parents?: string[];
 	children?: string[];
+	comments?: unknown[];
+	runs?: unknown[];
+	events?: unknown[];
 }) {
 	return {
 		getBoard: jest.fn().mockResolvedValue({
 			columns: [{ name: "all", tasks: options.boardTasks }],
 		}),
-		getTask: jest.fn().mockResolvedValue({
-			task: options.detailTask,
+		getTask: jest.fn().mockImplementation(({ id }: { id: string }) => ({
+			task: options.detailTasks?.[id] ?? options.detailTask,
 			links: {
 				parents: options.parents ?? [],
 				children: options.children ?? [],
 			},
-		}),
+			comments: options.comments ?? [{ author: "worker", body: "done", created_at: 1770000000 }],
+			runs: options.runs ?? [{ id: "1", status: "done", profile: "default" }],
+			events: options.events ?? [{ kind: "completed", payload: { summary: "done" } }],
+		})),
 	};
 }
 

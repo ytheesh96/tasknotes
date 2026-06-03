@@ -1121,7 +1121,7 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	public async startHermesDashboardAndRefreshOptions(): Promise<HermesDashboardStartResult> {
-		const result = await this.getHermesAvailabilityService().startDashboard();
+		const result = await this.plugin.startHermesDashboard({ showNotice: false });
 		if (result.health.status === "connected" || result.health.status === "degraded") {
 			await this.refreshHermesLiveOptions();
 		}

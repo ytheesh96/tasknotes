@@ -21,7 +21,7 @@ export interface UserMappedField {
 /**
  * Field types for task modal configuration
  */
-export type FieldType = "core" | "user" | "dependency" | "organization";
+export type FieldType = "core" | "user" | "dependency" | "organization" | "integration";
 
 /**
  * Field groups for organizing fields in the modal
@@ -111,6 +111,9 @@ export interface TaskNotesSettings {
 	defaultTaskPriority: string; // Changed to string to support custom priorities
 	defaultTaskStatus: string; // Changed to string to support custom statuses
 	taskOrgFiltersCollapsed: boolean; // Save collapse state of task organization filters
+	// Hermes integration settings
+	hermesStartCommand: string;
+	hermesAutoStartOnTaskChange: boolean;
 	// Task filename settings
 	taskFilenameFormat: "title" | "zettel" | "timestamp" | "uuid" | "custom";
 	storeTitleInFilename: boolean;
