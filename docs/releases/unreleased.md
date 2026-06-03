@@ -32,6 +32,7 @@ Example:
 - Added a `TaskNotes: Create hermes goal mode card` command that creates Hermes cards from the TaskNotes modal, records Goal Mode markers in Hermes comments, and writes Goal Mode frontmatter/tags to the Obsidian mirror note.
 - Added #goal TaskNote sync so eligible notes can create Hermes Goal Mode cards with source-note idempotency and Hermes sync metadata backfilled after successful card creation.
 - Added a configurable `TaskNotes: Start Hermes` command, settings controls, and optional auto-start after Hermes-linked task note changes.
+- Added an Activity group in Modal Fields so Hermes comments, runs, events, artifacts, and changed files can be enabled or disabled independently.
 
 ## Changed
 

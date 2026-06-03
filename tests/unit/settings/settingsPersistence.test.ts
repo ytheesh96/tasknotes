@@ -7,6 +7,7 @@ import {
 	loadPluginSettingsDataWithRetry,
 	pluginDataFileExists,
 } from "../../../src/settings/settingsPersistence";
+import { HERMES_ACTIVITY_USER_FIELDS } from "../../../src/hermes/hermesActivityFrontmatter";
 import type { TaskNotesSettings } from "../../../src/types/settings";
 
 function createHost(options: {
@@ -242,9 +243,13 @@ describe("settings persistence helpers", () => {
 			inlineVisibleProperties: ["status", "user:assignee"],
 		});
 
-		expect(settings.userFields.map((field) => field.id)).toEqual(["review"]);
+		expect(settings.userFields.map((field) => field.id)).toEqual([
+			"review",
+			...HERMES_ACTIVITY_USER_FIELDS.map((field) => field.id),
+		]);
 		expect(settings.modalFieldsConfig?.fields.map((field) => field.id)).toEqual([
 			"contexts",
+			...HERMES_ACTIVITY_USER_FIELDS.map((field) => field.id),
 		]);
 		expect(settings.nlpTriggers.triggers.map((trigger) => trigger.propertyId)).toEqual([
 			"contexts",

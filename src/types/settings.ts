@@ -32,6 +32,7 @@ export type FieldGroup =
 	| "metadata"
 	| "organization"
 	| "dependencies"
+	| "activity"
 	| "custom";
 
 /**

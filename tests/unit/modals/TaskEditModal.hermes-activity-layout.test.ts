@@ -7,10 +7,12 @@ import {
 	HermesAvailabilityService,
 	type HermesAvailabilityHealth,
 } from "../../../src/hermes/hermesAvailabilityService";
-import { HERMES_ACTIVITY_FIELD_KEYS } from "../../../src/hermes/hermesActivityFrontmatter";
+import {
+	HERMES_ACTIVITY_FIELD_KEYS,
+	HERMES_ACTIVITY_USER_FIELDS,
+} from "../../../src/hermes/hermesActivityFrontmatter";
 import { TaskEditModal } from "../../../src/modals/TaskEditModal";
 import { createHermesEditFieldConfig } from "../../../src/hermes/hermesTaskNotesIntegration";
-import { HERMES_REVIEW_RAIL_FIELD_ID } from "../../../src/hermes/hermesAssignee";
 import type { TaskInfo } from "../../../src/types";
 import { MockObsidian } from "../../__mocks__/obsidian";
 
@@ -375,7 +377,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 			false
 		);
 		expect(rightColumn.querySelector(".tn-task-modal__hermes-review-thread")).not.toBeNull();
-		expect(rightColumn.textContent).toContain("Review thread");
+		expect(rightColumn.textContent).toContain("Activity");
 		expect(rightColumn.textContent).toContain("orchestrator");
 		expect(rightColumn.querySelector(".tn-task-modal__hermes-composer")).not.toBeNull();
 		expect(
@@ -392,18 +394,16 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(rightColumn.querySelector(".tn-task-modal__hermes-activity-expand")).toBeNull();
 	});
 
-	it("hides the Hermes review rail when disabled in Modal Fields", () => {
+	it("hides the activity rail when all Activity fields are disabled in Modal Fields", () => {
 		const app = MockObsidian.createMockApp() as unknown as App;
 		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
 			task: createHermesTask(),
-			modalFieldsConfig: createHermesEditFieldConfig([], {
-				fields: [
-					{
-						id: HERMES_REVIEW_RAIL_FIELD_ID,
-						enabled: false,
-						visibleInEdit: true,
-					},
-				],
+			modalFieldsConfig: createHermesEditFieldConfig(HERMES_ACTIVITY_USER_FIELDS, {
+				fields: HERMES_ACTIVITY_USER_FIELDS.map((field) => ({
+					id: field.id,
+					enabled: false,
+					visibleInEdit: true,
+				})),
 			}),
 		});
 		const splitContentWrapper = document.createElement("div");
@@ -426,6 +426,29 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(splitContentWrapper.classList.contains("modal-split-content--right-empty")).toBe(
 			true
 		);
+	});
+
+	it("hides comments while preserving other enabled Activity fields", () => {
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+			task: createHermesTask(),
+			modalFieldsConfig: createHermesEditFieldConfig(HERMES_ACTIVITY_USER_FIELDS, {
+				fields: [
+					{
+						id: HERMES_ACTIVITY_FIELD_KEYS.comments,
+						enabled: false,
+						visibleInEdit: true,
+					},
+				],
+			}),
+		});
+		const { rightColumn } = renderHermesSections(modal);
+
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-review-thread")).not.toBeNull();
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-composer")).toBeNull();
+		expect(rightColumn.textContent).not.toContain("orchestrator");
+		expect(rightColumn.textContent).not.toContain("Looks good.");
+		expect(rightColumn.textContent).toContain("Event payload summary");
 	});
 
 	it("renders cached fallback activity as a compact card", () => {
@@ -484,7 +507,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 
 		expect(rightColumn.textContent).toContain("Cached YAML review comment.");
 		expect(rightColumn.textContent).toContain("Cached YAML event summary.");
-		expect(rightColumn.textContent).not.toContain("No review activity yet.");
+		expect(rightColumn.textContent).not.toContain("No activity yet.");
 	});
 
 	it("shows relative activity timestamps", async () => {
@@ -1005,7 +1028,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		);
 		expect(pinnedCard).not.toBeNull();
 		expect(pinnedCard!.textContent).toContain("Blocked: choose whether to merge");
-		expect(pinnedCard!.textContent).not.toContain("No review activity yet");
+		expect(pinnedCard!.textContent).not.toContain("No activity yet");
 	});
 
 	it("opens artifacts and task ids from event action rows", async () => {
@@ -1249,7 +1272,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 			expect(footer.textContent).not.toContain("Start Hermes");
 			expect(footer.textContent).toContain("Recheck");
 			expect(modal.contentEl.textContent).toContain("Cached Hermes activity");
-			expect(modal.contentEl.textContent).toContain("Review thread (cache-only)");
+			expect(modal.contentEl.textContent).toContain("Activity (cache-only)");
 			expect(
 				modal.contentEl.querySelector<HTMLTextAreaElement>(".tn-task-modal__hermes-comment-input")
 					?.disabled

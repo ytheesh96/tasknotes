@@ -38,9 +38,16 @@ const CONTROL_PANEL_FIELD_GROUPS: TaskModalFieldsConfig["groups"] = [
 		defaultCollapsed: true,
 	},
 	{
+		id: "activity",
+		displayName: "Activity",
+		order: 5,
+		collapsible: true,
+		defaultCollapsed: false,
+	},
+	{
 		id: "custom",
 		displayName: "Other Fields",
-		order: 5,
+		order: 6,
 		collapsible: true,
 		defaultCollapsed: true,
 	},
@@ -104,7 +111,7 @@ const CONTROL_PANEL_BOARD_PATH = /^TaskNotes\/[^/]+\/t_[^/]+\.md$/;
 const CONTROL_PANEL_GROUP_IDS = new Set<FieldGroup>(
 	CONTROL_PANEL_FIELD_GROUPS.map((group) => group.id)
 );
-export const HERMES_REVIEW_RAIL_FIELD_ID = "hermes-review-rail";
+const LEGACY_HERMES_REVIEW_RAIL_FIELD_ID = "hermes-review-rail";
 const HERMES_ACTIVITY_USER_FIELD_IDS = new Set(
 	HERMES_ACTIVITY_USER_FIELDS.flatMap((field) => [field.id, field.key])
 );
@@ -281,7 +288,9 @@ export function collectHermesAssigneesFromMirrorNotes(app: unknown): string[] {
 function isLegacyHermesFieldId(id: string | undefined): boolean {
 	return Boolean(
 		id &&
-			(LEGACY_HERMES_USER_FIELD_IDS.has(id) || RETIRED_HERMES_ACTIVITY_USER_FIELD_IDS.has(id))
+			(id === LEGACY_HERMES_REVIEW_RAIL_FIELD_ID ||
+				LEGACY_HERMES_USER_FIELD_IDS.has(id) ||
+				RETIRED_HERMES_ACTIVITY_USER_FIELD_IDS.has(id))
 	);
 }
 
@@ -290,6 +299,21 @@ function normalizeModalFieldGroup(group: unknown): FieldGroup {
 	return LEGACY_MODAL_GROUP_MAP.get(groupId) ?? (CONTROL_PANEL_GROUP_IDS.has(groupId as FieldGroup)
 		? (groupId as FieldGroup)
 		: "custom");
+}
+
+function normalizeModalField(
+	field: TaskModalFieldsConfig["fields"][number],
+	legacyReviewRailField: TaskModalFieldsConfig["fields"][number] | undefined
+): TaskModalFieldsConfig["fields"][number] {
+	const isActivityField = HERMES_ACTIVITY_USER_FIELD_IDS.has(field.id);
+	const legacyRailHidden =
+		legacyReviewRailField &&
+		(!legacyReviewRailField.enabled || !legacyReviewRailField.visibleInEdit);
+	return {
+		...field,
+		group: isActivityField ? "activity" : normalizeModalFieldGroup(field.group),
+		...(isActivityField && legacyRailHidden ? { enabled: false, visibleInEdit: false } : {}),
+	};
 }
 
 export function normalizeHermesUserFields(
@@ -326,25 +350,16 @@ export function normalizeHermesModalFieldsConfig(
 	if (!config) {
 		return { config, changed: false };
 	}
+	const legacyReviewRailField = config.fields.find(
+		(field) => field.id === LEGACY_HERMES_REVIEW_RAIL_FIELD_ID
+	);
+	const legacyReviewRailHidden =
+		legacyReviewRailField &&
+		(!legacyReviewRailField.enabled || !legacyReviewRailField.visibleInEdit);
 	const fieldsWithoutLegacy: TaskModalFieldsConfig["fields"] = config.fields
 		.filter((field) => !isLegacyHermesFieldId(field.id))
-		.map((field) => ({
-			...field,
-			group: normalizeModalFieldGroup(field.group),
-		}));
+		.map((field) => normalizeModalField(field, legacyReviewRailField));
 	const fields = [...fieldsWithoutLegacy];
-	if (!fields.some((field) => field.id === HERMES_REVIEW_RAIL_FIELD_ID)) {
-		fields.push({
-			id: HERMES_REVIEW_RAIL_FIELD_ID,
-			fieldType: "integration",
-			group: "custom",
-			displayName: "Hermes review rail",
-			visibleInCreation: false,
-			visibleInEdit: true,
-			order: 90,
-			enabled: true,
-		});
-	}
 	for (const [index, activityField] of HERMES_ACTIVITY_USER_FIELDS.entries()) {
 		if (fields.some((field) => field.id === activityField.id)) {
 			continue;
@@ -352,12 +367,12 @@ export function normalizeHermesModalFieldsConfig(
 		fields.push({
 			id: activityField.id,
 			fieldType: "user",
-			group: "custom",
+			group: "activity",
 			displayName: activityField.displayName,
 			visibleInCreation: false,
-			visibleInEdit: true,
+			visibleInEdit: legacyReviewRailHidden ? false : true,
 			order: 100 + index,
-			enabled: true,
+			enabled: legacyReviewRailHidden ? false : true,
 		});
 	}
 	const changed =

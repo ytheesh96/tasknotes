@@ -37,15 +37,13 @@ import {
 } from "../hermes/hermesMirror";
 import {
 	buildHermesActivitySnapshot,
+	HERMES_ACTIVITY_FIELD_KEYS,
 	getHermesActivityFrontmatterStateFromTask,
 	getHermesActivitySnapshotFromTask,
 	hasHermesActivityFrontmatterPropertiesChanged,
 	hasHermesActivityNotesChanged,
 } from "../hermes/hermesActivityFrontmatter";
-import {
-	normalizeHermesAssignee,
-	HERMES_REVIEW_RAIL_FIELD_ID,
-} from "../hermes/hermesAssignee";
+import { normalizeHermesAssignee } from "../hermes/hermesAssignee";
 import {
 	canonicalHermesBoardProjects,
 	defaultHermesAssignees,
@@ -129,13 +127,22 @@ interface HermesActivityDetailModalOptions {
 	onAction: (action: HermesActivityAction) => Promise<void>;
 }
 
+interface HermesActivityComponentVisibility {
+	comments: boolean;
+	runs: boolean;
+	events: boolean;
+	artifacts: boolean;
+	changedFiles: boolean;
+}
+
 interface HermesActivityElements {
-	reviewThreadSection: HTMLElement;
+	activitySection: HTMLElement;
 	threadList: HTMLElement;
-	runStatusContainer: HTMLElement;
+	runStatusContainer: HTMLElement | null;
 	availabilityContainer: HTMLElement | null;
-	commentInput: HTMLTextAreaElement;
+	commentInput?: HTMLTextAreaElement;
 	commentButtonRef: { el?: HTMLButtonElement };
+	visibleComponents: HermesActivityComponentVisibility;
 }
 
 interface HermesActivityContainers {
@@ -161,6 +168,9 @@ const HERMES_VISIBLE_THREAD_ENTRY_LIMIT = 5;
 const HERMES_VISIBLE_ACTIVITY_DETAIL_LIMIT = 2;
 const HERMES_VISIBLE_ACTIVITY_ACTION_LIMIT = 2;
 const HERMES_AUTO_DECOMPOSER_AUTHOR = "auto-decomposer";
+const HERMES_ACTIVITY_MODAL_FIELD_IDS = new Set<string>(
+	Object.values(HERMES_ACTIVITY_FIELD_KEYS)
+);
 
 class HermesActivityDetailModal extends Modal {
 	constructor(app: App, private readonly options: HermesActivityDetailModalOptions) {
@@ -836,15 +846,15 @@ export class TaskEditModal extends TaskModal {
 	}
 
 	protected createFieldsFromConfig(container: HTMLElement, config: ModalFieldsConfigLike): void {
-		super.createFieldsFromConfig(container, this.getFieldConfigWithoutHermesReviewRail(config));
+		super.createFieldsFromConfig(container, this.getFieldConfigWithoutHermesActivityFields(config));
 	}
 
-	private getFieldConfigWithoutHermesReviewRail(
+	private getFieldConfigWithoutHermesActivityFields(
 		config: ModalFieldsConfigLike
 	): ModalFieldsConfigLike {
 		return {
 			...config,
-			fields: config.fields?.filter((field) => field.id !== HERMES_REVIEW_RAIL_FIELD_ID),
+			fields: config.fields?.filter((field) => !HERMES_ACTIVITY_MODAL_FIELD_IDS.has(field.id)),
 		};
 	}
 
@@ -1354,11 +1364,15 @@ export class TaskEditModal extends TaskModal {
 	 * Add completions calendar and metadata sections after details
 	 */
 	protected createAdditionalSections(container: HTMLElement): void {
-		if (this.shouldShowField(HERMES_REVIEW_RAIL_FIELD_ID, this.getModalFieldsConfig())) {
-			this.createHermesActivitySections({
-				readOnlyContainer: this.getHermesReadOnlyActivityContainer(container),
-				availabilityContainer: null,
-			});
+		const visibleComponents = this.getHermesActivityComponentVisibility(this.getModalFieldsConfig());
+		if (this.hasVisibleHermesActivityComponents(visibleComponents)) {
+			this.createHermesActivitySections(
+				{
+					readOnlyContainer: this.getHermesReadOnlyActivityContainer(container),
+					availabilityContainer: null,
+				},
+				visibleComponents
+			);
 		}
 		createCompletionsCalendarSection(container, {
 			task: this.task,
@@ -1366,6 +1380,41 @@ export class TaskEditModal extends TaskModal {
 			completedInstancesChanges: this.completedInstancesChanges,
 			translate: (key, params) => this.t(key, params),
 		});
+	}
+
+	private getHermesActivityComponentVisibility(
+		config: ModalFieldsConfigLike | undefined
+	): HermesActivityComponentVisibility {
+		return {
+			comments: this.shouldShowHermesActivityField(HERMES_ACTIVITY_FIELD_KEYS.comments, config),
+			runs: this.shouldShowHermesActivityField(HERMES_ACTIVITY_FIELD_KEYS.runs, config),
+			events: this.shouldShowHermesActivityField(HERMES_ACTIVITY_FIELD_KEYS.events, config),
+			artifacts: this.shouldShowHermesActivityField(HERMES_ACTIVITY_FIELD_KEYS.artifacts, config),
+			changedFiles: this.shouldShowHermesActivityField(
+				HERMES_ACTIVITY_FIELD_KEYS.changedFiles,
+				config
+			),
+		};
+	}
+
+	private shouldShowHermesActivityField(
+		fieldId: string,
+		config: ModalFieldsConfigLike | undefined
+	): boolean {
+		if (!config?.fields) {
+			return true;
+		}
+		const field = config?.fields?.find((candidate) => candidate.id === fieldId);
+		if (!field) {
+			return true;
+		}
+		return field.enabled !== false && field.visibleInEdit !== false;
+	}
+
+	private hasVisibleHermesActivityComponents(
+		visibleComponents: HermesActivityComponentVisibility
+	): boolean {
+		return Object.values(visibleComponents).some(Boolean);
 	}
 
 	private createHermesAvailabilitySnapshot(
@@ -1412,7 +1461,10 @@ export class TaskEditModal extends TaskModal {
 		return this.splitRightColumn;
 	}
 
-	private createHermesActivitySections(containers: HermesActivityContainers): void {
+	private createHermesActivitySections(
+		containers: HermesActivityContainers,
+		visibleComponents: HermesActivityComponentVisibility
+	): void {
 		if (!getHermesTaskIdentity(this.task)) {
 			return;
 		}
@@ -1420,98 +1472,114 @@ export class TaskEditModal extends TaskModal {
 		const { readOnlyContainer } = containers;
 		const commentButtonRef: { el?: HTMLButtonElement } = {};
 
-		const reviewThreadSection = this.createHermesActivitySection(
+		const activitySection = this.createHermesActivitySection(
 			readOnlyContainer,
-			"Review thread",
+			"Activity",
 			["tn-task-modal__hermes-review-thread"]
 		);
 
-		const runStatusContainer = reviewThreadSection.createDiv({
-			cls: "tn-task-modal__hermes-run-status-strip",
-		});
-		const threadList = reviewThreadSection.createDiv({
+		const runStatusContainer = visibleComponents.runs
+			? activitySection.createDiv({
+					cls: "tn-task-modal__hermes-run-status-strip",
+				})
+			: null;
+		const threadList = activitySection.createDiv({
 			cls: "task-projects-list tn-task-modal__hermes-comment-list tn-task-modal__hermes-thread-list",
 		});
-		this.renderHermesFallbackThread(threadList);
+		this.renderHermesFallbackThread(threadList, visibleComponents);
 
-		const composer = reviewThreadSection.createDiv({
-			cls: "tn-task-modal__hermes-composer",
-		});
-		const commentInput = composer.createEl("textarea", {
-			cls: "tn-task-modal__hermes-comment-input title-input-detailed",
-			attr: {
-				placeholder: "Add a review comment... (Enter to submit, Shift+Enter for newline)",
-				rows: "2",
-			},
-		});
-		commentInput.spellcheck = true;
-		commentInput.setAttribute("aria-label", "Add a review comment");
-		const commentButton = composer.createEl("button", {
-			cls: "tn-task-modal__hermes-send-button tn-btn tn-btn--primary",
-			text: "Send",
-			attr: {
-				type: "button",
-				"aria-label": "Send comment",
-			},
-		});
-		commentButtonRef.el = commentButton;
-		const updateCommentButtonState = () => {
-			const commentButtonEl = commentButtonRef.el;
-			if (commentButtonEl) {
-				commentButtonEl.disabled =
-					!this.isHermesLiveAvailability() || commentInput.value.trim().length === 0;
-			}
-		};
-		updateCommentButtonState();
-		commentInput.addEventListener("input", () => {
+		let commentInput: HTMLTextAreaElement | undefined;
+		if (visibleComponents.comments) {
+			const composer = activitySection.createDiv({
+				cls: "tn-task-modal__hermes-composer",
+			});
+			commentInput = composer.createEl("textarea", {
+				cls: "tn-task-modal__hermes-comment-input title-input-detailed",
+				attr: {
+					placeholder: "Add a review comment... (Enter to submit, Shift+Enter for newline)",
+					rows: "2",
+				},
+			});
+			commentInput.spellcheck = true;
+			commentInput.setAttribute("aria-label", "Add a review comment");
+			const commentButton = composer.createEl("button", {
+				cls: "tn-task-modal__hermes-send-button tn-btn tn-btn--primary",
+				text: "Send",
+				attr: {
+					type: "button",
+					"aria-label": "Send comment",
+				},
+			});
+			commentButtonRef.el = commentButton;
+			const updateCommentButtonState = () => {
+				const commentButtonEl = commentButtonRef.el;
+				if (commentButtonEl && commentInput) {
+					commentButtonEl.disabled =
+						!this.isHermesLiveAvailability() || commentInput.value.trim().length === 0;
+				}
+			};
 			updateCommentButtonState();
-			resizeTaskModalTitleTextarea(commentInput);
-		});
-		commentInput.addEventListener("keydown", (event) => {
-			if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey) {
-				return;
-			}
-			event.preventDefault();
-			void this.handleHermesCommentSubmit(commentInput, commentButtonRef.el ?? null);
-		});
-		commentButton.addEventListener("click", () => {
-			void this.handleHermesCommentSubmit(commentInput, commentButtonRef.el ?? null);
-		});
+			commentInput.addEventListener("input", () => {
+				updateCommentButtonState();
+				if (commentInput) {
+					resizeTaskModalTitleTextarea(commentInput);
+				}
+			});
+			commentInput.addEventListener("keydown", (event) => {
+				if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey) {
+					return;
+				}
+				event.preventDefault();
+				if (commentInput) {
+					void this.handleHermesCommentSubmit(commentInput, commentButtonRef.el ?? null);
+				}
+			});
+			commentButton.addEventListener("click", () => {
+				if (commentInput) {
+					void this.handleHermesCommentSubmit(commentInput, commentButtonRef.el ?? null);
+				}
+			});
+		}
 
 		const activityElements: HermesActivityElements = {
-			reviewThreadSection,
+			activitySection,
 			threadList,
 			runStatusContainer,
 			availabilityContainer: containers.availabilityContainer,
 			commentInput,
 			commentButtonRef,
+			visibleComponents,
 		};
 		this.hermesActivityElements = activityElements;
 		void this.loadHermesActivityCards(activityElements);
 		void this.refreshHermesAvailabilityForActivity(activityElements);
 	}
 
-	private renderHermesFallbackThread(threadList: HTMLElement): void {
+	private renderHermesFallbackThread(
+		threadList: HTMLElement,
+		visibleComponents: HermesActivityComponentVisibility
+	): void {
 		threadList.empty();
 		const cachedDetail = this.getCachedHermesActivityDetail();
 		if (cachedDetail) {
 			this.renderHermesReviewThread(
 				threadList,
-				normalizeHermesComments(cachedDetail.comments ?? []),
+				visibleComponents.comments ? normalizeHermesComments(cachedDetail.comments ?? []) : [],
 				cachedDetail,
-				normalizeHermesRuns(cachedDetail.runs ?? []),
-				this.buildHermesStatusUpdateCards(cachedDetail)
+				visibleComponents.runs ? normalizeHermesRuns(cachedDetail.runs ?? []) : [],
+				this.buildHermesStatusUpdateCards(cachedDetail, visibleComponents),
+				visibleComponents
 			);
 			return;
 		}
 
 		const fallbackEntries = this.sortHermesThreadEntries(
 			this.buildHermesThreadEntries(
-				this.getFallbackHermesCommentsFromTaskDetails(),
-				this.getFallbackHermesEventCardsFromTaskDetails()
+				visibleComponents.comments ? this.getFallbackHermesCommentsFromTaskDetails() : [],
+				visibleComponents.events ? this.getFallbackHermesEventCardsFromTaskDetails() : []
 			)
 		);
-		this.renderHermesThreadEntries(threadList, fallbackEntries);
+		this.renderHermesThreadEntries(threadList, fallbackEntries, visibleComponents);
 	}
 
 	private createHermesActivitySection(
@@ -1670,24 +1738,28 @@ export class TaskEditModal extends TaskModal {
 		health: HermesAvailabilityHealth
 	): void {
 		const live = health.status === "connected" && health.mode === "live";
-		elements.commentInput.disabled = !live;
-		elements.commentInput.placeholder = live
-			? "Add a review comment... (Enter to submit, Shift+Enter for newline)"
-			: "Hermes is disconnected; comments are cache-only until reconnected.";
+		if (elements.commentInput) {
+			elements.commentInput.disabled = !live;
+			elements.commentInput.placeholder = live
+				? "Add a review comment... (Enter to submit, Shift+Enter for newline)"
+				: "Hermes is disconnected; comments are cache-only until reconnected.";
+		}
 		const commentButton = elements.commentButtonRef.el;
-		if (commentButton) {
+		if (commentButton && elements.commentInput) {
 			commentButton.disabled = !live || elements.commentInput.value.trim().length === 0;
 			commentButton.title = live ? "Send comment" : "Hermes is disconnected";
 		}
 		this.setHermesActivityHeaderLabel(
-			elements.reviewThreadSection,
-			live ? "Review thread" : "Review thread (cache-only)"
+			elements.activitySection,
+			live ? "Activity" : "Activity (cache-only)"
 		);
-		elements.runStatusContainer.empty();
-		elements.runStatusContainer.createSpan({
-			cls: `tn-task-modal__hermes-run-chip tn-task-modal__hermes-run-chip--${live ? "success" : "warning"}`,
-			text: live ? "Live Hermes activity" : "Cached Hermes activity",
-		});
+		if (elements.runStatusContainer) {
+			elements.runStatusContainer.empty();
+			elements.runStatusContainer.createSpan({
+				cls: `tn-task-modal__hermes-run-chip tn-task-modal__hermes-run-chip--${live ? "success" : "warning"}`,
+				text: live ? "Live Hermes activity" : "Cached Hermes activity",
+			});
+		}
 	}
 
 	private setHermesActivityHeaderLabel(section: HTMLElement, label: string): void {
@@ -1838,15 +1910,19 @@ export class TaskEditModal extends TaskModal {
 		elements: HermesActivityElements,
 		detail: HermesTaskDetailResponse
 	): void {
-		const comments = normalizeHermesComments(detail.comments ?? []);
-		const runs = normalizeHermesRuns(detail.runs ?? []);
-		this.renderHermesRunStatusStrip(elements.runStatusContainer, runs);
+		const { visibleComponents } = elements;
+		const comments = visibleComponents.comments ? normalizeHermesComments(detail.comments ?? []) : [];
+		const runs = visibleComponents.runs ? normalizeHermesRuns(detail.runs ?? []) : [];
+		if (elements.runStatusContainer && visibleComponents.runs) {
+			this.renderHermesRunStatusStrip(elements.runStatusContainer, runs);
+		}
 		this.renderHermesReviewThread(
 			elements.threadList,
 			comments,
 			detail,
 			runs,
-			this.buildHermesStatusUpdateCards(detail)
+			this.buildHermesStatusUpdateCards(detail, visibleComponents),
+			visibleComponents
 		);
 	}
 
@@ -1878,21 +1954,22 @@ export class TaskEditModal extends TaskModal {
 		comments: HermesCommentCard[],
 		detail: HermesTaskDetailResponse,
 		runs: HermesRunCard[],
-		statusCards: HermesActivityCard[]
+		statusCards: HermesActivityCard[],
+		visibleComponents: HermesActivityComponentVisibility
 	): void {
 		listEl.empty();
 		const pinned = this.buildPinnedHermesReviewCard(comments, detail, runs);
 		if (pinned) {
-			this.renderHermesActivityCardItem(listEl, pinned);
+			this.renderHermesActivityCardItem(listEl, pinned, visibleComponents);
 		}
 		const entries = this.sortHermesThreadEntries(
 			this.buildHermesThreadEntries(comments, statusCards, pinned?.sourceId)
 		);
-		this.renderHermesThreadEntries(listEl, entries);
+		this.renderHermesThreadEntries(listEl, entries, visibleComponents);
 		if (!pinned && entries.length === 0) {
 			listEl.createDiv({
 				cls: "tn-task-modal__hermes-empty-state",
-				text: "No review activity yet.",
+				text: "No activity yet.",
 			});
 		}
 	}
@@ -1941,7 +2018,11 @@ export class TaskEditModal extends TaskModal {
 		});
 	}
 
-	private renderHermesThreadEntries(listEl: HTMLElement, entries: HermesThreadEntry[]): void {
+	private renderHermesThreadEntries(
+		listEl: HTMLElement,
+		entries: HermesThreadEntry[],
+		visibleComponents: HermesActivityComponentVisibility
+	): void {
 		const visibleEntries = entries.slice(-HERMES_VISIBLE_THREAD_ENTRY_LIMIT);
 		const earlierEntries = entries.slice(0, Math.max(0, entries.length - visibleEntries.length));
 		if (earlierEntries.length > 0) {
@@ -1958,7 +2039,7 @@ export class TaskEditModal extends TaskModal {
 			});
 			earlierListEl.hidden = true;
 			for (const entry of earlierEntries) {
-				this.renderHermesThreadEntry(earlierListEl, entry);
+				this.renderHermesThreadEntry(earlierListEl, entry, visibleComponents);
 			}
 			earlierButton.addEventListener("click", () => {
 				const expanded = earlierButton.getAttribute("aria-expanded") === "true";
@@ -1971,23 +2052,32 @@ export class TaskEditModal extends TaskModal {
 		}
 
 		for (const entry of visibleEntries) {
-			this.renderHermesThreadEntry(listEl, entry);
+			this.renderHermesThreadEntry(listEl, entry, visibleComponents);
 		}
 	}
 
-	private renderHermesThreadEntry(listEl: HTMLElement, entry: HermesThreadEntry): void {
+	private renderHermesThreadEntry(
+		listEl: HTMLElement,
+		entry: HermesThreadEntry,
+		visibleComponents: HermesActivityComponentVisibility
+	): void {
 		if (entry.type === "comment") {
-			this.renderHermesThreadCommentCard(listEl, entry.comment);
+			this.renderHermesThreadCommentCard(listEl, entry.comment, visibleComponents);
 			return;
 		}
-		this.renderHermesStatusUpdateItem(listEl, entry.card);
+		this.renderHermesStatusUpdateItem(listEl, entry.card, visibleComponents);
 	}
 
-	private renderHermesStatusUpdateItem(listEl: HTMLElement, card: HermesActivityCard): void {
+	private renderHermesStatusUpdateItem(
+		listEl: HTMLElement,
+		card: HermesActivityCard,
+		visibleComponents: HermesActivityComponentVisibility
+	): void {
+		const visibleCard = this.filterHermesActivityCard(card, visibleComponents);
 		const itemEl = listEl.createDiv({
 			cls: [
 				"tn-task-modal__hermes-status-item",
-				`tn-task-modal__hermes-status-item--${card.statusVariant ?? "muted"}`,
+				`tn-task-modal__hermes-status-item--${visibleCard.statusVariant ?? "muted"}`,
 			].join(" "),
 		});
 		itemEl.createSpan({ cls: "tn-task-modal__hermes-status-indicator" });
@@ -1995,15 +2085,16 @@ export class TaskEditModal extends TaskModal {
 		const lineEl = contentEl.createDiv({ cls: "tn-task-modal__hermes-status-line" });
 		lineEl.createSpan({
 			cls: "tn-task-modal__hermes-status-label",
-			text: card.statusLabel ?? this.hermesStatusLabelFromTitle(card.title),
+			text: visibleCard.statusLabel ?? this.hermesStatusLabelFromTitle(visibleCard.title),
 		});
-		if (card.meta) {
+		if (visibleCard.meta) {
 			lineEl.createSpan({
 				cls: "tn-task-modal__hermes-status-meta",
-				text: card.meta,
+				text: visibleCard.meta,
 			});
 		}
-		const summary = card.statusSummary ?? this.hermesStatusSummaryFromTitle(card.title);
+		const summary =
+			visibleCard.statusSummary ?? this.hermesStatusSummaryFromTitle(visibleCard.title);
 		if (summary) {
 			contentEl.createDiv({
 				cls: "tn-task-modal__hermes-status-summary",
@@ -2011,7 +2102,7 @@ export class TaskEditModal extends TaskModal {
 			});
 		}
 
-		const details = card.details?.filter((detail) => detail.label !== "Run") ?? [];
+		const details = visibleCard.details?.filter((detail) => detail.label !== "Run") ?? [];
 		if (details.length) {
 			const detailsEl = contentEl.createDiv({
 				cls: "tn-task-modal__hermes-activity-details tn-task-modal__hermes-status-details",
@@ -2031,14 +2122,14 @@ export class TaskEditModal extends TaskModal {
 			}
 		}
 
-		if (card.actions?.length) {
-			this.renderHermesActivityActions(contentEl, card.actions);
+		if (visibleCard.actions?.length) {
+			this.renderHermesActivityActions(contentEl, visibleCard.actions);
 		}
 
-		if (card.body) {
+		if (visibleCard.body) {
 			contentEl.createDiv({
 				cls: "tn-task-modal__hermes-activity-body tn-task-modal__hermes-status-body",
-				text: card.body,
+				text: visibleCard.body,
 			});
 		}
 	}
@@ -2053,7 +2144,11 @@ export class TaskEditModal extends TaskModal {
 		return colonIndex >= 0 ? title.slice(colonIndex + 1).trim() : "";
 	}
 
-	private renderHermesThreadCommentCard(listEl: HTMLElement, comment: HermesCommentCard): void {
+	private renderHermesThreadCommentCard(
+		listEl: HTMLElement,
+		comment: HermesCommentCard,
+		visibleComponents: HermesActivityComponentVisibility
+	): void {
 		const parsedComment = parseHermesComment(comment.body, {
 			author: comment.author,
 			createdAt: comment.createdAt,
@@ -2086,8 +2181,9 @@ export class TaskEditModal extends TaskModal {
 
 		if (!isStructured) {
 			contentEl.createDiv({ cls: "tn-task-modal__hermes-thread-body", text: comment.body });
-			if (parsedComment.actions.length > 0) {
-				this.renderHermesActivityActions(contentEl, parsedComment.actions);
+			const actions = this.filterHermesActivityActions(parsedComment.actions, visibleComponents);
+			if (actions.length > 0) {
+				this.renderHermesActivityActions(contentEl, actions);
 			}
 			return;
 		}
@@ -2096,7 +2192,8 @@ export class TaskEditModal extends TaskModal {
 			cardEl,
 			contentEl,
 			parsedComment,
-			[comment.author, timestamp].filter(Boolean).join(" - ")
+			[comment.author, timestamp].filter(Boolean).join(" - "),
+			visibleComponents
 		);
 	}
 
@@ -2104,7 +2201,8 @@ export class TaskEditModal extends TaskModal {
 		cardEl: HTMLElement,
 		contentEl: HTMLElement,
 		model: HermesCommentPresentationModel,
-		meta: string
+		meta: string,
+		visibleComponents: HermesActivityComponentVisibility
 	): void {
 		const summaryEl = contentEl.createDiv({ cls: "tn-task-modal__hermes-thread-structured" });
 		const titleRowEl = summaryEl.createDiv({ cls: "tn-task-modal__hermes-thread-structured-title-row" });
@@ -2119,20 +2217,29 @@ export class TaskEditModal extends TaskModal {
 				text: model.summary,
 			});
 		}
-		const details = this.hermesCommentDetails(model);
-		if (details) {
+		const details = this.filterHermesActivityDetails(
+			this.hermesCommentDetails(model) ?? [],
+			visibleComponents
+		);
+		if (details.length > 0) {
 			this.renderHermesActivityDetails(summaryEl, details, [
 				"tn-task-modal__hermes-thread-structured-details",
 			]);
 		}
-		this.renderHermesActivityActions(summaryEl, model.actions);
+		this.renderHermesActivityActions(
+			summaryEl,
+			this.filterHermesActivityActions(model.actions, visibleComponents)
+		);
 		this.renderHermesRawToggle(summaryEl, model.raw);
 		this.attachHermesStructuredThreadDetailModal(cardEl, {
 			title,
 			meta,
 			body: model.summary,
-			details: this.hermesCommentDetails(model, { includeBookkeeping: true }),
-			actions: model.actions,
+			details: this.filterHermesActivityDetails(
+				this.hermesCommentDetails(model, { includeBookkeeping: true }) ?? [],
+				visibleComponents
+			),
+			actions: this.filterHermesActivityActions(model.actions, visibleComponents),
 			raw: model.raw,
 		});
 	}
@@ -2497,6 +2604,44 @@ export class TaskEditModal extends TaskModal {
 		return initials || "H";
 	}
 
+	private filterHermesActivityCard(
+		card: HermesActivityCard,
+		visibleComponents: HermesActivityComponentVisibility
+	): HermesActivityCard {
+		return {
+			...card,
+			details: card.details
+				? this.filterHermesActivityDetails(card.details, visibleComponents)
+				: undefined,
+			actions: card.actions
+				? this.filterHermesActivityActions(card.actions, visibleComponents)
+				: undefined,
+		};
+	}
+
+	private filterHermesActivityDetails(
+		details: HermesActivityDetail[],
+		visibleComponents: HermesActivityComponentVisibility
+	): HermesActivityDetail[] {
+		return details.filter((detail) => {
+			const label = detail.label.toLowerCase();
+			if (!visibleComponents.changedFiles && label.includes("changed file")) {
+				return false;
+			}
+			if (!visibleComponents.artifacts && label.includes("artifact")) {
+				return false;
+			}
+			return true;
+		});
+	}
+
+	private filterHermesActivityActions(
+		actions: HermesActivityAction[],
+		visibleComponents: HermesActivityComponentVisibility
+	): HermesActivityAction[] {
+		return actions.filter((action) => visibleComponents.artifacts || action.type !== "artifact");
+	}
+
 	private renderHermesActivityDetails(
 		container: HTMLElement,
 		details: HermesActivityDetail[],
@@ -2605,7 +2750,12 @@ export class TaskEditModal extends TaskModal {
 		});
 	}
 
-	private renderHermesActivityCardItem(listEl: HTMLElement, card: HermesActivityCard): void {
+	private renderHermesActivityCardItem(
+		listEl: HTMLElement,
+		card: HermesActivityCard,
+		visibleComponents: HermesActivityComponentVisibility
+	): void {
+		const visibleCard = this.filterHermesActivityCard(card, visibleComponents);
 		const itemEl = listEl.createDiv({
 			cls: "task-project-item task-project-item--task-card tn-task-modal__hermes-activity-item",
 		});
@@ -2617,7 +2767,7 @@ export class TaskEditModal extends TaskModal {
 				"task-card",
 				"task-card--has-details",
 				"tn-task-modal__hermes-activity-card",
-				card.variant === "pinned" ? "tn-task-modal__hermes-review-card--pinned" : "",
+				visibleCard.variant === "pinned" ? "tn-task-modal__hermes-review-card--pinned" : "",
 			]
 				.filter(Boolean)
 				.join(" "),
@@ -2626,7 +2776,7 @@ export class TaskEditModal extends TaskModal {
 
 		const contentEl = mainRowEl.createDiv({ cls: "task-card__content" });
 		const titleEl = contentEl.createDiv({ cls: "task-card__title" });
-		if (card.variant === "pinned") {
+		if (visibleCard.variant === "pinned") {
 			const labelEl = titleEl.createSpan({
 				cls: "tn-task-modal__hermes-pinned-label",
 				text: "PINNED",
@@ -2635,33 +2785,33 @@ export class TaskEditModal extends TaskModal {
 		}
 		titleEl.createSpan({
 			cls: "task-card__title-text tn-task-modal__hermes-activity-title",
-			text: card.title,
+			text: visibleCard.title,
 		});
 
-		if (card.meta) {
+		if (visibleCard.meta) {
 			const metadataEl = contentEl.createDiv({ cls: "task-card__metadata" });
 			metadataEl.createSpan({
 				cls: "task-card__metadata-item tn-task-modal__hermes-activity-time",
-				text: card.meta,
+				text: visibleCard.meta,
 			});
 		}
 
-		if (card.body) {
+		if (visibleCard.body) {
 			contentEl.createDiv({
 				cls: "tn-task-modal__hermes-activity-body",
-				text: card.body,
+				text: visibleCard.body,
 			});
 		}
 
-		if (card.details) {
-			this.renderHermesActivityDetails(contentEl, card.details);
+		if (visibleCard.details) {
+			this.renderHermesActivityDetails(contentEl, visibleCard.details);
 		}
-		this.renderHermesActivityActions(contentEl, card.actions ?? []);
+		this.renderHermesActivityActions(contentEl, visibleCard.actions ?? []);
 
-		if (card.raw) {
-			this.renderHermesRawToggle(contentEl, card.raw);
+		if (visibleCard.raw) {
+			this.renderHermesRawToggle(contentEl, visibleCard.raw);
 		}
-		this.attachHermesActivityCardDetailModal(cardEl, card);
+		this.attachHermesActivityCardDetailModal(cardEl, visibleCard);
 	}
 
 	private attachHermesActivityCardDetailModal(
@@ -2782,8 +2932,14 @@ export class TaskEditModal extends TaskModal {
 			});
 	}
 
-	private buildHermesStatusUpdateCards(detail: HermesTaskDetailResponse): HermesActivityCard[] {
-		return [...this.buildHermesRunHistoryCards(detail), ...this.buildHermesEventCards(detail)];
+	private buildHermesStatusUpdateCards(
+		detail: HermesTaskDetailResponse,
+		visibleComponents: HermesActivityComponentVisibility
+	): HermesActivityCard[] {
+		return [
+			...(visibleComponents.runs ? this.buildHermesRunHistoryCards(detail) : []),
+			...(visibleComponents.events ? this.buildHermesEventCards(detail) : []),
+		];
 	}
 
 	private buildHermesEventCards(detail: HermesTaskDetailResponse): HermesActivityCard[] {

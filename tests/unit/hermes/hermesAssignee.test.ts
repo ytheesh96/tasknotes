@@ -5,7 +5,6 @@ import {
 	hasHermesAssigneeUserField,
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
-	HERMES_REVIEW_RAIL_FIELD_ID,
 } from "../../../src/hermes/hermesAssignee";
 import { HERMES_ACTIVITY_USER_FIELDS } from "../../../src/hermes/hermesActivityFrontmatter";
 import { MockObsidian } from "../../__mocks__/obsidian";
@@ -149,21 +148,8 @@ describe("Hermes assignee helpers", () => {
 		expect(result.changed).toBe(true);
 		expect(result.config?.fields.map((field) => field.id)).toEqual([
 			"title",
-			HERMES_REVIEW_RAIL_FIELD_ID,
 			...HERMES_ACTIVITY_USER_FIELDS.map((field) => field.id),
 		]);
-		expect(result.config?.fields.find((field) => field.id === HERMES_REVIEW_RAIL_FIELD_ID)).toEqual(
-			expect.objectContaining({
-				id: HERMES_REVIEW_RAIL_FIELD_ID,
-				fieldType: "integration",
-				group: "custom",
-				displayName: "Hermes review rail",
-				visibleInCreation: false,
-				visibleInEdit: true,
-				order: 90,
-				enabled: true,
-			})
-		);
 		expect(
 			result.config?.fields.filter((field) => HERMES_ACTIVITY_USER_FIELDS.some((activityField) => activityField.id === field.id))
 		).toEqual(
@@ -171,10 +157,46 @@ describe("Hermes assignee helpers", () => {
 				expect.objectContaining({
 					id: field.id,
 					fieldType: "user",
+					group: "activity",
 					visibleInCreation: false,
 					visibleInEdit: true,
 					order: 100 + index,
 					enabled: true,
+				})
+			)
+		);
+	});
+
+	it("maps a disabled legacy review rail field to disabled activity fields", () => {
+		const result = normalizeHermesModalFieldsConfig({
+			version: 1,
+			groups: [],
+			fields: [
+				{
+					id: "hermes-review-rail",
+					fieldType: "integration",
+					group: "custom",
+					displayName: "Hermes review rail",
+					visibleInCreation: false,
+					visibleInEdit: true,
+					order: 90,
+					enabled: false,
+				},
+			],
+		});
+
+		expect(result.config?.fields.map((field) => field.id)).toEqual(
+			HERMES_ACTIVITY_USER_FIELDS.map((field) => field.id)
+		);
+		expect(result.config?.fields).toEqual(
+			HERMES_ACTIVITY_USER_FIELDS.map((field, index) =>
+				expect.objectContaining({
+					id: field.id,
+					group: "activity",
+					visibleInCreation: false,
+					visibleInEdit: false,
+					order: 100 + index,
+					enabled: false,
 				})
 			)
 		);

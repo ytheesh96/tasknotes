@@ -5,7 +5,6 @@ import {
 	buildHermesTaskCreationOptions,
 	buildHermesGoalModeTaskCreationOptions,
 } from "../../../src/hermes/hermesTaskNotesIntegration";
-import { HERMES_REVIEW_RAIL_FIELD_ID } from "../../../src/hermes/hermesAssignee";
 import { HERMES_ACTIVITY_USER_FIELDS } from "../../../src/hermes/hermesActivityFrontmatter";
 import { HERMES_TASKNOTES_LOCAL_CREATION_TARGET } from "../../../src/hermes/hermesTaskNotesApiSync";
 
@@ -197,7 +196,7 @@ describe("Hermes TaskNotes integration", () => {
 					expect.objectContaining({
 						id: field.id,
 						fieldType: "user",
-						group: "custom",
+						group: "activity",
 						visibleInCreation: false,
 						visibleInEdit: true,
 						order: index,
@@ -206,15 +205,13 @@ describe("Hermes TaskNotes integration", () => {
 				)
 			)
 		);
-		expect(options.modalFieldsConfig?.fields).toContainEqual(
-			expect.objectContaining({
-				id: HERMES_REVIEW_RAIL_FIELD_ID,
-				fieldType: "integration",
-				group: "custom",
-				visibleInCreation: false,
-				visibleInEdit: true,
-				enabled: true,
-			})
+		expect(options.modalFieldsConfig?.groups).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "activity",
+					displayName: "Activity",
+				}),
+			])
 		);
 	});
 
@@ -249,31 +246,18 @@ describe("Hermes TaskNotes integration", () => {
 		expect(visibleEditFieldIds).not.toContain("comments");
 	});
 
-	it("respects disabled Modal Fields entries for the Hermes review rail", () => {
+	it("does not add a review rail modal field", () => {
 		const task = {
-			title: "Disabled review rail task",
+			title: "Activity component task",
 			status: "ready",
 			priority: "normal",
-			path: "TaskNotes/hhmi/t_rail.md",
+			path: "TaskNotes/hhmi/t_activity.md",
 			archived: false,
 		} as TaskInfo;
-		const options = buildHermesTaskEditOptions(task, [], undefined, {
-			fields: [
-				{
-					id: HERMES_REVIEW_RAIL_FIELD_ID,
-					enabled: false,
-					visibleInEdit: true,
-				},
-			],
-		});
-		const reviewRailField = options.modalFieldsConfig?.fields?.find(
-			(field) => field.id === HERMES_REVIEW_RAIL_FIELD_ID
-		);
+		const options = buildHermesTaskEditOptions(task, HERMES_ACTIVITY_USER_FIELDS);
 
-		expect(reviewRailField).toMatchObject({
-			id: HERMES_REVIEW_RAIL_FIELD_ID,
-			enabled: false,
-			visibleInEdit: true,
-		});
+		expect(options.modalFieldsConfig?.fields?.some((field) => field.id === "hermes-review-rail")).toBe(
+			false
+		);
 	});
 });

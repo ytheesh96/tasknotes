@@ -9,7 +9,6 @@ import {
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
 	normalizeHermesAssignee,
-	HERMES_REVIEW_RAIL_FIELD_ID,
 } from "./hermesAssignee";
 import { HERMES_ACTIVITY_USER_FIELDS } from "./hermesActivityFrontmatter";
 import { HERMES_DEFAULT_BOARDS, normalizeHermesBoardValue, splitHermesList } from "./hermesRouting";
@@ -145,9 +144,16 @@ function modalGroups(): HermesModalGroup[] {
 			defaultCollapsed: false,
 		},
 		{
+			id: "activity",
+			displayName: "Activity",
+			order: 3,
+			collapsible: true,
+			defaultCollapsed: false,
+		},
+		{
 			id: "custom",
 			displayName: "Other Fields",
-			order: 3,
+			order: 4,
 			collapsible: true,
 			defaultCollapsed: false,
 		},
@@ -161,7 +167,8 @@ function field(
 	order: number,
 	displayName: string,
 	visibleInCreation: boolean,
-	visibleInEdit: boolean
+	visibleInEdit: boolean,
+	enabled = true
 ): HermesModalField {
 	return {
 		id,
@@ -169,7 +176,7 @@ function field(
 		group,
 		displayName,
 		order,
-		enabled: true,
+		enabled,
 		visibleInCreation,
 		visibleInEdit,
 	};
@@ -205,29 +212,10 @@ export function createHermesEditFieldConfig(
 		field("contexts", "core", "routing", 1, "Assignee", true, true),
 		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
 		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
-		getHermesReviewRailModalField(modalFieldsConfig),
 		...getHermesActivityModalFields(userFields, modalFieldsConfig),
 	];
 
 	return { groups: modalGroups(), fields };
-}
-
-function getHermesReviewRailModalField(
-	modalFieldsConfig?: ModalFieldsConfigLike
-): HermesModalField {
-	const configuredField = modalFieldsConfig?.fields?.find(
-		(fieldConfig) => fieldConfig.id === HERMES_REVIEW_RAIL_FIELD_ID
-	);
-	return {
-		id: HERMES_REVIEW_RAIL_FIELD_ID,
-		fieldType: "integration",
-		group: "custom",
-		displayName: "Hermes review rail",
-		order: configuredField?.order ?? 90,
-		enabled: configuredField?.enabled ?? true,
-		visibleInCreation: false,
-		visibleInEdit: configuredField?.visibleInEdit ?? true,
-	};
 }
 
 function getHermesActivityModalFields(
@@ -245,19 +233,17 @@ function getHermesActivityModalFields(
 		const configuredField = modalFieldsConfig?.fields?.find(
 			(fieldConfig) => fieldConfig.id === activityField.id
 		);
-		if (configuredField && (!configuredField.enabled || !configuredField.visibleInEdit)) {
-			return [];
-		}
 
 		return [
 			field(
 				activityField.id,
 				"user",
-				"custom",
+				"activity",
 				configuredField?.order ?? index,
 				activityField.displayName,
 				false,
-				true
+				configuredField?.visibleInEdit ?? true,
+				configuredField?.enabled ?? true
 			),
 		];
 	});
