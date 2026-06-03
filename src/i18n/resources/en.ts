@@ -2378,7 +2378,7 @@ export const en: TranslationTree = {
 		openPomodoroStats: "Open Pomodoro statistics",
 		openStatisticsView: "Open task & project statistics",
 		createNewTask: "Create new task",
-		createHermesGoalModeCard: "Create hermes goal mode card",
+		createHermesGoalModeCard: "Create goal task",
 		startHermes: "Start hermes",
 		convertCurrentNoteToTask: {
 			name: "Convert current note to task",

@@ -76,7 +76,7 @@ export function createTaskNotesCommandDefinitions(
 			id: "create-hermes-goal-mode-card",
 			nameKey: "commands.createHermesGoalModeCard",
 			callback: (ctx) => {
-				ctx.openHermesGoalModeCreationModal();
+				ctx.openGoalTaskCreationModal();
 			},
 		},
 		{

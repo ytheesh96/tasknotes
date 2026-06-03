@@ -347,7 +347,7 @@ export abstract class TaskModal extends Modal {
 	protected initialSubtaskFiles: TAbstractFile[] = [];
 
 	// UI elements
-	protected titleInput: TaskModalTitleInputElement;
+	protected titleInput?: TaskModalTitleInputElement;
 	protected detailsInput: HTMLTextAreaElement; // Legacy - kept for compatibility
 	protected detailsMarkdownEditor: EmbeddableMarkdownEditor | null = null;
 	protected contextsInput: HTMLInputElement;
@@ -1061,6 +1061,9 @@ export abstract class TaskModal extends Modal {
 	}
 
 	protected focusTitleInput(): void {
+		if (!this.titleInput) {
+			return;
+		}
 		this.focusGuards.focusTitleInput(this.titleInput);
 	}
 

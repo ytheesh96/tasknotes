@@ -84,9 +84,7 @@ import {
 } from "./settings/settingsPersistence";
 import { startDateChangeDetection } from "./bootstrap/dateChangeDetection";
 import {
-	buildHermesGoalModeTaskCreationOptions,
 	buildHermesTaskCreationOptions,
-	buildHermesTaskEditOptions,
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
 } from "./hermes/hermesTaskNotesIntegration";
@@ -1444,16 +1442,25 @@ export default class TaskNotesPlugin extends Plugin {
 		new TaskCreationModal(this.app, this, options).open();
 	}
 
-	openHermesGoalModeCreationModal(prePopulatedValues?: Partial<TaskInfo>) {
-		const values = this.applyParentNoteProjectDefault(prePopulatedValues);
-		const options = buildHermesGoalModeTaskCreationOptions(
-			this.app,
-			this.settings.userFields ?? [],
-			values,
-			undefined,
-			this.settings.taskCreationDefaults.defaultProjects
-		);
-		new TaskCreationModal(this.app, this, options).open();
+	openGoalTaskCreationModal(prePopulatedValues?: Partial<TaskInfo>) {
+		const tags = [
+			...this.asStringArray(prePopulatedValues?.tags),
+			"goal",
+		];
+		this.openTaskCreationModal({
+			...prePopulatedValues,
+			tags: [...new Set(tags)],
+		});
+	}
+
+	private asStringArray(value: unknown): string[] {
+		if (Array.isArray(value)) {
+			return value.map(String).map((item) => item.trim()).filter(Boolean);
+		}
+		if (typeof value === "string" && value.trim()) {
+			return value.split(",").map((item) => item.trim()).filter(Boolean);
+		}
+		return [];
 	}
 
 	private applyParentNoteProjectDefault(
@@ -1600,15 +1607,7 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	async openTaskEditModal(task: TaskInfo, onTaskUpdated?: (task: TaskInfo) => void) {
 		// With native cache, task data is always current - no need to refetch
-		const options = getHermesTaskIdentity(task)
-			? buildHermesTaskEditOptions(
-				task,
-				this.settings.userFields ?? [],
-				onTaskUpdated,
-				this.settings.modalFieldsConfig
-			)
-			: { task, onTaskUpdated };
-		new TaskEditModal(this.app, this, options).open();
+		new TaskEditModal(this.app, this, { task, onTaskUpdated }).open();
 	}
 
 	async openHermesTaskEditModalById(taskId: string, board?: string): Promise<void> {

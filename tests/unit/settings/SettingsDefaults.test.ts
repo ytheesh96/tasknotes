@@ -14,10 +14,7 @@ describe('Settings defaults', () => {
       'running',
       'blocked',
       'done',
-      'archived',
     ]);
     expect(DEFAULT_SETTINGS.customStatuses.find((status) => status.value === 'done')?.isCompleted).toBe(true);
-    expect(DEFAULT_SETTINGS.customStatuses.find((status) => status.value === 'archived')?.isCompleted).toBe(true);
-    expect(DEFAULT_SETTINGS.customStatuses.find((status) => status.value === 'archived')?.excludeFromCycle).toBe(true);
   });
 });

@@ -1,10 +1,12 @@
 import { TFile } from "obsidian";
 import type TaskNotesPlugin from "../main";
 import type { JsonValue, TaskInfo } from "../types";
-import type { UserMappedField } from "../types/settings";
 import { getCurrentTimestamp } from "../utils/dateUtils";
 import type { HermesTaskDetailResponse } from "./hermesApiClient";
+import { HERMES_ACTIVITY_FIELD_KEYS } from "./hermesActivityFields";
 import { parseHermesComment } from "./hermesCommentParser";
+
+export { HERMES_ACTIVITY_FIELD_KEYS, HERMES_ACTIVITY_USER_FIELDS } from "./hermesActivityFields";
 
 const HERMES_ACTIVITY_FRONTMATTER_KEY = "hermesActivity";
 const HERMES_ACTIVITY_ITEM_LIMIT = 20;
@@ -22,14 +24,6 @@ const ARTIFACT_PATH_KEYS = [
 	"path",
 	"paths",
 ] as const;
-
-export const HERMES_ACTIVITY_FIELD_KEYS = {
-	comments: "comments",
-	runs: "runs",
-	events: "events",
-	artifacts: "artifacts",
-	changedFiles: "changedFiles",
-} as const;
 
 const INTERMEDIATE_HERMES_ACTIVITY_FIELD_KEYS = {
 	comments: "hermesComments",
@@ -52,39 +46,6 @@ const INTERMEDIATE_HERMES_ACTIVITY_FRONTMATTER_KEYS = Object.values(
 	INTERMEDIATE_HERMES_ACTIVITY_FIELD_KEYS
 );
 const LEGACY_HERMES_ACTIVITY_FRONTMATTER_KEYS = Object.values(LEGACY_HERMES_ACTIVITY_FIELD_KEYS);
-
-export const HERMES_ACTIVITY_USER_FIELDS: readonly UserMappedField[] = [
-	{
-		id: HERMES_ACTIVITY_FIELD_KEYS.comments,
-		displayName: "Comments",
-		key: HERMES_ACTIVITY_FIELD_KEYS.comments,
-		type: "list",
-	},
-	{
-		id: HERMES_ACTIVITY_FIELD_KEYS.runs,
-		displayName: "Runs",
-		key: HERMES_ACTIVITY_FIELD_KEYS.runs,
-		type: "list",
-	},
-	{
-		id: HERMES_ACTIVITY_FIELD_KEYS.events,
-		displayName: "Events",
-		key: HERMES_ACTIVITY_FIELD_KEYS.events,
-		type: "list",
-	},
-	{
-		id: HERMES_ACTIVITY_FIELD_KEYS.artifacts,
-		displayName: "Artifacts",
-		key: HERMES_ACTIVITY_FIELD_KEYS.artifacts,
-		type: "list",
-	},
-	{
-		id: HERMES_ACTIVITY_FIELD_KEYS.changedFiles,
-		displayName: "Changed files",
-		key: HERMES_ACTIVITY_FIELD_KEYS.changedFiles,
-		type: "list",
-	},
-];
 
 type JsonRecord = Record<string, JsonValue>;
 

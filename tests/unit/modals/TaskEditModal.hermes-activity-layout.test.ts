@@ -12,13 +12,32 @@ import {
 	HERMES_ACTIVITY_USER_FIELDS,
 } from "../../../src/hermes/hermesActivityFrontmatter";
 import { TaskEditModal } from "../../../src/modals/TaskEditModal";
-import { createHermesEditFieldConfig } from "../../../src/hermes/hermesTaskNotesIntegration";
 import type { TaskInfo } from "../../../src/types";
+import type { ModalFieldConfig, TaskModalFieldsConfig } from "../../../src/types/settings";
+import { createDefaultFieldConfig } from "../../../src/utils/fieldConfigDefaults";
 import { MockObsidian } from "../../__mocks__/obsidian";
 
 jest.mock("obsidian");
 
 const cssFilePath = path.resolve(__dirname, "../../../styles/task-modal.css");
+
+type ModalFieldOverride = Partial<ModalFieldConfig> & { id: string };
+
+function createModalFieldsConfig(
+	overrides: readonly ModalFieldOverride[] = []
+): TaskModalFieldsConfig {
+	const config = createDefaultFieldConfig();
+	for (const override of overrides) {
+		const fieldIndex = config.fields.findIndex((field) => field.id === override.id);
+		if (fieldIndex >= 0) {
+			config.fields[fieldIndex] = {
+				...config.fields[fieldIndex],
+				...override,
+			};
+		}
+	}
+	return config;
+}
 
 class TestTaskEditModal extends TaskEditModal {
 	renderAdditionalSections(container: HTMLElement): void {
@@ -212,14 +231,14 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(container.querySelector("input")).toBeNull();
 	});
 
-	it("renders Hermes edit actions without legacy save update or cancel controls", () => {
-		const app = MockObsidian.createMockApp() as unknown as App;
-		const task = createHermesTask();
-		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
-			task,
-			saveButtonText: "Save update",
-			modalFieldsConfig: createHermesEditFieldConfig([]),
-		});
+		it("renders Hermes edit actions without legacy save update or cancel controls", () => {
+			const app = MockObsidian.createMockApp() as unknown as App;
+			const task = createHermesTask();
+			const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+				task,
+				saveButtonText: "Save update",
+				modalFieldsConfig: createModalFieldsConfig(),
+			});
 		modal.setFormStateForTest(task);
 
 		modal.renderContentForTest();
@@ -233,11 +252,11 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(buttonTexts).toEqual(["Recheck", "modals.task.buttons.openNote", "Block"]);
 		expect(buttonBar.querySelector(".tn-task-modal__hermes-availability")).not.toBeNull();
 		expect(buttonTexts).not.toContain("modals.taskEdit.buttons.archive");
-		expect(buttonTexts).not.toContain("contextMenus.task.delete");
-		expect(buttonTexts).not.toContain("Save update");
-		expect(buttonTexts).not.toContain("common.cancel");
-		expect(modal.contentEl.textContent).not.toContain("modals.task.detailsLabel");
-	});
+			expect(buttonTexts).not.toContain("contextMenus.task.delete");
+			expect(buttonTexts).not.toContain("Save update");
+			expect(buttonTexts).not.toContain("common.cancel");
+			expect(modal.contentEl.textContent).toContain("modals.task.detailsLabel");
+		});
 
 	it("toggles a Hermes task between blocked and ready from the same footer button", async () => {
 		jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockResolvedValue({
@@ -249,13 +268,13 @@ describe("TaskEditModal Hermes activity layout", () => {
 		const updateTask = jest
 			.spyOn(HermesKanbanApiClient.prototype, "updateTask")
 			.mockResolvedValue({ id: "t_activity", title: "Hermes activity task" });
-		const app = MockObsidian.createMockApp() as unknown as App;
-		const plugin = createPlugin(app);
-		const task = { ...createHermesTask(), status: "todo" };
-		const modal = new TestTaskEditModal(app, plugin as never, {
-			task,
-			modalFieldsConfig: createHermesEditFieldConfig([]),
-		});
+			const app = MockObsidian.createMockApp() as unknown as App;
+			const plugin = createPlugin(app);
+			const task = { ...createHermesTask(), status: "todo" };
+			const modal = new TestTaskEditModal(app, plugin as never, {
+				task,
+				modalFieldsConfig: createModalFieldsConfig(),
+			});
 		const forceClose = jest.spyOn(modal, "forceClose");
 		jest.spyOn(
 			modal as unknown as { hasUnsavedHermesModalChanges: () => boolean },
@@ -300,13 +319,13 @@ describe("TaskEditModal Hermes activity layout", () => {
 			runs: [],
 			events: [],
 		});
-		const app = MockObsidian.createMockApp() as unknown as App;
-		const plugin = createPlugin(app);
-		const task = createHermesTask();
-		const modal = new TestTaskEditModal(app, plugin as never, {
-			task,
-			modalFieldsConfig: createHermesEditFieldConfig([]),
-		});
+			const app = MockObsidian.createMockApp() as unknown as App;
+			const plugin = createPlugin(app);
+			const task = createHermesTask();
+			const modal = new TestTaskEditModal(app, plugin as never, {
+				task,
+				modalFieldsConfig: createModalFieldsConfig(),
+			});
 		const forceClose = jest.spyOn(modal, "forceClose");
 		modal.setFormStateForTest(task);
 		modal.renderContentForTest();
@@ -334,7 +353,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(forceClose).not.toHaveBeenCalled();
 	});
 
-	it("keeps non-Hermes edit action rows on the standard icon set", () => {
+	it("keeps tasks without board identity on the standard icon set", () => {
 		const app = MockObsidian.createMockApp() as unknown as App;
 		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
 			task: {
@@ -394,18 +413,18 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(rightColumn.querySelector(".tn-task-modal__hermes-activity-expand")).toBeNull();
 	});
 
-	it("hides the activity rail when all Activity fields are disabled in Modal Fields", () => {
-		const app = MockObsidian.createMockApp() as unknown as App;
-		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
-			task: createHermesTask(),
-			modalFieldsConfig: createHermesEditFieldConfig(HERMES_ACTIVITY_USER_FIELDS, {
-				fields: HERMES_ACTIVITY_USER_FIELDS.map((field) => ({
-					id: field.id,
-					enabled: false,
-					visibleInEdit: true,
-				})),
-			}),
-		});
+		it("hides the activity rail when all Activity fields are disabled in Modal Fields", () => {
+			const app = MockObsidian.createMockApp() as unknown as App;
+			const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+				task: createHermesTask(),
+				modalFieldsConfig: createModalFieldsConfig(
+					HERMES_ACTIVITY_USER_FIELDS.map((field) => ({
+						id: field.id,
+						enabled: false,
+						visibleInEdit: true,
+					}))
+				),
+			});
 		const splitContentWrapper = document.createElement("div");
 		const leftColumn = document.createElement("div");
 		const detailsContainer = document.createElement("div");
@@ -428,20 +447,18 @@ describe("TaskEditModal Hermes activity layout", () => {
 		);
 	});
 
-	it("hides comments while preserving other enabled Activity fields", () => {
-		const app = MockObsidian.createMockApp() as unknown as App;
-		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
-			task: createHermesTask(),
-			modalFieldsConfig: createHermesEditFieldConfig(HERMES_ACTIVITY_USER_FIELDS, {
-				fields: [
+		it("hides comments while preserving other enabled Activity fields", () => {
+			const app = MockObsidian.createMockApp() as unknown as App;
+			const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+				task: createHermesTask(),
+				modalFieldsConfig: createModalFieldsConfig([
 					{
 						id: HERMES_ACTIVITY_FIELD_KEYS.comments,
 						enabled: false,
 						visibleInEdit: true,
 					},
-				],
-			}),
-		});
+				]),
+			});
 		const { rightColumn } = renderHermesSections(modal);
 
 		expect(rightColumn.querySelector(".tn-task-modal__hermes-review-thread")).not.toBeNull();
@@ -449,6 +466,39 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(rightColumn.textContent).not.toContain("orchestrator");
 		expect(rightColumn.textContent).not.toContain("Looks good.");
 		expect(rightColumn.textContent).toContain("Event payload summary");
+	});
+
+	it("respects Title and Details Modal Fields settings in task edit modals", () => {
+			const app = MockObsidian.createMockApp() as unknown as App;
+			const task = createHermesTask();
+			const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+				task,
+				modalFieldsConfig: createModalFieldsConfig([
+					{
+						id: "title",
+						enabled: false,
+						visibleInEdit: true,
+					},
+					{
+						id: "details",
+						enabled: true,
+						visibleInEdit: true,
+					},
+					...HERMES_ACTIVITY_USER_FIELDS.map((field) => ({
+						id: field.id,
+						enabled: false,
+						visibleInEdit: true,
+					})),
+				]),
+			});
+		modal.setFormStateForTest(task);
+
+		modal.renderContentForTest();
+
+		expect(modal.contentEl.textContent).not.toContain("modals.task.titleLabel");
+		expect(modal.contentEl.querySelector(".title-input-detailed")).toBeNull();
+		expect(modal.contentEl.textContent).toContain("modals.task.detailsLabel");
+		expect(modal.contentEl.textContent).not.toContain("Activity");
 	});
 
 	it("renders cached fallback activity as a compact card", () => {

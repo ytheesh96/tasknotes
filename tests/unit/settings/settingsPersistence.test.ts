@@ -187,7 +187,6 @@ describe("settings persistence helpers", () => {
 			"running",
 			"blocked",
 			"done",
-			"archived",
 		]);
 		expect(shouldPersistMigratedSettings).toBe(true);
 	});

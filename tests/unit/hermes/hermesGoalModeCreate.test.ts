@@ -82,7 +82,7 @@ describe("Hermes Goal Mode create behavior", () => {
 		);
 	});
 
-	it("keeps the created Hermes card visible when Goal Mode comment sync fails after create", async () => {
+	it("keeps the created Hermes card visible when goal-tag comment sync fails after create", async () => {
 		const app = {} as never;
 		const plugin = {
 			settings: {
@@ -104,18 +104,18 @@ describe("Hermes Goal Mode create behavior", () => {
 			cacheManager: {
 				getTaskInfo: jest.fn(),
 			},
-		} as never;
-		const modal = new TaskCreationModal(app, plugin, {
-			hermesCreationMode: "goal",
-			hermesBoardPicker: { boards: ["default"], selectedBoard: "default" },
-			creationTargetPicker: { boards: ["default"], selectedTarget: "hermes:default" },
-		});
+			} as never;
+			const modal = new TaskCreationModal(app, plugin, {
+				hermesBoardPicker: { boards: ["default"], selectedBoard: "default" },
+				creationTargetPicker: { boards: ["default"], selectedTarget: "hermes:default" },
+			});
 		const modalHarness = modal as never as Record<string, unknown>;
 		modalHarness.title = "Clarify research goal";
 		modalHarness.details = "Goal details";
-		modalHarness.status = "triage";
-		modalHarness.contexts = "peacock";
-		modalHarness.priority = "normal";
+			modalHarness.status = "triage";
+			modalHarness.contexts = "peacock";
+			modalHarness.tags = "goal";
+			modalHarness.priority = "normal";
 		modalHarness.validateHermesCreationRouting = jest
 			.fn()
 			.mockResolvedValue({ assignee: "peacock" });

@@ -157,13 +157,13 @@ describe("Hermes assignee helpers", () => {
 				expect.objectContaining({
 					id: field.id,
 					fieldType: "user",
-					group: "activity",
-					visibleInCreation: false,
-					visibleInEdit: true,
-					order: 100 + index,
-					enabled: true,
-				})
-			)
+						group: "activity",
+						visibleInCreation: false,
+						visibleInEdit: true,
+						order: index,
+						enabled: true,
+					})
+				)
 		);
 	});
 
@@ -192,13 +192,13 @@ describe("Hermes assignee helpers", () => {
 			HERMES_ACTIVITY_USER_FIELDS.map((field, index) =>
 				expect.objectContaining({
 					id: field.id,
-					group: "activity",
-					visibleInCreation: false,
-					visibleInEdit: false,
-					order: 100 + index,
-					enabled: false,
-				})
-			)
+						group: "activity",
+						visibleInCreation: false,
+						visibleInEdit: false,
+						order: index,
+						enabled: false,
+					})
+				)
 		);
 	});
 

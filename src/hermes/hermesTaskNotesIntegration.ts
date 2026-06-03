@@ -2,37 +2,16 @@ import { App, TFile, TFolder } from "obsidian";
 import type { TaskInfo } from "../types";
 import type { UserMappedField } from "../types/settings";
 import type { TaskCreationOptions } from "../modals/TaskCreationModal";
-import type { TaskEditOptions } from "../modals/TaskEditModal";
 import type { TaskCreationPrepopulatedValues } from "../modals/taskCreationFormState";
-import type { ModalFieldConfigLike, ModalFieldsConfigLike } from "../modals/taskModalFieldConfig";
 import {
 	normalizeHermesModalFieldsConfig,
 	normalizeHermesUserFields,
 	normalizeHermesAssignee,
 } from "./hermesAssignee";
-import { HERMES_ACTIVITY_USER_FIELDS } from "./hermesActivityFrontmatter";
 import { HERMES_DEFAULT_BOARDS, normalizeHermesBoardValue, splitHermesList } from "./hermesRouting";
 import { HERMES_TASKNOTES_LOCAL_CREATION_TARGET } from "./hermesTaskNotesApiSync";
 
 const TASKNOTES_ROOT = "TaskNotes";
-
-type HermesModalField = ModalFieldConfigLike & {
-	group: string;
-	displayName: string;
-	visibleInCreation: boolean;
-	visibleInEdit: boolean;
-	enabled: boolean;
-	order: number;
-	fieldType: "core" | "user" | "dependency" | "organization" | "integration";
-};
-
-type HermesModalGroup = {
-	id: string;
-	displayName: string;
-	order: number;
-	collapsible: boolean;
-	defaultCollapsed: boolean;
-};
 
 function asStringArray(value: unknown): string[] {
 	if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -120,135 +99,6 @@ function boardFromProjectsValue(
 	return null;
 }
 
-function modalGroups(): HermesModalGroup[] {
-	return [
-		{
-			id: "basic",
-			displayName: "Task",
-			order: 0,
-			collapsible: false,
-			defaultCollapsed: false,
-		},
-		{
-			id: "routing",
-			displayName: "Routing",
-			order: 1,
-			collapsible: false,
-			defaultCollapsed: false,
-		},
-		{
-			id: "dependencies",
-			displayName: "Dependencies",
-			order: 2,
-			collapsible: true,
-			defaultCollapsed: false,
-		},
-		{
-			id: "activity",
-			displayName: "Activity",
-			order: 3,
-			collapsible: true,
-			defaultCollapsed: false,
-		},
-		{
-			id: "custom",
-			displayName: "Other Fields",
-			order: 4,
-			collapsible: true,
-			defaultCollapsed: false,
-		},
-	];
-}
-
-function field(
-	id: string,
-	fieldType: HermesModalField["fieldType"],
-	group: string,
-	order: number,
-	displayName: string,
-	visibleInCreation: boolean,
-	visibleInEdit: boolean,
-	enabled = true
-): HermesModalField {
-	return {
-		id,
-		fieldType,
-		group,
-		displayName,
-		order,
-		enabled,
-		visibleInCreation,
-		visibleInEdit,
-	};
-}
-
-export function createHermesCreationFieldConfig(
-	userFields: readonly UserMappedField[] = []
-): ModalFieldsConfigLike {
-	void userFields;
-	const fields: HermesModalField[] = [
-		field("title", "core", "basic", 0, "Title", true, true),
-		field("details", "core", "basic", 1, "Details", true, true),
-		field("projects", "core", "routing", 0, "Board", true, true),
-		field("contexts", "core", "routing", 1, "Assignee", true, true),
-		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
-		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
-	];
-
-	return { groups: modalGroups(), fields };
-}
-
-export function createHermesEditFieldConfig(
-	userFields: readonly UserMappedField[] = [],
-	modalFieldsConfig?: ModalFieldsConfigLike
-): ModalFieldsConfigLike {
-	const fields: HermesModalField[] = [
-		field("title", "core", "basic", 0, "Title", true, true),
-		{
-			...field("details", "core", "basic", 1, "Details", true, false),
-			enabled: false,
-		},
-		field("projects", "core", "routing", 0, "Board", true, true),
-		field("contexts", "core", "routing", 1, "Assignee", true, true),
-		field("blocked-by", "dependency", "dependencies", 0, "Blocked By", true, true),
-		field("blocking", "dependency", "dependencies", 1, "Blocking", true, true),
-		...getHermesActivityModalFields(userFields, modalFieldsConfig),
-	];
-
-	return { groups: modalGroups(), fields };
-}
-
-function getHermesActivityModalFields(
-	userFields: readonly UserMappedField[],
-	modalFieldsConfig?: ModalFieldsConfigLike
-): HermesModalField[] {
-	return HERMES_ACTIVITY_USER_FIELDS.flatMap((activityField, index) => {
-		const isRegistered = userFields.some(
-			(userField) => userField.id === activityField.id || userField.key === activityField.key
-		);
-		if (!isRegistered) {
-			return [];
-		}
-
-		const configuredField = modalFieldsConfig?.fields?.find(
-			(fieldConfig) => fieldConfig.id === activityField.id
-		);
-
-		return [
-			field(
-				activityField.id,
-				"user",
-				"activity",
-				configuredField?.order ?? index,
-				activityField.displayName,
-				false,
-				configuredField?.visibleInEdit ?? true,
-				configuredField?.enabled ?? true
-			),
-		];
-	});
-}
-
 export function buildHermesTaskCreationOptions(
 	app: App,
 	userFields: readonly UserMappedField[] = [],
@@ -256,6 +106,7 @@ export function buildHermesTaskCreationOptions(
 	onTaskCreated?: (task: TaskInfo) => void,
 	defaultProjects?: unknown
 ): TaskCreationOptions {
+	void userFields;
 	const boards = getHermesBoards(app);
 	const explicitBoard = boardFromPrepopulated(prePopulatedValues, boards);
 	const defaultBoard = boardFromProjectsValue(defaultProjects, boards);
@@ -289,7 +140,6 @@ export function buildHermesTaskCreationOptions(
 		onTaskCreated,
 		modalTitle: "Create task",
 		saveButtonText: "Create task",
-		modalFieldsConfig: createHermesCreationFieldConfig(userFields),
 		creationTargetPicker: {
 			boards: boardOptions,
 			selectedTarget: HERMES_TASKNOTES_LOCAL_CREATION_TARGET,
@@ -301,52 +151,4 @@ export function buildHermesTaskCreationOptions(
 	};
 }
 
-export function buildHermesGoalModeTaskCreationOptions(
-	app: App,
-	userFields: readonly UserMappedField[] = [],
-	prePopulatedValues?: TaskCreationPrepopulatedValues,
-	onTaskCreated?: (task: TaskInfo) => void,
-	defaultProjects?: unknown
-): TaskCreationOptions {
-	const options = buildHermesTaskCreationOptions(
-		app,
-		userFields,
-		prePopulatedValues,
-		onTaskCreated,
-		defaultProjects
-	);
-	return {
-		...options,
-		hermesCreationMode: "goal",
-		modalTitle: "Create Goal Mode card",
-		saveButtonText: "Create Goal Mode card",
-		prePopulatedValues: {
-			...options.prePopulatedValues,
-			tags: uniqueStrings([
-				...asStringArray(options.prePopulatedValues?.tags),
-				"hermes-goal",
-			]),
-			customFrontmatter: {
-				...customFrontmatter(options.prePopulatedValues),
-				hermesCardMode: "goal",
-				hermesMode: "goal",
-			},
-		},
-	};
-}
-
 export { normalizeHermesModalFieldsConfig, normalizeHermesUserFields };
-
-export function buildHermesTaskEditOptions(
-	task: TaskInfo,
-	userFields: readonly UserMappedField[] = [],
-	onTaskUpdated?: (task: TaskInfo) => void,
-	modalFieldsConfig?: ModalFieldsConfigLike
-): TaskEditOptions {
-	return {
-		task,
-		onTaskUpdated,
-		modalTitle: "Update task",
-		modalFieldsConfig: createHermesEditFieldConfig(userFields, modalFieldsConfig),
-	};
-}

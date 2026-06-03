@@ -29,7 +29,7 @@ Example:
 - Added a Hermes availability service for the TaskNotes modal that checks localhost dashboard/API health, reports cache-only/read-only modes, and supports desktop-only startup with the safe localhost dashboard command.
 - Added Hermes task edit modal availability indicators, cache-only labeling, disabled live controls when disconnected, and Start Hermes/Recheck actions that reload live board data after startup.
 - Added implementation notes for Hermes availability states, cache-only labels, desktop startup behavior, and unavailable/startup failure copy in the TaskNotes modal.
-- Added a `TaskNotes: Create hermes goal mode card` command that creates Hermes cards from the TaskNotes modal, records Goal Mode markers in Hermes comments, and writes Goal Mode frontmatter/tags to the Obsidian mirror note.
+- Added a `TaskNotes: Create goal task` command that opens the normal task creation modal with the `goal` tag prefilled.
 - Added #goal TaskNote sync so eligible notes can create Hermes Goal Mode cards with source-note idempotency and Hermes sync metadata backfilled after successful card creation.
 - Added a configurable `TaskNotes: Start Hermes` command, settings controls, and optional auto-start after Hermes-linked task note changes.
 - Added an Activity group in Modal Fields so Hermes comments, runs, events, artifacts, and changed files can be enabled or disabled independently.
@@ -50,6 +50,7 @@ Example:
 - Treat TaskNotes board folders as the native kanban control panel, using `TaskNotes/<board>/<task-id>.md` for board identity and removing empty Hermes-only modal field groups from settings.
 - Shifted the Hermes MVP toward TaskNotes-owned task state by defaulting board task creation and property updates back through TaskNotes, leaving Hermes to consume changes through the HTTP API and webhooks.
 - Improved Hermes Goal Mode card creation duplicate-submit and partial-success handling with in-flight submit disabling, stable create idempotency keys, and notices that name the existing card when post-create sync is incomplete.
+- Simplified modal field handling so Activity fields are part of the shared TaskNotes Modal Fields configuration and edit modals no longer use a separate Hermes field layout.
 
 ## Fixed
 
@@ -57,3 +58,4 @@ Example:
 - Fixed Hermes startup from the TaskNotes modal so it does not try to start a duplicate dashboard when localhost is already reachable but the Kanban API is degraded.
 - Fixed newly created or rediscovered #goal TaskNotes not starting Hermes Goal Mode sync when they were first seen after the lifecycle snapshot.
 - Fixed Hermes board surface provisioning so generated TaskNotes board views are created, updated, and removed through TaskNotes' standard vault mutation boundary.
+- Fixed task edit modals so the Title and Details Modal Fields settings are respected when Activity fields are enabled.

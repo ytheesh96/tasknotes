@@ -168,7 +168,7 @@ const HERMES_VISIBLE_THREAD_ENTRY_LIMIT = 5;
 const HERMES_VISIBLE_ACTIVITY_DETAIL_LIMIT = 2;
 const HERMES_VISIBLE_ACTIVITY_ACTION_LIMIT = 2;
 const HERMES_AUTO_DECOMPOSER_AUTHOR = "auto-decomposer";
-const HERMES_ACTIVITY_MODAL_FIELD_IDS = new Set<string>(
+const ACTIVITY_MODAL_FIELD_IDS = new Set<string>(
 	Object.values(HERMES_ACTIVITY_FIELD_KEYS)
 );
 
@@ -846,15 +846,15 @@ export class TaskEditModal extends TaskModal {
 	}
 
 	protected createFieldsFromConfig(container: HTMLElement, config: ModalFieldsConfigLike): void {
-		super.createFieldsFromConfig(container, this.getFieldConfigWithoutHermesActivityFields(config));
+		super.createFieldsFromConfig(container, this.getFieldConfigWithoutActivityFields(config));
 	}
 
-	private getFieldConfigWithoutHermesActivityFields(
+	private getFieldConfigWithoutActivityFields(
 		config: ModalFieldsConfigLike
 	): ModalFieldsConfigLike {
 		return {
 			...config,
-			fields: config.fields?.filter((field) => !HERMES_ACTIVITY_MODAL_FIELD_IDS.has(field.id)),
+			fields: config.fields?.filter((field) => !ACTIVITY_MODAL_FIELD_IDS.has(field.id)),
 		};
 	}
 
@@ -1096,8 +1096,9 @@ export class TaskEditModal extends TaskModal {
 		}
 
 		this.hermesLiveEditHandlersAttached = true;
-		this.titleInput?.addEventListener("input", () => {
-			this.title = normalizeTaskModalTitleValue(this.titleInput.value);
+		const titleInput = this.titleInput;
+		titleInput?.addEventListener("input", () => {
+			this.title = normalizeTaskModalTitleValue(titleInput.value);
 			this.scheduleHermesLiveSave();
 		});
 

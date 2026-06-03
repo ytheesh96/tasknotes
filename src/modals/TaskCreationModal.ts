@@ -77,11 +77,11 @@ export interface TaskCreationOptions {
 		boards: string[];
 		selectedBoard: string;
 	};
-	hermesCreationMode?: "kanban" | "goal";
 }
 
 const DEFAULT_CREATION_TARGET = "default";
 const HERMES_TARGET_PREFIX = "hermes:";
+const GOAL_MODE_TAGS = new Set(["goal", "#goal", "hermes-goal"]);
 
 type HermesCreationTaskData = Partial<TaskInfo> & {
 	customFrontmatter?: Record<string, unknown>;
@@ -817,7 +817,7 @@ export class TaskCreationModal extends TaskModal {
 			parents: parentResolution.ids,
 			triage: status === "triage",
 		};
-		if (this.isHermesGoalModeCreation()) {
+		if (this.isGoalTaggedCreation()) {
 			createPayload.idempotency_key = buildHermesGoalModeCreateIdempotencyKey(
 				board,
 				createPayload
@@ -827,7 +827,7 @@ export class TaskCreationModal extends TaskModal {
 		const identity = { board, id: created.id };
 		try {
 			const postCreateSyncErrors: string[] = [];
-			if (this.isHermesGoalModeCreation()) {
+			if (this.isGoalTaggedCreation()) {
 				try {
 					await this.addHermesGoalModeComment(api, identity, taskData);
 				} catch (error) {
@@ -857,13 +857,13 @@ export class TaskCreationModal extends TaskModal {
 				{
 					parents: detail.links?.parents ?? parentResolution.ids,
 					children: detail.links?.children ?? childResolution.ids,
-					...(this.isHermesGoalModeCreation()
+					...(this.isGoalTaggedCreation()
 						? {
 								extraFrontmatter: {
 									hermesCardMode: "goal",
 									hermesMode: "goal",
 								},
-								extraTags: ["hermes-goal"],
+								extraTags: ["goal"],
 							}
 						: {}),
 				}
@@ -881,7 +881,7 @@ export class TaskCreationModal extends TaskModal {
 			if (postCreateSyncErrors.length > 0) {
 				new Notice(
 					getHermesPartialSuccessNoticeMessage({
-						mode: this.isHermesGoalModeCreation() ? "goal" : "kanban",
+						mode: this.isGoalTaggedCreation() ? "goal" : "kanban",
 						title: created.title,
 						id: created.id,
 						error: new Error(postCreateSyncErrors.join("; ")),
@@ -889,7 +889,7 @@ export class TaskCreationModal extends TaskModal {
 				);
 			} else {
 				new Notice(
-					this.isHermesGoalModeCreation()
+					this.isGoalTaggedCreation()
 						? `Created Goal Mode card: ${created.title}`
 						: `Created task: ${created.title}`
 				);
@@ -916,7 +916,7 @@ export class TaskCreationModal extends TaskModal {
 			);
 			new Notice(
 				getHermesPartialSuccessNoticeMessage({
-					mode: this.isHermesGoalModeCreation() ? "goal" : "kanban",
+					mode: this.isGoalTaggedCreation() ? "goal" : "kanban",
 					title: created.title,
 					id: created.id,
 					error,
@@ -990,8 +990,8 @@ export class TaskCreationModal extends TaskModal {
 		return 0;
 	}
 
-	private isHermesGoalModeCreation(): boolean {
-		return this.options.hermesCreationMode === "goal";
+	private isGoalTaggedCreation(): boolean {
+		return splitCommaList(this.tags).some((tag) => GOAL_MODE_TAGS.has(tag.toLowerCase()));
 	}
 
 	private async addHermesGoalModeComment(
@@ -1002,7 +1002,7 @@ export class TaskCreationModal extends TaskModal {
 		const metadata = this.buildHermesGoalModeMetadata(taskData);
 		await api.addComment(identity, {
 			body: [
-				"Created from Obsidian TaskNotes as a Goal Mode card.",
+				"Created from Obsidian TaskNotes as a #goal task.",
 				"",
 				"```json",
 				JSON.stringify(metadata, null, 2),

@@ -1,57 +1,6 @@
 import type { FieldGroup, TaskModalFieldsConfig, UserMappedField } from "../types/settings";
-import { HERMES_ACTIVITY_USER_FIELDS } from "./hermesActivityFrontmatter";
-
-const CONTROL_PANEL_FIELD_GROUPS: TaskModalFieldsConfig["groups"] = [
-	{
-		id: "basic",
-		displayName: "Task",
-		order: 0,
-		collapsible: false,
-		defaultCollapsed: false,
-	},
-	{
-		id: "routing",
-		displayName: "Routing",
-		order: 1,
-		collapsible: true,
-		defaultCollapsed: false,
-	},
-	{
-		id: "dependencies",
-		displayName: "Dependencies",
-		order: 2,
-		collapsible: true,
-		defaultCollapsed: true,
-	},
-	{
-		id: "metadata",
-		displayName: "TaskNotes Metadata",
-		order: 3,
-		collapsible: true,
-		defaultCollapsed: true,
-	},
-	{
-		id: "organization",
-		displayName: "TaskNotes Organization",
-		order: 4,
-		collapsible: true,
-		defaultCollapsed: true,
-	},
-	{
-		id: "activity",
-		displayName: "Activity",
-		order: 5,
-		collapsible: true,
-		defaultCollapsed: false,
-	},
-	{
-		id: "custom",
-		displayName: "Other Fields",
-		order: 6,
-		collapsible: true,
-		defaultCollapsed: true,
-	},
-];
+import { DEFAULT_FIELD_GROUPS } from "../utils/fieldConfigDefaults";
+import { HERMES_ACTIVITY_USER_FIELDS } from "./hermesActivityFields";
 
 export const HERMES_DEFAULT_ASSIGNEES = [
 	"default",
@@ -108,9 +57,7 @@ const LEGACY_MODAL_GROUP_MAP = new Map<string, FieldGroup>([
 	["hermes-system", "routing"],
 ]);
 const CONTROL_PANEL_BOARD_PATH = /^TaskNotes\/[^/]+\/t_[^/]+\.md$/;
-const CONTROL_PANEL_GROUP_IDS = new Set<FieldGroup>(
-	CONTROL_PANEL_FIELD_GROUPS.map((group) => group.id)
-);
+const TASK_MODAL_GROUP_IDS = new Set<FieldGroup>(DEFAULT_FIELD_GROUPS.map((group) => group.id));
 const LEGACY_HERMES_REVIEW_RAIL_FIELD_ID = "hermes-review-rail";
 const HERMES_ACTIVITY_USER_FIELD_IDS = new Set(
 	HERMES_ACTIVITY_USER_FIELDS.flatMap((field) => [field.id, field.key])
@@ -296,7 +243,7 @@ function isLegacyHermesFieldId(id: string | undefined): boolean {
 
 function normalizeModalFieldGroup(group: unknown): FieldGroup {
 	const groupId = typeof group === "string" ? group : "";
-	return LEGACY_MODAL_GROUP_MAP.get(groupId) ?? (CONTROL_PANEL_GROUP_IDS.has(groupId as FieldGroup)
+	return LEGACY_MODAL_GROUP_MAP.get(groupId) ?? (TASK_MODAL_GROUP_IDS.has(groupId as FieldGroup)
 		? (groupId as FieldGroup)
 		: "custom");
 }
@@ -368,19 +315,19 @@ export function normalizeHermesModalFieldsConfig(
 			id: activityField.id,
 			fieldType: "user",
 			group: "activity",
-			displayName: activityField.displayName,
-			visibleInCreation: false,
-			visibleInEdit: legacyReviewRailHidden ? false : true,
-			order: 100 + index,
-			enabled: legacyReviewRailHidden ? false : true,
-		});
+				displayName: activityField.displayName,
+				visibleInCreation: false,
+				visibleInEdit: legacyReviewRailHidden ? false : true,
+				order: index,
+				enabled: legacyReviewRailHidden ? false : true,
+			});
 	}
 	const changed =
-		JSON.stringify(config.groups) !== JSON.stringify(CONTROL_PANEL_FIELD_GROUPS) ||
+		JSON.stringify(config.groups) !== JSON.stringify(DEFAULT_FIELD_GROUPS) ||
 		JSON.stringify(fields) !== JSON.stringify(config.fields);
 	return {
 		config: changed
-			? { ...config, groups: [...CONTROL_PANEL_FIELD_GROUPS], fields }
+			? { ...config, groups: [...DEFAULT_FIELD_GROUPS], fields }
 			: config,
 		changed,
 	};
