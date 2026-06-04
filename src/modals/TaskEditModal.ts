@@ -21,6 +21,7 @@ import { applyTaskEditSubtaskChanges, hasTaskEditSubtaskChanges } from "./taskEd
 import {
 	HermesKanbanApiClient,
 	getHermesTaskIdentity,
+	isHermesTaskNotFoundError,
 	type HermesTaskDetailResponse,
 	type HermesTaskRecord,
 } from "../hermes/hermesApiClient";
@@ -95,6 +96,8 @@ interface HermesActivityCard {
 	title: string;
 	fullTitle?: string;
 	meta?: string;
+	agent?: string;
+	timestamp?: string | number;
 	details?: HermesActivityDetail[];
 	actions?: HermesActivityAction[];
 	body?: string;
@@ -448,12 +451,6 @@ function formatHermesRelativeTime(date: Date, now = new Date()): string {
 	return diffSeconds > 0 ? `in ${value} ${unit}` : `${value} ${unit} ago`;
 }
 
-function formatHermesCommentMeta(comment: HermesCommentCard): string {
-	const author = comment.author?.trim() || "Hermes";
-	const timestamp = formatHermesActivityTimestamp(comment.createdAt);
-	return [author, timestamp].filter(Boolean).join(" - ");
-}
-
 function compactHermesActivityText(value: unknown, maxLength = 360): string {
 	const raw = typeof value === "string" ? value : stringifyUnknown(value);
 	const text = raw.trim();
@@ -552,14 +549,30 @@ function formatHermesEventCard(event: HermesEventCard): HermesActivityCard {
 		title: compactHermesActivityText(fullTitle, 180),
 		fullTitle,
 		details: details.length > 0 ? details : undefined,
-		actions: actions.length > 0 ? actions : undefined,
-		body: body || undefined,
-		meta: formatHermesActivityTimestamp(event.createdAt),
-		sortTimestamp: event.createdAt,
-		statusLabel: kindLabel,
-		statusSummary,
+			actions: actions.length > 0 ? actions : undefined,
+			body: body || undefined,
+			meta: formatHermesActivityTimestamp(event.createdAt),
+			agent: extractHermesEventAgent(payload),
+			timestamp: event.createdAt,
+			sortTimestamp: event.createdAt,
+			statusLabel: kindLabel,
+			statusSummary,
 		statusVariant: hermesEventStatusVariant(event.kind, payload),
 	};
+}
+
+function extractHermesEventAgent(payload: unknown): string | undefined {
+	if (!isHermesEventRecord(payload)) {
+		return undefined;
+	}
+	return (
+		optionalString(payload.profile) ||
+		optionalString(payload.agent) ||
+		optionalString(payload.author) ||
+		optionalString(payload.assignee) ||
+		optionalString(payload.worker) ||
+		undefined
+	);
 }
 
 function hermesEventStatusVariant(
@@ -820,6 +833,7 @@ export class TaskEditModal extends TaskModal {
 	private hermesAssigneeOptions: string[] | null = null;
 	private hermesAvailabilityHealth: HermesAvailabilityHealth | null = null;
 	private hermesActivityElements: HermesActivityElements | null = null;
+	private hermesLiveTaskMissing = false;
 	private hermesLiveEditHandlersAttached = false;
 	private hermesLiveSaveTimer: number | null = null;
 	private hermesLiveSaveChain: Promise<boolean> = Promise.resolve(false);
@@ -1493,10 +1507,13 @@ export class TaskEditModal extends TaskModal {
 		let commentInput: HTMLTextAreaElement | undefined;
 		if (visibleComponents.comments) {
 			const composer = activitySection.createDiv({
-				cls: "tn-task-modal__hermes-composer",
+				cls: "modal-form__group tn-task-modal__hermes-composer",
 			});
-			commentInput = composer.createEl("textarea", {
-				cls: "tn-task-modal__hermes-comment-input title-input-detailed",
+			const composerInputContainer = composer.createDiv({
+				cls: "modal-form__input-container tn-task-modal__hermes-composer-input",
+			});
+			commentInput = composerInputContainer.createEl("textarea", {
+				cls: "modal-form__input modal-form__input--textarea tn-task-modal__hermes-comment-input",
 				attr: {
 					placeholder: "Add a review comment... (Enter to submit, Shift+Enter for newline)",
 					rows: "2",
@@ -1504,14 +1521,18 @@ export class TaskEditModal extends TaskModal {
 			});
 			commentInput.spellcheck = true;
 			commentInput.setAttribute("aria-label", "Add a review comment");
-			const commentButton = composer.createEl("button", {
-				cls: "tn-task-modal__hermes-send-button tn-btn tn-btn--primary",
-				text: "Send",
+			const composerActions = composer.createDiv({
+				cls: "tn-task-modal__hermes-composer-actions",
+			});
+			const commentButton = composerActions.createEl("button", {
+				cls: "tn-task-modal__hermes-send-button clickable-icon",
 				attr: {
 					type: "button",
 					"aria-label": "Send comment",
 				},
 			});
+			setIcon(commentButton, "send");
+			setTooltip(commentButton, "Send comment", { placement: "top" });
 			commentButtonRef.el = commentButton;
 			const updateCommentButtonState = () => {
 				const commentButtonEl = commentButtonRef.el;
@@ -1553,8 +1574,8 @@ export class TaskEditModal extends TaskModal {
 			visibleComponents,
 		};
 		this.hermesActivityElements = activityElements;
-		void this.loadHermesActivityCards(activityElements);
-		void this.refreshHermesAvailabilityForActivity(activityElements);
+		this.renderHermesFallbackThread(threadList, visibleComponents);
+		void this.refreshHermesAvailabilityForActivity(activityElements, { autoStart: true });
 	}
 
 	private renderHermesFallbackThread(
@@ -1609,13 +1630,20 @@ export class TaskEditModal extends TaskModal {
 		configure?.(setting);
 	}
 
-	private async refreshHermesAvailabilityForActivity(elements: HermesActivityElements): Promise<void> {
+	private async refreshHermesAvailabilityForActivity(
+		elements: HermesActivityElements,
+		options: { autoStart?: boolean } = {}
+	): Promise<void> {
 		const health = await this.recheckHermesAvailability();
 		this.renderHermesAvailabilitySnapshot(elements.availabilityContainer, health, elements);
 		this.applyHermesAvailabilityToActivity(elements, health);
 		if (health.status === "connected") {
 			await this.refreshHermesLiveOptions();
 			await this.loadHermesActivityCards(elements);
+			return;
+		}
+		if (options.autoStart && health.status === "disconnected" && health.canStart) {
+			await this.ensureHermesDashboardForActivity(elements);
 		}
 	}
 
@@ -1628,7 +1656,10 @@ export class TaskEditModal extends TaskModal {
 	public async startHermesDashboardAndRefreshActivity(
 		elements?: HermesActivityElements
 	): Promise<HermesDashboardStartResult> {
-		const result = await this.plugin.startHermesDashboard({ showNotice: false });
+		const result = await this.plugin.ensureHermesDashboardRunning({
+			showNotice: false,
+			force: true,
+		});
 		this.hermesAvailabilityHealth = result.health;
 		if (elements) {
 			this.renderHermesAvailabilitySnapshot(elements.availabilityContainer, result.health, elements, result);
@@ -1646,6 +1677,47 @@ export class TaskEditModal extends TaskModal {
 			}
 		}
 		return { ...result, health };
+	}
+
+	private async ensureHermesDashboardForActivity(
+		elements: HermesActivityElements
+	): Promise<void> {
+		this.renderHermesAvailabilitySnapshot(
+			elements.availabilityContainer,
+			{
+				...(this.hermesAvailabilityHealth ?? {
+					rootUrl: "http://127.0.0.1:9119/",
+					apiUrl: "http://127.0.0.1:9119/api/plugins/kanban",
+					canStart: true,
+				}),
+				status: "starting",
+				mode: "cache-only",
+				message: "Starting Hermes dashboard...",
+			},
+			elements
+		);
+
+		try {
+			const result = await this.plugin.ensureHermesDashboardRunning({ showNotice: false });
+			this.hermesAvailabilityHealth = result.health;
+			this.renderHermesAvailabilitySnapshot(
+				elements.availabilityContainer,
+				result.health,
+				elements,
+				result
+			);
+			this.applyHermesAvailabilityToActivity(elements, result.health);
+			if (result.health.status === "connected") {
+				await this.refreshHermesLiveOptions();
+				await this.loadHermesActivityCards(elements);
+			}
+		} catch (error) {
+			tasknotesLogger.warn("Failed to start Hermes dashboard for activity:", {
+				category: "provider",
+				operation: "ensure-hermes-dashboard-activity",
+				error,
+			});
+		}
 	}
 
 	private async refreshHermesLiveOptions(): Promise<void> {
@@ -1774,10 +1846,20 @@ export class TaskEditModal extends TaskModal {
 	}
 
 	private isHermesLiveAvailability(): boolean {
-		return this.hermesAvailabilityHealth?.status === "connected" && this.hermesAvailabilityHealth.mode === "live";
+		return (
+			!this.hermesLiveTaskMissing &&
+			this.hermesAvailabilityHealth?.status === "connected" &&
+			this.hermesAvailabilityHealth.mode === "live"
+		);
 	}
 
 	private async ensureHermesLiveForAction(): Promise<boolean> {
+		if (this.hermesLiveTaskMissing) {
+			new Notice(
+				"This task note no longer has a matching live board task; live controls are disabled."
+			);
+			return false;
+		}
 		const health = this.hermesAvailabilityHealth ?? (await this.recheckHermesAvailability());
 		if (health.status === "connected" && health.mode === "live") {
 			return true;
@@ -1789,6 +1871,12 @@ export class TaskEditModal extends TaskModal {
 	}
 
 	private async ensureHermesWriteAvailable(): Promise<boolean> {
+		if (this.hermesLiveTaskMissing) {
+			new Notice(
+				"This task note no longer has a matching live board task; live edits are disabled."
+			);
+			return false;
+		}
 		const readiness = await new HermesWriteGuard().canWriteHermesTask(this.task);
 		if (readiness.allowed) {
 			this.hermesAvailabilityHealth = readiness.health;
@@ -1847,6 +1935,7 @@ export class TaskEditModal extends TaskModal {
 
 		try {
 			const detail = await new HermesKanbanApiClient().getTask(identity);
+			this.hermesLiveTaskMissing = false;
 			this.renderHermesActivityDetail(elements, detail);
 			if (detail.task && this.shouldSyncHermesDetailToTaskFrontmatter(identity.board, detail)) {
 				void this.refreshHermesMirror(identity.board, detail).catch((error) => {
@@ -1858,12 +1947,37 @@ export class TaskEditModal extends TaskModal {
 				});
 			}
 		} catch (error) {
+			if (isHermesTaskNotFoundError(error, identity.id)) {
+				this.applyMissingHermesTaskState(elements, identity);
+				return;
+			}
 			tasknotesLogger.warn("Failed to load Hermes activity:", {
 				category: "provider",
 				operation: "load-hermes-activity",
 				error,
 			});
 		}
+	}
+
+	private applyMissingHermesTaskState(
+		elements: HermesActivityElements,
+		identity: { board: string; id: string }
+	): void {
+		this.hermesLiveTaskMissing = true;
+		const health = this.getMissingHermesTaskHealth(identity);
+		this.hermesAvailabilityHealth = health;
+		this.renderHermesAvailabilitySnapshot(elements.availabilityContainer, health, elements);
+		this.applyHermesAvailabilityToActivity(elements, health);
+	}
+
+	private getMissingHermesTaskHealth(identity: { board: string; id: string }): HermesAvailabilityHealth {
+		const base = this.hermesAvailabilityHealth ?? this.getInitialHermesAvailabilityHealth();
+		return {
+			...base,
+			status: "degraded",
+			mode: "cache-only",
+			message: `This local mirror no longer has task ${identity.id} on board ${identity.board}. Cached activity is shown.`,
+		};
 	}
 
 	private getCachedHermesActivityDetail(): HermesTaskDetailResponse | null {
@@ -2094,75 +2208,7 @@ export class TaskEditModal extends TaskModal {
 		card: HermesActivityCard,
 		visibleComponents: HermesActivityComponentVisibility
 	): void {
-		const visibleCard = this.filterHermesActivityCard(card, visibleComponents);
-		const itemEl = listEl.createDiv({
-			cls: [
-				"tn-task-modal__hermes-status-item",
-				`tn-task-modal__hermes-status-item--${visibleCard.statusVariant ?? "muted"}`,
-			].join(" "),
-		});
-		itemEl.createSpan({ cls: "tn-task-modal__hermes-status-indicator" });
-		const contentEl = itemEl.createDiv({ cls: "tn-task-modal__hermes-status-content" });
-		const lineEl = contentEl.createDiv({ cls: "tn-task-modal__hermes-status-line" });
-		lineEl.createSpan({
-			cls: "tn-task-modal__hermes-status-label",
-			text: visibleCard.statusLabel ?? this.hermesStatusLabelFromTitle(visibleCard.title),
-		});
-		if (visibleCard.meta) {
-			lineEl.createSpan({
-				cls: "tn-task-modal__hermes-status-meta",
-				text: visibleCard.meta,
-			});
-		}
-		const summary =
-			visibleCard.statusSummary ?? this.hermesStatusSummaryFromTitle(visibleCard.title);
-		if (summary) {
-			contentEl.createDiv({
-				cls: "tn-task-modal__hermes-status-summary",
-				text: summary,
-			});
-		}
-
-		const details = visibleCard.details?.filter((detail) => detail.label !== "Run") ?? [];
-		if (details.length) {
-			const detailsEl = contentEl.createDiv({
-				cls: "tn-task-modal__hermes-activity-details tn-task-modal__hermes-status-details",
-			});
-			for (const detail of details) {
-				const rowEl = detailsEl.createDiv({
-					cls: "tn-task-modal__hermes-activity-detail-row",
-				});
-				rowEl.createSpan({
-					cls: "tn-task-modal__hermes-activity-detail-label",
-					text: detail.label,
-				});
-				rowEl.createSpan({
-					cls: "tn-task-modal__hermes-activity-detail-value",
-					text: detail.value,
-				});
-			}
-		}
-
-		if (visibleCard.actions?.length) {
-			this.renderHermesActivityActions(contentEl, visibleCard.actions);
-		}
-
-		if (visibleCard.body) {
-			contentEl.createDiv({
-				cls: "tn-task-modal__hermes-activity-body tn-task-modal__hermes-status-body",
-				text: visibleCard.body,
-			});
-		}
-	}
-
-	private hermesStatusLabelFromTitle(title: string): string {
-		const [label] = title.split(/:\s*/, 1);
-		return label.trim() || "Activity";
-	}
-
-	private hermesStatusSummaryFromTitle(title: string): string {
-		const colonIndex = title.indexOf(":");
-		return colonIndex >= 0 ? title.slice(colonIndex + 1).trim() : "";
+		this.renderHermesActivityCardItem(listEl, card, visibleComponents);
 	}
 
 	private renderHermesThreadCommentCard(
@@ -2175,43 +2221,45 @@ export class TaskEditModal extends TaskModal {
 			createdAt: comment.createdAt,
 		});
 		const isStructured = parsedComment.kind !== "comment";
-		const cardEl = listEl.createDiv({
-			cls: [
+		const timestamp = formatHermesActivityTimestamp(comment.createdAt);
+		const rendered = this.createHermesActivityTaskCard(listEl, {
+			cardClasses: [
 				"tn-task-modal__hermes-thread-card",
 				isStructured ? "tn-task-modal__hermes-thread-card--structured" : "",
 				isStructured ? `tn-task-modal__hermes-thread-card--${parsedComment.severity}` : "",
-			]
-				.filter(Boolean)
-				.join(" "),
+			],
 		});
-		cardEl.createDiv({
-			cls: "tn-task-modal__hermes-thread-avatar",
-			text: this.hermesAuthorInitials(comment.author),
+		const title = isStructured ? this.hermesStructuredCommentTitle(parsedComment) : comment.author;
+		rendered.titleEl.createSpan({
+			cls: "task-card__title-text tn-task-modal__hermes-activity-title",
+			text: title,
 		});
-		const contentEl = cardEl.createDiv({ cls: "tn-task-modal__hermes-thread-content" });
-		const headerEl = contentEl.createDiv({ cls: "tn-task-modal__hermes-thread-header" });
-		headerEl.createSpan({ cls: "tn-task-modal__hermes-thread-author", text: comment.author });
-		const timestamp = formatHermesActivityTimestamp(comment.createdAt);
-		if (timestamp) {
-			headerEl.createSpan({ cls: "tn-task-modal__hermes-thread-time", text: ` - ${timestamp}` });
-		}
 		const childTaskIds = this.hermesCommentChildTaskIds(comment, parsedComment);
 		if (childTaskIds.length > 0) {
-			this.renderHermesCommentChildTaskToggle(headerEl, cardEl, childTaskIds);
+			this.renderHermesCommentChildTaskToggle(rendered.titleEl, rendered.cardEl, childTaskIds);
 		}
 
+		this.renderHermesActivityMetadata(rendered.contentEl, {
+			agent: comment.author,
+			timestamp: comment.createdAt,
+			fallbackMeta: timestamp,
+		});
+
 		if (!isStructured) {
-			contentEl.createDiv({ cls: "tn-task-modal__hermes-thread-body", text: comment.body });
+			rendered.contentEl.createDiv({
+				cls: "tn-task-modal__hermes-activity-body tn-task-modal__hermes-thread-body",
+				text: comment.body,
+			});
 			const actions = this.filterHermesActivityActions(parsedComment.actions, visibleComponents);
 			if (actions.length > 0) {
-				this.renderHermesActivityActions(contentEl, actions);
+				this.renderHermesActivityActions(rendered.contentEl, actions);
 			}
 			return;
 		}
 
 		this.renderStructuredHermesThreadComment(
-			cardEl,
-			contentEl,
+			rendered.cardEl,
+			rendered.contentEl,
 			parsedComment,
 			[comment.author, timestamp].filter(Boolean).join(" - "),
 			visibleComponents
@@ -2226,15 +2274,10 @@ export class TaskEditModal extends TaskModal {
 		visibleComponents: HermesActivityComponentVisibility
 	): void {
 		const summaryEl = contentEl.createDiv({ cls: "tn-task-modal__hermes-thread-structured" });
-		const titleRowEl = summaryEl.createDiv({ cls: "tn-task-modal__hermes-thread-structured-title-row" });
 		const title = this.hermesStructuredCommentTitle(model);
-		titleRowEl.createSpan({
-			cls: "tn-task-modal__hermes-thread-structured-title",
-			text: title,
-		});
 		if (model.summary) {
 			summaryEl.createDiv({
-				cls: "tn-task-modal__hermes-thread-body tn-task-modal__hermes-thread-body--structured",
+				cls: "tn-task-modal__hermes-activity-body tn-task-modal__hermes-thread-body tn-task-modal__hermes-thread-body--structured",
 				text: model.summary,
 			});
 		}
@@ -2483,9 +2526,12 @@ export class TaskEditModal extends TaskModal {
 			.reverse()
 			.find((comment) => this.isHermesReviewHandoffText(comment.body));
 		if (reviewComment) {
+			const timestamp = formatHermesActivityTimestamp(reviewComment.createdAt);
 			return this.buildHermesReviewCardFromText(reviewComment.body, {
 				sourceId: reviewComment.id ?? reviewComment.body,
-				meta: formatHermesCommentMeta(reviewComment),
+				meta: [reviewComment.author, timestamp].filter(Boolean).join(" - "),
+				agent: reviewComment.author,
+				timestamp: reviewComment.createdAt,
 				status: "Review required",
 			});
 		}
@@ -2503,6 +2549,8 @@ export class TaskEditModal extends TaskModal {
 				"Task is blocked.";
 			return this.buildHermesReviewCardFromText(taskText, {
 				meta: latestRun ? formatHermesActivityTimestamp(latestRun.endedAt ?? latestRun.startedAt) : undefined,
+				agent: latestRun?.profile || normalizeHermesAssignee(this.contexts) || undefined,
+				timestamp: latestRun?.endedAt ?? latestRun?.startedAt,
 				status: taskStatus === "blocked" ? "Blocked" : "Review required",
 				metadata: latestRun?.metadata ?? detail.task?.metadata ?? undefined,
 			});
@@ -2512,7 +2560,14 @@ export class TaskEditModal extends TaskModal {
 
 	private buildHermesReviewCardFromText(
 		text: string,
-		options: { sourceId?: string; meta?: string; status: string; metadata?: Record<string, unknown> }
+		options: {
+			sourceId?: string;
+			meta?: string;
+			agent?: string;
+			timestamp?: string | number;
+			status: string;
+			metadata?: Record<string, unknown>;
+		}
 	): HermesActivityCard {
 		const model = parseHermesComment(text, { metadata: options.metadata });
 		const cleanedText = text.replace(/^review-required\s+handoff:\s*/i, "").replace(/^review-required:\s*/i, "").trim();
@@ -2525,11 +2580,13 @@ export class TaskEditModal extends TaskModal {
 				model.kind === "comment"
 					? this.hermesReviewTitle(cleanedText, options.status)
 					: model.title,
-			fullTitle: cleanedText,
-			meta: options.meta,
-			details,
-			actions: model.actions,
-			body,
+				fullTitle: cleanedText,
+				meta: options.meta,
+				agent: options.agent,
+				timestamp: options.timestamp,
+				details,
+				actions: model.actions,
+				body,
 			variant: "pinned",
 			sourceId: options.sourceId,
 			raw: model.raw,
@@ -2613,16 +2670,6 @@ export class TaskEditModal extends TaskModal {
 		if (model.kind === "run-summary") return "Run summary";
 		if (model.kind === "artifact-report") return "Artifact report";
 		return model.title || "Hermes comment";
-	}
-
-	private hermesAuthorInitials(author: string): string {
-		const initials = author
-			.split(/[-_\s]+/)
-			.filter(Boolean)
-			.slice(0, 2)
-			.map((part) => part[0]?.toUpperCase())
-			.join("");
-		return initials || "H";
 	}
 
 	private filterHermesActivityCard(
@@ -2777,6 +2824,122 @@ export class TaskEditModal extends TaskModal {
 		visibleComponents: HermesActivityComponentVisibility
 	): void {
 		const visibleCard = this.filterHermesActivityCard(card, visibleComponents);
+		const rendered = this.createHermesActivityTaskCard(listEl, {
+			cardClasses: [
+				"task-card--has-details",
+				"tn-task-modal__hermes-activity-card",
+				visibleCard.variant === "pinned" ? "tn-task-modal__hermes-review-card--pinned" : "",
+				visibleCard.variant === "status" ? "tn-task-modal__hermes-activity-card--status" : "",
+			],
+		});
+		rendered.titleEl.createSpan({
+			cls: "task-card__title-text tn-task-modal__hermes-activity-title",
+			text: visibleCard.title,
+		});
+
+		this.renderHermesActivityMetadata(rendered.contentEl, {
+			agent: visibleCard.agent,
+			timestamp: visibleCard.timestamp ?? visibleCard.sortTimestamp,
+			fallbackMeta: visibleCard.meta,
+			pinned: visibleCard.variant === "pinned",
+			statusLabel: visibleCard.variant === "status" ? visibleCard.statusLabel : undefined,
+			statusVariant: visibleCard.statusVariant,
+		});
+
+		if (visibleCard.body) {
+			rendered.contentEl.createDiv({
+				cls: "tn-task-modal__hermes-activity-body",
+				text: visibleCard.body,
+			});
+		}
+
+		if (visibleCard.details) {
+			this.renderHermesActivityDetails(rendered.contentEl, visibleCard.details);
+		}
+		this.renderHermesActivityActions(rendered.contentEl, visibleCard.actions ?? []);
+
+		if (visibleCard.raw) {
+			this.renderHermesRawToggle(rendered.contentEl, visibleCard.raw);
+		}
+		this.attachHermesActivityCardDetailModal(rendered.cardEl, visibleCard);
+	}
+
+	private renderHermesActivityMetadata(
+		contentEl: HTMLElement,
+		options: {
+			agent?: string;
+			timestamp?: string | number;
+			fallbackMeta?: string;
+			pinned?: boolean;
+			statusLabel?: string;
+			statusVariant?: "success" | "warning" | "danger" | "muted";
+		}
+	): void {
+		const identity = getHermesTaskIdentity(this.task);
+		const timestamp = formatHermesActivityTimestamp(options.timestamp);
+		const fallbackMeta = options.fallbackMeta?.trim();
+		const showFallbackMeta = Boolean(fallbackMeta && fallbackMeta !== timestamp);
+		const hasMetadata = Boolean(
+			identity?.board ||
+				options.agent ||
+				timestamp ||
+				showFallbackMeta ||
+				options.pinned ||
+				options.statusLabel
+		);
+		if (!hasMetadata) {
+			return;
+		}
+
+		const metadataEl = contentEl.createDiv({ cls: "task-card__metadata" });
+		if (identity?.board) {
+			metadataEl.createSpan({
+				cls: "task-card__metadata-property task-card__metadata-property--projects",
+				text: `+Hermes/${identity.board}`,
+			});
+		}
+
+		if (options.agent) {
+			const contextsEl = metadataEl.createSpan({
+				cls: "task-card__metadata-property task-card__metadata-property--contexts",
+			});
+			contextsEl.createSpan({
+				cls: "context-tag context-tag--color-1",
+				text: `@${options.agent.replace(/^@/, "")}`,
+			});
+		}
+
+		if (timestamp || showFallbackMeta) {
+			metadataEl.createSpan({
+				cls: "task-card__metadata-item tn-task-modal__hermes-activity-time",
+				text: timestamp || fallbackMeta,
+			});
+		}
+
+		if (options.pinned) {
+			const labelEl = metadataEl.createSpan({
+				cls: "task-card__metadata-pill tn-task-modal__hermes-pinned-label",
+				text: "Pinned",
+			});
+			labelEl.setAttribute("aria-label", "Pinned review card");
+		}
+
+		if (options.statusLabel) {
+			metadataEl.createSpan({
+				cls: [
+					"task-card__metadata-pill",
+					"tn-task-modal__hermes-status-pill",
+					`tn-task-modal__hermes-status-pill--${options.statusVariant ?? "muted"}`,
+				].join(" "),
+				text: options.statusLabel,
+			});
+		}
+	}
+
+	private createHermesActivityTaskCard(
+		listEl: HTMLElement,
+		options: { cardClasses?: string[] } = {}
+	): { cardEl: HTMLElement; contentEl: HTMLElement; titleEl: HTMLElement } {
 		const itemEl = listEl.createDiv({
 			cls: "task-project-item task-project-item--task-card tn-task-modal__hermes-activity-item",
 		});
@@ -2786,53 +2949,16 @@ export class TaskEditModal extends TaskModal {
 		const cardEl = cardHostEl.createDiv({
 			cls: [
 				"task-card",
-				"task-card--has-details",
 				"tn-task-modal__hermes-activity-card",
-				visibleCard.variant === "pinned" ? "tn-task-modal__hermes-review-card--pinned" : "",
+				...(options.cardClasses ?? []),
 			]
 				.filter(Boolean)
 				.join(" "),
 		});
 		const mainRowEl = cardEl.createDiv({ cls: "task-card__main-row" });
-
 		const contentEl = mainRowEl.createDiv({ cls: "task-card__content" });
 		const titleEl = contentEl.createDiv({ cls: "task-card__title" });
-		if (visibleCard.variant === "pinned") {
-			const labelEl = titleEl.createSpan({
-				cls: "tn-task-modal__hermes-pinned-label",
-				text: "PINNED",
-			});
-			labelEl.setAttribute("aria-label", "Pinned review card");
-		}
-		titleEl.createSpan({
-			cls: "task-card__title-text tn-task-modal__hermes-activity-title",
-			text: visibleCard.title,
-		});
-
-		if (visibleCard.meta) {
-			const metadataEl = contentEl.createDiv({ cls: "task-card__metadata" });
-			metadataEl.createSpan({
-				cls: "task-card__metadata-item tn-task-modal__hermes-activity-time",
-				text: visibleCard.meta,
-			});
-		}
-
-		if (visibleCard.body) {
-			contentEl.createDiv({
-				cls: "tn-task-modal__hermes-activity-body",
-				text: visibleCard.body,
-			});
-		}
-
-		if (visibleCard.details) {
-			this.renderHermesActivityDetails(contentEl, visibleCard.details);
-		}
-		this.renderHermesActivityActions(contentEl, visibleCard.actions ?? []);
-
-		if (visibleCard.raw) {
-			this.renderHermesRawToggle(contentEl, visibleCard.raw);
-		}
-		this.attachHermesActivityCardDetailModal(cardEl, visibleCard);
+		return { cardEl, contentEl, titleEl };
 	}
 
 	private attachHermesActivityCardDetailModal(
@@ -2938,13 +3064,15 @@ export class TaskEditModal extends TaskModal {
 				const fullTitle = hermesActivityText(
 					run.summary || run.error || "No run summary yet."
 				);
-				return {
-					title: compactHermesActivityText(fullTitle, 180),
-					fullTitle,
-					meta: formatHermesActivityTimestamp(run.endedAt ?? run.startedAt),
-					details: [
-						{ label: "Verification", value: this.hermesVerificationLabel(run) },
-					],
+					return {
+						title: compactHermesActivityText(fullTitle, 180),
+						fullTitle,
+						meta: formatHermesActivityTimestamp(run.endedAt ?? run.startedAt),
+						agent: run.profile,
+						timestamp: run.endedAt ?? run.startedAt,
+						details: [
+							{ label: "Verification", value: this.hermesVerificationLabel(run) },
+						],
 					sortTimestamp: run.endedAt ?? run.startedAt,
 					statusLabel: state.label,
 					statusSummary: fullTitle,

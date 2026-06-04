@@ -406,6 +406,8 @@ export const DEFAULT_SETTINGS: TaskNotesSettings = {
 	commandFileMapping: {
 		"open-calendar-view": "TaskNotes/Views/mini-calendar-default.base",
 		"open-kanban-view": "TaskNotes/Views/kanban-default.base",
+		"open-agent-roster-view": "TaskNotes/Views/agent-roster.base",
+		"open-hermes-boards-view": "TaskNotes/Views/hermes-boards.base",
 		"open-tasks-view": "TaskNotes/Views/tasks-default.base",
 		"open-advanced-calendar-view": "TaskNotes/Views/calendar-default.base",
 		"open-agenda-view": "TaskNotes/Views/agenda-default.base",

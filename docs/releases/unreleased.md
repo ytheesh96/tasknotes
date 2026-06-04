@@ -33,6 +33,8 @@ Example:
 - Added #goal TaskNote sync so eligible notes can create Hermes Goal Mode cards with source-note idempotency and Hermes sync metadata backfilled after successful card creation.
 - Added a configurable `TaskNotes: Start Hermes` command, settings controls, and optional auto-start after Hermes-linked task note changes.
 - Added an Activity group in Modal Fields so Hermes comments, runs, events, artifacts, and changed files can be enabled or disabled independently.
+- Added a TaskNotes Agent Roster Bases view for reviewing agent queues and opening delegated Hermes task submissions from grouped roster cards.
+- Added a dedicated Hermes Boards Bases view for creating, refreshing, opening, and deleting Hermes boards, including local mirror cleanup after a board is archived through Hermes.
 
 ## Changed
 
@@ -42,6 +44,7 @@ Example:
 - Changed Hermes-managed task creation and editing so board writes are blocked while Hermes is disconnected, starting, or degraded.
 - Refined the Hermes task edit modal so the review comment Send button sits inside the composer, Hermes live status appears as a compact indicator, status updates appear inside the review thread, and the task information footer is hidden.
 - Pinned the Hermes review comment composer to the bottom of the activity rail so only the review cards scroll, with a cleaner composer treatment for writing comments.
+- Reworked the Hermes activity rail to reuse TaskNotes task-card rows and standard modal form controls, with board, agent, time, and status metadata visible on comments and status updates.
 - Changed the Hermes task edit modal to autosave supported title/status/priority/assignee/dependency edits through TaskNotes, leaving Hermes to consume those changes through the API/webhook sync path.
 - Added Hermes Board and Assignee controls to task edit and creation modal top icon rows so routing metadata is visible beside status, priority, dates, recurrence, and reminders without duplicate fields below the title area.
 - Tightened Hermes review-thread spacing so status updates use compact log rows with round indicators, structured review/handoff cards show collapsed previews that open full detail dialogs, rely on the left-edge severity color instead of duplicate badges, and place the newest visible activity closest to the comment composer.
@@ -56,6 +59,9 @@ Example:
 
 ## Fixed
 
+- Hardened Hermes activity loading so opening a Hermes-managed TaskNote can restart the local dashboard after an update stops it, and cached activity is shown until the live Kanban API is reachable.
+- Kept Hermes-managed TaskNotes in sync with the Kanban database by deleting stale local mirrors when their live task disappears, and by deleting the live Kanban task through the Hermes API before removing a local mirror.
+- Reduced normal startup console noise from dependency indexing and virtualized task boards.
 - Fixed Hermes review activity frontmatter so later mirror-note rewrites preserve cached activity summaries instead of removing them, and the Start Hermes action can find common local Hermes installs from Obsidian on macOS.
 - Fixed Hermes startup from the TaskNotes modal so it does not try to start a duplicate dashboard when localhost is already reachable but the Kanban API is degraded.
 - Fixed newly created or rediscovered #goal TaskNotes not starting Hermes Goal Mode sync when they were first seen after the lifecycle snapshot.

@@ -288,6 +288,7 @@ export async function initializeAfterLayoutReady(plugin: TaskNotesPlugin): Promi
 
 		plugin.cacheManager.initialize();
 		plugin.dependencyCache.initialize();
+		await plugin.dependencyCache.buildIndexes();
 		plugin.filterService.initialize();
 		plugin.statusBarService.initialize();
 		await plugin.notificationService.initialize();

@@ -52,6 +52,20 @@ export function createTaskNotesCommandDefinitions(
 			},
 		},
 		{
+			id: "open-agent-roster-view",
+			nameKey: "commands.openAgentRosterView",
+			callback: async (ctx) => {
+				await ctx.openBasesFileForCommand("open-agent-roster-view");
+			},
+		},
+		{
+			id: "open-hermes-boards-view",
+			nameKey: "commands.openHermesBoardsView",
+			callback: async (ctx) => {
+				await ctx.openBasesFileForCommand("open-hermes-boards-view");
+			},
+		},
+		{
 			id: "open-pomodoro-stats",
 			nameKey: "commands.openPomodoroStats",
 			callback: async (ctx) => {

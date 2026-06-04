@@ -652,6 +652,102 @@ ${orderYaml}
 `;
 		}
 
+		case 'open-agent-roster-view': {
+			const statusProperty = mapPropertyToBasesProperty('status', plugin);
+			const priorityProperty = mapPropertyToBasesProperty('priority', plugin);
+			const projectsProperty = mapPropertyToBasesProperty('projects', plugin);
+			const contextsProperty = mapPropertyToBasesProperty('contexts', plugin);
+			const dueProperty = mapPropertyToBasesProperty('due', plugin);
+			const scheduledProperty = mapPropertyToBasesProperty('scheduled', plugin);
+			const blockedByProperty = mapPropertyToBasesProperty('blockedBy', plugin);
+			return `# Agent Roster
+
+${formatFilterAsYAML([taskFilterCondition])}
+
+${formulasSection}
+
+properties:
+  assignee:
+    displayName: Agent
+  hermes_board:
+    displayName: Hermes Board
+  hermes_submit:
+    displayName: Hermes Submit
+
+views:
+  - type: tasknotesAgentRoster
+    name: "Agent Roster"
+    order:
+      - ${statusProperty}
+      - ${priorityProperty}
+      - file.name
+      - assignee
+      - ${contextsProperty}
+      - ${projectsProperty}
+      - hermes_board
+      - ${dueProperty}
+      - ${scheduledProperty}
+      - ${blockedByProperty}
+      - file.tags
+    sort:
+      - column: ${statusProperty}
+        direction: ASC
+    options:
+      agentProperty: assignee
+      agentFallbackProperty: ${contextsProperty}
+      boardProperty: ${projectsProperty}
+      statusProperty: ${statusProperty}
+      defaultBoard: default
+      submitStatus: triage
+      submitTag: hermes-submit
+      maxTasksPerAgent: 4
+      readyStatuses: triage,todo,scheduled,ready
+      busyStatuses: running
+      reviewStatuses: review
+      ignoredAgentValues: hermes-kanban
+`;
+		}
+
+		case 'open-hermes-boards-view': {
+			const statusProperty = mapPropertyToBasesProperty('status', plugin);
+			const projectsProperty = mapPropertyToBasesProperty('projects', plugin);
+			const contextsProperty = mapPropertyToBasesProperty('contexts', plugin);
+			return `# Hermes Boards
+
+${formatFilterAsYAML([taskFilterCondition])}
+
+${formulasSection}
+
+properties:
+  hermes_board:
+    displayName: Hermes Board
+
+views:
+  - type: tasknotesHermesBoards
+    name: "Hermes Boards"
+    order:
+      - ${projectsProperty}
+      - ${statusProperty}
+      - ${contextsProperty}
+      - hermes_board
+      - file.tags
+      - file.name
+    sort:
+      - column: ${projectsProperty}
+        direction: ASC
+      - column: ${statusProperty}
+        direction: ASC
+    options:
+      boardProperty: ${projectsProperty}
+      statusProperty: ${statusProperty}
+      agentProperty: ${contextsProperty}
+      defaultBoard: default
+      doneStatuses: done,completed
+      busyStatuses: running
+      reviewStatuses: review
+`;
+		}
+
 		case 'open-tasks-view': {
 			const statusProperty = mapPropertyToBasesProperty('status', plugin);
 			const dueProperty = mapPropertyToBasesProperty('due', plugin);

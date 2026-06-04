@@ -232,6 +232,8 @@ export interface TaskNotesSettings {
 	commandFileMapping: {
 		"open-calendar-view": string;
 		"open-kanban-view": string;
+		"open-agent-roster-view": string;
+		"open-hermes-boards-view": string;
 		"open-tasks-view": string;
 		"open-advanced-calendar-view": string;
 		"open-agenda-view": string;

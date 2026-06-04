@@ -34,6 +34,17 @@ export interface HermesTaskIdentity {
 	id: string;
 }
 
+export class HermesApiError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+		readonly statusText?: string
+	) {
+		super(message);
+		this.name = "HermesApiError";
+	}
+}
+
 export interface HermesBoardRecord {
 	slug: string;
 	name?: string | null;
@@ -137,6 +148,20 @@ export function getHermesTaskIdentity(task: TaskInfo): HermesTaskIdentity | null
 		return { board: tasknotesMatch[1], id: tasknotesMatch[2] };
 	}
 	return null;
+}
+
+export function isHermesTaskNotFoundError(error: unknown, taskId?: string): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	const normalizedMessage = message.toLowerCase();
+	const normalizedTaskId = taskId?.toLowerCase();
+	const namesTask =
+		!normalizedTaskId ||
+		normalizedMessage.includes(normalizedTaskId) ||
+		/\btask\s+t_[a-z0-9]{8}\s+not\s+found\b/i.test(message);
+	if (!namesTask || !normalizedMessage.includes("not found")) {
+		return false;
+	}
+	return error instanceof HermesApiError ? error.status === 404 : true;
 }
 
 export class HermesKanbanApiClient {
@@ -286,7 +311,11 @@ export class HermesKanbanApiClient {
 		}
 
 		if (!response.ok) {
-			throw new Error(await this.errorMessage(response));
+			throw new HermesApiError(
+				await this.errorMessage(response),
+				response.status,
+				response.statusText
+			);
 		}
 
 		return response.json() as Promise<T>;

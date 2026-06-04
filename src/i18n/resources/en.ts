@@ -1741,6 +1741,8 @@ export const en: TranslationTree = {
 					commands: {
 						miniCalendar: "Open mini calendar view",
 						kanban: "Open Kanban view",
+						agentRoster: "Open agent roster view",
+						hermesBoards: "Open hermes boards view",
 						tasks: "Open tasks view",
 						advancedCalendar: "Open advanced calendar view",
 						agenda: "Open agenda view",
@@ -2375,6 +2377,8 @@ export const en: TranslationTree = {
 		openAgendaView: "Open agenda view",
 		openPomodoroView: "Open Pomodoro timer",
 		openKanbanView: "Open Kanban board",
+		openAgentRosterView: "Open agent roster",
+		openHermesBoardsView: "Open hermes boards",
 		openPomodoroStats: "Open Pomodoro statistics",
 		openStatisticsView: "Open task & project statistics",
 		createNewTask: "Create new task",

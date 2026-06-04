@@ -4,9 +4,6 @@ import { FieldMapper } from "../core/FieldMapper";
 import { normalizeDependencyList, resolveDependencyEntry } from "./dependencyUtils";
 import { TaskNotesSettings } from "../types/settings";
 import { isPathInExcludedFolder, parseExcludedFolders } from "./pathExclusions";
-import { createTaskNotesLogger } from "./tasknotesLogger";
-
-const tasknotesLogger = createTaskNotesLogger({ tag: "Utils/DependencyCache" });
 
 export const EVENT_DEPENDENCY_CACHE_CHANGED = "dependency-cache-changed";
 
@@ -410,18 +407,7 @@ export class DependencyCache extends Events {
 	 * Get blocking task paths (tasks this task depends on)
 	 */
 	getBlockingTaskPaths(taskPath: string): string[] {
-		if (!this.indexesBuilt) {
-			tasknotesLogger.warn(
-				"DependencyCache: getBlockingTaskPaths called before indexes built, building now...",
-				{
-					category: "stale-data",
-					operation:
-						"dependencycache-getblockingtaskpaths-called-indexes-built-building-now",
-				}
-			);
-			// Build synchronously by reading current state
-			this.buildIndexesSync();
-		}
+		this.ensureIndexesBuilt();
 		const blocking = this.dependencySources.get(taskPath);
 		return blocking ? Array.from(blocking) : [];
 	}
@@ -430,17 +416,7 @@ export class DependencyCache extends Events {
 	 * Get blocked task paths (tasks that depend on this task)
 	 */
 	getBlockedTaskPaths(taskPath: string, options: BlockedTaskPathOptions = {}): string[] {
-		if (!this.indexesBuilt) {
-			tasknotesLogger.warn(
-				"DependencyCache: getBlockedTaskPaths called before indexes built, building now...",
-				{
-					category: "stale-data",
-					operation:
-						"dependencycache-getblockedtaskpaths-called-indexes-built-building-now",
-				}
-			);
-			this.buildIndexesSync();
-		}
+		this.ensureIndexesBuilt();
 
 		if (!options.includeCompletedSource && this.isCompletedTask(taskPath)) {
 			return [];
@@ -508,17 +484,7 @@ export class DependencyCache extends Events {
 	 * Get tasks referencing a project
 	 */
 	getTasksReferencingProject(projectPath: string): string[] {
-		if (!this.indexesBuilt) {
-			tasknotesLogger.warn(
-				"DependencyCache: getTasksReferencingProject called before indexes built, building now...",
-				{
-					category: "stale-data",
-					operation:
-						"dependencycache-gettasksreferencingproject-called-indexes-built-building-now",
-				}
-			);
-			this.buildIndexesSync();
-		}
+		this.ensureIndexesBuilt();
 		const tasks = this.projectReferences.get(projectPath);
 		return tasks ? Array.from(tasks) : [];
 	}
@@ -527,18 +493,14 @@ export class DependencyCache extends Events {
 	 * Check if a file is used as a project
 	 */
 	isFileUsedAsProject(filePath: string): boolean {
+		this.ensureIndexesBuilt();
+		return this.projectReferences.has(filePath);
+	}
+
+	private ensureIndexesBuilt(): void {
 		if (!this.indexesBuilt) {
-			tasknotesLogger.warn(
-				"DependencyCache: isFileUsedAsProject called before indexes built, building now...",
-				{
-					category: "stale-data",
-					operation:
-						"dependencycache-isfileusedasproject-called-indexes-built-building-now",
-				}
-			);
 			this.buildIndexesSync();
 		}
-		return this.projectReferences.has(filePath);
 	}
 
 	/**

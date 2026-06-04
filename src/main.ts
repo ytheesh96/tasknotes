@@ -92,6 +92,7 @@ import { HermesKanbanApiClient, getHermesTaskIdentity } from "./hermes/hermesApi
 import {
 	HERMES_DASHBOARD_START_COMMAND,
 	HermesAvailabilityService,
+	type HermesAvailabilityHealth,
 	type HermesDashboardStartResult,
 	normalizeHermesDashboardStartCommand,
 } from "./hermes/hermesAvailabilityService";
@@ -112,6 +113,9 @@ import {
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Main" });
 const HERMES_AUTO_START_COOLDOWN_MS = 5 * 60 * 1000;
+const HERMES_DASHBOARD_ENSURE_COOLDOWN_MS = 60 * 1000;
+const HERMES_DASHBOARD_ENSURE_POLL_ATTEMPTS = 8;
+const HERMES_DASHBOARD_ENSURE_POLL_INTERVAL_MS = 1000;
 
 type DailyNoteMoment = Parameters<typeof getDailyNote>[0];
 type TaskLinkDetectionServiceInstance =
@@ -120,9 +124,21 @@ type TaskLinkMatch = ReturnType<TaskLinkDetectionServiceInstance["findWikilinks"
 type SubmenuMenuItem = {
 	setSubmenu(): Menu;
 };
+interface HermesDashboardEnsureOptions {
+	showNotice?: boolean;
+	force?: boolean;
+	pollAttempts?: number;
+	pollIntervalMs?: number;
+}
 
 function getSubmenu(item: unknown): Menu {
 	return (item as SubmenuMenuItem).setSubmenu();
+}
+
+function waitForHermesDashboardPoll(intervalMs: number): Promise<void> {
+	return new Promise((resolve) => {
+		window.setTimeout(resolve, Math.max(0, intervalMs));
+	});
 }
 
 function normalizeHermesTaskIdForLookup(taskId: string): string {
@@ -152,6 +168,8 @@ export default class TaskNotesPlugin extends Plugin {
 	private hermesEventCursorByBoard = new Map<string, number>();
 	private hermesAutoStartInFlight = false;
 	private hermesAutoStartLastAttemptAt = 0;
+	private hermesDashboardEnsureInFlight: Promise<HermesDashboardStartResult> | null = null;
+	private hermesDashboardEnsureLastFailedAt = 0;
 
 	// Ready promise to signal when initialization is complete
 	private readyPromise: Promise<void>;
@@ -488,6 +506,82 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 	}
 
+	async ensureHermesDashboardRunning(
+		options: HermesDashboardEnsureOptions = {}
+	): Promise<HermesDashboardStartResult> {
+		if (this.hermesDashboardEnsureInFlight) {
+			return this.hermesDashboardEnsureInFlight;
+		}
+
+		const now = Date.now();
+		if (
+			!options.force &&
+			now - this.hermesDashboardEnsureLastFailedAt < HERMES_DASHBOARD_ENSURE_COOLDOWN_MS
+		) {
+			const service = new HermesAvailabilityService();
+			const health = await service.recheckHealth();
+			return {
+				started: false,
+				command: this.getHermesDashboardStartCommand(),
+				health,
+				message:
+					health.status === "connected"
+						? "Hermes dashboard is already running on localhost:9119."
+						: "Hermes dashboard startup was recently attempted; using cached activity while it recovers.",
+			};
+		}
+
+		this.hermesDashboardEnsureInFlight = this.ensureHermesDashboardRunningOnce(options).finally(
+			() => {
+				this.hermesDashboardEnsureInFlight = null;
+			}
+		);
+		return this.hermesDashboardEnsureInFlight;
+	}
+
+	private async ensureHermesDashboardRunningOnce(
+		options: HermesDashboardEnsureOptions
+	): Promise<HermesDashboardStartResult> {
+		const service = new HermesAvailabilityService();
+		const result = await service.startDashboard(this.getHermesDashboardStartCommand());
+		const finalResult = await this.pollHermesDashboardAfterStart(service, result, options);
+
+		if (finalResult.error || !this.isHermesDashboardUsable(finalResult.health)) {
+			this.hermesDashboardEnsureLastFailedAt = Date.now();
+		}
+		if (options.showNotice ?? false) {
+			this.showHermesDashboardStartNotice(finalResult);
+		}
+		return finalResult;
+	}
+
+	private async pollHermesDashboardAfterStart(
+		service: HermesAvailabilityService,
+		result: HermesDashboardStartResult,
+		options: HermesDashboardEnsureOptions
+	): Promise<HermesDashboardStartResult> {
+		if (!result.started || this.isHermesDashboardUsable(result.health) || result.error) {
+			return result;
+		}
+
+		const attempts = options.pollAttempts ?? HERMES_DASHBOARD_ENSURE_POLL_ATTEMPTS;
+		const intervalMs = options.pollIntervalMs ?? HERMES_DASHBOARD_ENSURE_POLL_INTERVAL_MS;
+		let latestHealth = result.health;
+		for (let attempt = 0; attempt < attempts; attempt++) {
+			await waitForHermesDashboardPoll(intervalMs);
+			latestHealth = await service.recheckHealth();
+			if (this.isHermesDashboardUsable(latestHealth)) {
+				return { ...result, health: latestHealth };
+			}
+		}
+
+		return { ...result, health: latestHealth };
+	}
+
+	private isHermesDashboardUsable(health: HermesAvailabilityHealth): boolean {
+		return health.status === "connected" && health.mode === "live";
+	}
+
 	private startHermesManagedTaskSync(): void {
 		if (this.hermesManagedTaskSyncStarted) {
 			return;
@@ -517,7 +611,7 @@ export default class TaskNotesPlugin extends Plugin {
 			const tasks = await this.cacheManager.getAllTasks();
 			await this.refreshHermesEventStreams(tasks);
 			const result = await syncHermesManagedTasksFromHermes(this, { tasks });
-			if (result.updated > 0 || result.failed > 0) {
+			if (result.updated > 0 || result.deleted > 0 || result.failed > 0) {
 				tasknotesLogger.debug("Hermes managed task sync completed", {
 					category: "provider",
 					operation: "hermes-managed-task-sync",

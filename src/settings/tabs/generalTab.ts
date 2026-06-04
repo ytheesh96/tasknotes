@@ -269,6 +269,16 @@ export function renderGeneralTab(
 			defaultPath: "TaskNotes/Views/kanban-default.base",
 		},
 		{
+			id: "open-agent-roster-view",
+			nameKey: "agentRoster" as const,
+			defaultPath: "TaskNotes/Views/agent-roster.base",
+		},
+		{
+			id: "open-hermes-boards-view",
+			nameKey: "hermesBoards" as const,
+			defaultPath: "TaskNotes/Views/hermes-boards.base",
+		},
+		{
 			id: "open-tasks-view",
 			nameKey: "tasks" as const,
 			defaultPath: "TaskNotes/Views/tasks-default.base",

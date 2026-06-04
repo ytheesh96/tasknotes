@@ -1,5 +1,9 @@
 import { requestUrl } from "obsidian";
-import { HermesKanbanApiClient, getHermesTaskIdentity } from "../../../src/hermes/hermesApiClient";
+import {
+	HermesApiError,
+	HermesKanbanApiClient,
+	getHermesTaskIdentity,
+} from "../../../src/hermes/hermesApiClient";
 import type { TaskInfo } from "../../../src/types";
 
 describe("HermesKanbanApiClient", () => {
@@ -155,6 +159,12 @@ describe("HermesKanbanApiClient", () => {
 		await expect(
 			api.updateTask({ board: "default", id: "t_bad" }, { status: "running" })
 		).rejects.toThrow("Cannot set status to running");
+		await expect(
+			api.updateTask({ board: "default", id: "t_bad" }, { status: "running" })
+		).rejects.toMatchObject({
+			name: "HermesApiError",
+			status: 400,
+		} satisfies Partial<HermesApiError>);
 	});
 
 	it("discovers the dashboard session token and retries unauthorized requests", async () => {

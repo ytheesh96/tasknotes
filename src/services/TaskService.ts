@@ -66,7 +66,11 @@ import {
 } from "./task-service/taskBlockingRelationships";
 import { resolveTaskPropertyFrontmatterField } from "./task-service/taskPropertyFrontmatterField";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
-import { getHermesTaskIdentity } from "../hermes/hermesApiClient";
+import {
+	HermesKanbanApiClient,
+	getHermesTaskIdentity,
+	isHermesTaskNotFoundError,
+} from "../hermes/hermesApiClient";
 import { HermesWriteGuard } from "../hermes/hermesWriteGuard";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/TaskService" });
@@ -955,8 +959,7 @@ export class TaskService {
 			}
 
 			if (this.isHermesManagedTask(task)) {
-				await this.archiveHermesManagedTaskFromDelete(task);
-				return;
+				await this.deleteHermesManagedTaskFromKanban(task);
 			}
 
 			// Delete from Google Calendar first (before file deletion, so we have the event ID)
@@ -1022,16 +1025,20 @@ export class TaskService {
 		return getHermesTaskIdentity(task) !== null;
 	}
 
-	private async archiveHermesManagedTaskFromDelete(task: TaskInfo): Promise<void> {
-		const archiveTag = this.plugin.fieldMapper.getMapping().archiveTag;
-		const currentTags = Array.isArray(task.tags) ? task.tags : [];
-		if (task.archived || currentTags.includes(archiveTag)) {
+	private async deleteHermesManagedTaskFromKanban(task: TaskInfo): Promise<void> {
+		const identity = getHermesTaskIdentity(task);
+		if (!identity) {
 			return;
 		}
 
-		await this.updateTask(task, {
-			tags: [...currentTags, archiveTag],
-		});
+		try {
+			await new HermesKanbanApiClient().deleteTask(identity);
+		} catch (error) {
+			if (isHermesTaskNotFoundError(error, identity.id)) {
+				return;
+			}
+			throw error;
+		}
 	}
 
 	/**

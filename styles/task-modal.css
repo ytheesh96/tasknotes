@@ -462,12 +462,14 @@
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card {
+    background-color: transparent;
+    border: none;
     flex: 1 1 auto;
     width: 100%;
     min-width: 0;
     margin-bottom: 0;
     padding: var(--size-2-3) var(--size-4-2);
-    border-radius: var(--radius-s);
+    border-radius: 0;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card .task-card__main-row {
@@ -491,7 +493,7 @@
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-card--openable:hover {
-    border-color: var(--background-modifier-border-hover);
+    background-color: var(--background-modifier-hover);
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-card--openable:focus-visible {
@@ -504,6 +506,11 @@
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-activity-card--status .tn-task-modal__hermes-activity-title {
+    color: var(--text-muted);
+    font-weight: 500;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-activity-time {
@@ -623,14 +630,42 @@
     margin: var(--size-2-2) 0 var(--size-4-2);
 }
 
-.tasknotes-plugin .tn-task-modal__hermes-run-chip,
-.tasknotes-plugin .tn-task-modal__hermes-pinned-label {
+.tasknotes-plugin .tn-task-modal__hermes-run-chip {
     border: 1px solid var(--background-modifier-border);
     border-radius: 999px;
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     line-height: 1.2;
     padding: 2px 7px;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-pinned-label.task-card__metadata-pill {
+    background: transparent;
+    border-color: var(--background-modifier-border);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    padding: 1px 7px;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-pill.task-card__metadata-pill {
+    background: transparent;
+    font-size: var(--font-ui-smaller);
+    padding: 1px 7px;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-pill--success {
+    border-color: rgba(var(--color-green-rgb), 0.45);
+    color: var(--color-green);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-pill--warning {
+    border-color: rgba(var(--color-yellow-rgb), 0.45);
+    color: var(--color-yellow);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-status-pill--danger {
+    border-color: rgba(var(--color-red-rgb), 0.45);
+    color: var(--color-red);
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-run-chip--success {
@@ -649,8 +684,7 @@
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-review-card--pinned.task-card {
-    border-left: 3px solid var(--color-yellow);
-    background: var(--background-secondary-alt);
+    background-color: transparent;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-list {
@@ -671,19 +705,15 @@
     overflow-y: auto;
 }
 
-.tasknotes-plugin .tn-task-modal__hermes-thread-card {
-    display: grid;
-    grid-template-columns: 22px minmax(0, 1fr);
-    gap: var(--size-2-1);
-    padding: var(--size-2-2) var(--size-4-2);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s);
-    background: var(--background-secondary);
+.tasknotes-plugin .tn-task-modal__hermes-thread-card.task-card {
+    background-color: transparent;
+    border: none;
+    display: flex;
+    padding: var(--size-2-3) var(--size-4-2);
 }
 
-.tasknotes-plugin .tn-task-modal__hermes-thread-card--structured {
-    border-left: 3px solid var(--background-modifier-border-focus);
-    background: var(--background-secondary-alt);
+.tasknotes-plugin .tn-task-modal__hermes-thread-card--structured.task-card {
+    background-color: transparent;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-card--openable {
@@ -691,116 +721,12 @@
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-card--openable:hover {
-    border-color: var(--background-modifier-border-hover);
+    background-color: var(--background-modifier-hover);
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-card--openable:focus-visible {
     outline: 2px solid var(--interactive-accent);
     outline-offset: 2px;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-thread-card--warning,
-.tasknotes-plugin .tn-task-modal__hermes-thread-card--blocked {
-    border-left-color: var(--color-yellow);
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-thread-card--danger {
-    border-left-color: var(--color-red);
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-thread-card--success {
-    border-left-color: var(--color-green);
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-item {
-    align-items: flex-start;
-    display: grid;
-    grid-template-columns: 22px minmax(0, 1fr);
-    gap: var(--size-2-1);
-    padding: var(--size-2-1) var(--size-4-2);
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-indicator {
-    background: var(--text-faint);
-    border-radius: 50%;
-    box-shadow: 0 0 0 2px var(--background-primary);
-    height: 10px;
-    margin-top: 5px;
-    width: 10px;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-item--success .tn-task-modal__hermes-status-indicator {
-    background: var(--color-green);
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-item--warning .tn-task-modal__hermes-status-indicator {
-    background: var(--color-yellow);
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-item--danger .tn-task-modal__hermes-status-indicator {
-    background: var(--color-red);
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-content {
-    min-width: 0;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-line {
-    align-items: baseline;
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--size-2-1);
-    line-height: 1.2;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-label {
-    color: var(--text-muted);
-    font-size: var(--font-ui-small);
-    font-weight: 600;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-summary {
-    color: var(--text-muted);
-    display: -webkit-box;
-    font-size: var(--font-ui-small);
-    line-height: 1.35;
-    margin-top: 1px;
-    min-width: 0;
-    overflow: hidden;
-    overflow-wrap: anywhere;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-meta {
-    color: var(--text-faint);
-    font-size: var(--font-ui-smaller);
-    white-space: nowrap;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-details {
-    display: flex;
-    flex-flow: row wrap;
-    gap: 2px var(--size-4-2);
-    margin-top: 1px;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-details .tn-task-modal__hermes-activity-detail-row {
-    display: flex;
-    gap: var(--size-2-1);
-    line-height: 1.2;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-details .tn-task-modal__hermes-activity-detail-label::after {
-    content: ":";
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-status-body {
-    color: var(--text-muted);
-    font-size: var(--font-ui-smaller);
-    line-height: 1.3;
-    margin-top: 1px;
-    -webkit-line-clamp: 2;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-thread-structured {
@@ -826,31 +752,6 @@
     margin-top: var(--size-2-1);
 }
 
-.tasknotes-plugin .tn-task-modal__hermes-thread-avatar {
-    align-items: center;
-    background: var(--background-modifier-hover);
-    border-radius: 50%;
-    color: var(--text-muted);
-    display: flex;
-    font-size: var(--font-ui-smaller);
-    font-weight: 700;
-    height: 22px;
-    justify-content: center;
-    width: 22px;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-thread-header {
-    color: var(--text-faint);
-    font-size: var(--font-ui-smaller);
-    line-height: 1.2;
-    margin-bottom: 1px;
-}
-
-.tasknotes-plugin .tn-task-modal__hermes-thread-author {
-    color: var(--text-muted);
-    font-weight: 600;
-}
-
 .tasknotes-plugin .tn-task-modal__hermes-thread-body {
     color: var(--text-normal);
     font-size: var(--font-ui-small);
@@ -867,21 +768,15 @@
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-composer {
-    background: color-mix(in srgb, var(--background-primary) 88%, var(--interactive-accent) 12%);
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, var(--interactive-accent) 28%);
-    border-radius: var(--radius-m);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    background: transparent;
+    border-top: 1px solid var(--background-modifier-border);
     flex: 0 0 auto;
     margin-top: var(--size-4-2);
-    padding: var(--size-2-2);
-    position: relative;
+    padding: var(--size-4-2) 0 0;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-composer:focus-within {
-    border-color: color-mix(in srgb, var(--interactive-accent) 60%, var(--background-modifier-border) 40%);
-    box-shadow:
-        0 0 0 1px color-mix(in srgb, var(--interactive-accent) 40%, transparent),
-        0 10px 26px rgba(0, 0, 0, 0.2);
+    border-top-color: var(--background-modifier-border-focus);
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-earlier-activity {
@@ -1005,33 +900,42 @@
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-comment-input {
-    background: transparent;
-    border: none;
-    box-shadow: none;
     box-sizing: border-box;
     display: block;
     margin-bottom: 0;
-    min-height: 84px;
-    padding: var(--size-2-1) 76px 34px var(--size-2-1);
+    min-height: 72px;
     resize: vertical;
     width: 100%;
     max-width: 100%;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-comment-input:focus {
-    box-shadow: none;
-    outline: none;
+    border-color: var(--background-modifier-border-focus);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-composer-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--size-2-1);
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-send-button {
-    bottom: 10px;
-    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
     height: 28px;
-    line-height: 1;
     min-height: 28px;
-    padding: 0 12px;
-    position: absolute;
-    right: 10px;
+    min-width: 28px;
+    padding: 4px;
+    width: 28px;
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-send-button:hover,
+.tasknotes-plugin .tn-task-modal__hermes-send-button:focus-visible {
+    color: var(--text-normal);
+}
+
+.tasknotes-plugin .tn-task-modal__hermes-send-button svg {
+    height: 16px;
+    width: 16px;
 }
 
 .tasknotes-plugin .tn-task-modal__hermes-comment-input--hidden {

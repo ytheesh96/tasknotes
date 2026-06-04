@@ -1,11 +1,13 @@
+import { TFile } from "obsidian";
 import type TaskNotesPlugin from "../main";
-import { EVENT_TASK_UPDATED, type TaskInfo } from "../types";
+import { EVENT_TASK_DELETED, EVENT_TASK_UPDATED, type TaskInfo } from "../types";
 import {
 	HermesKanbanApiClient,
 	type HermesTaskIdentity,
 	type HermesTaskDetailResponse,
 	type HermesTaskRecord,
 	getHermesTaskIdentity,
+	isHermesTaskNotFoundError,
 } from "./hermesApiClient";
 import {
 	buildHermesActivitySnapshot,
@@ -36,11 +38,14 @@ type HermesMirrorWriter = (
 	}
 ) => Promise<{ taskInfo: TaskInfo }>;
 
+type HermesLocalTaskDeleter = (plugin: TaskNotesPlugin, task: TaskInfo) => Promise<void>;
+
 export interface HermesManagedTaskSyncResult {
 	boardsChecked: number;
 	tasksSeen: number;
 	tasksChecked: number;
 	updated: number;
+	deleted: number;
 	skipped: number;
 	failed: number;
 }
@@ -63,6 +68,7 @@ export async function syncHermesManagedTasksFromHermes(
 		api?: HermesTaskSyncApi;
 		tasks?: readonly TaskInfo[];
 		mirrorWriter?: HermesMirrorWriter;
+		localTaskDeleter?: HermesLocalTaskDeleter;
 	} = {}
 ): Promise<HermesManagedTaskSyncResult> {
 	const result: HermesManagedTaskSyncResult = {
@@ -70,6 +76,7 @@ export async function syncHermesManagedTasksFromHermes(
 		tasksSeen: 0,
 		tasksChecked: 0,
 		updated: 0,
+		deleted: 0,
 		skipped: 0,
 		failed: 0,
 	};
@@ -77,6 +84,7 @@ export async function syncHermesManagedTasksFromHermes(
 	const tasksByBoard = getHermesManagedTasksByBoard(tasks);
 	const api = options.api ?? new HermesKanbanApiClient();
 	const mirrorWriter = options.mirrorWriter ?? createOrUpdateHermesMirrorNote;
+	const localTaskDeleter = options.localTaskDeleter ?? deleteLocalHermesMirrorNote;
 
 	for (const [board, localTasksById] of tasksByBoard.entries()) {
 		result.tasksSeen += localTasksById.size;
@@ -136,7 +144,17 @@ export async function syncHermesManagedTasksFromHermes(
 
 		for (const id of localTasksById.keys()) {
 			if (!remoteTasksById.has(id)) {
-				result.skipped += 1;
+				const localTask = localTasksById.get(id);
+				if (!localTask) {
+					result.skipped += 1;
+					continue;
+				}
+				try {
+					await localTaskDeleter(plugin, localTask);
+					result.deleted += 1;
+				} catch {
+					result.failed += 1;
+				}
 			}
 		}
 	}
@@ -151,6 +169,7 @@ export async function syncHermesManagedTaskFromHermes(
 		api?: Pick<HermesKanbanApiClient, "getTask">;
 		localTask?: TaskInfo | null;
 		mirrorWriter?: HermesMirrorWriter;
+		localTaskDeleter?: HermesLocalTaskDeleter;
 	} = {}
 ): Promise<boolean> {
 	const path = `TaskNotes/${identity.board}/${identity.id}.md`;
@@ -159,7 +178,16 @@ export async function syncHermesManagedTaskFromHermes(
 		return false;
 	}
 	const api = options.api ?? new HermesKanbanApiClient();
-	const detail = await api.getTask(identity);
+	let detail: HermesTaskDetailResponse;
+	try {
+		detail = await api.getTask(identity);
+	} catch (error) {
+		if (localTask && isHermesTaskNotFoundError(error, identity.id)) {
+			await (options.localTaskDeleter ?? deleteLocalHermesMirrorNote)(plugin, localTask);
+			return true;
+		}
+		throw error;
+	}
 	if (!detail.task) {
 		return false;
 	}
@@ -269,6 +297,23 @@ function triggerHermesTaskUpdated(
 		path: updatedTask.path,
 		...(originalTask ? { originalTask } : {}),
 		updatedTask,
+	});
+}
+
+async function deleteLocalHermesMirrorNote(plugin: TaskNotesPlugin, task: TaskInfo): Promise<void> {
+	const file = plugin.app.vault.getAbstractFileByPath(task.path);
+	if (!(file instanceof TFile)) {
+		throw new Error(`Cannot find task file: ${task.path}`);
+	}
+	await plugin.app.fileManager.trashFile(file);
+	plugin.cacheManager.clearCacheEntry(task.path);
+	triggerHermesTaskDeleted(plugin, task);
+}
+
+function triggerHermesTaskDeleted(plugin: TaskNotesPlugin, deletedTask: TaskInfo): void {
+	plugin.emitter.trigger(EVENT_TASK_DELETED, {
+		path: deletedTask.path,
+		deletedTask,
 	});
 }
 

@@ -51,6 +51,32 @@ describe("defaultBasesFiles", () => {
 		expect(template).toContain("groupBy:\n      property: status");
 	});
 
+	it("generates an agent roster base template", () => {
+		const template = generateBasesFileTemplate(
+			"open-agent-roster-view",
+			createMockPlugin() as any
+		);
+
+		expect(template).toContain('name: "Agent Roster"');
+		expect(template).toContain("type: tasknotesAgentRoster");
+		expect(template).toContain("agentProperty: assignee");
+		expect(template).toContain("boardProperty: projects");
+		expect(template).toContain("submitTag: hermes-submit");
+	});
+
+	it("generates a dedicated Hermes boards base template", () => {
+		const template = generateBasesFileTemplate(
+			"open-hermes-boards-view",
+			createMockPlugin() as any
+		);
+
+		expect(template).toContain('name: "Hermes Boards"');
+		expect(template).toContain("type: tasknotesHermesBoards");
+		expect(template).toContain("boardProperty: projects");
+		expect(template).toContain("agentProperty: contexts");
+		expect(template).toContain("doneStatuses: done,completed");
+	});
+
 	it("adds a dedicated manual-order task list view while preserving urgency views", () => {
 		const template = generateBasesFileTemplate("open-tasks-view", createMockPlugin() as any);
 

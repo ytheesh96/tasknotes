@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { Modal, type App } from "obsidian";
-import { HermesKanbanApiClient } from "../../../src/hermes/hermesApiClient";
+import { HermesApiError, HermesKanbanApiClient } from "../../../src/hermes/hermesApiClient";
 import {
 	HERMES_DASHBOARD_START_COMMAND,
 	HermesAvailabilityService,
@@ -119,8 +119,8 @@ function createHermesTask(): TaskInfo {
 	} as TaskInfo;
 }
 
-function createPlugin(app: App) {
-	return {
+function createPlugin(app: App, overrides: Record<string, unknown> = {}) {
+	const plugin = {
 		app,
 		i18n: {
 			translate: (key: string) => key,
@@ -155,8 +155,19 @@ function createPlugin(app: App) {
 			startHermesDashboard: jest.fn(async () =>
 				new HermesAvailabilityService().startDashboard()
 			),
+			ensureHermesDashboardRunning: jest.fn(
+				async (options?: { force?: boolean }) =>
+					options?.force
+						? new HermesAvailabilityService().startDashboard()
+						: {
+								started: false,
+								command: HERMES_DASHBOARD_START_COMMAND,
+								health: await new HermesAvailabilityService().recheckHealth(),
+							}
+			),
 		};
-	}
+	return Object.assign(plugin, overrides);
+}
 
 describe("TaskEditModal Hermes activity layout", () => {
 	beforeEach(() => {
@@ -400,8 +411,18 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(rightColumn.textContent).toContain("orchestrator");
 		expect(rightColumn.querySelector(".tn-task-modal__hermes-composer")).not.toBeNull();
 		expect(
+			rightColumn.querySelector(".tn-task-modal__hermes-composer .modal-form__input")
+		).not.toBeNull();
+		expect(
 			rightColumn.querySelector(".tn-task-modal__hermes-composer button[aria-label='Send comment']")
 		).not.toBeNull();
+		expect(
+			rightColumn
+				.querySelector(".tn-task-modal__hermes-composer button[aria-label='Send comment']")
+				?.classList.contains("clickable-icon")
+		).toBe(true);
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-thread-card.task-card")).not.toBeNull();
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-thread-avatar")).toBeNull();
 		expect(rightColumn.textContent).toContain("Event payload summary");
 		expect(rightColumn.textContent).not.toContain("Status update");
 		expect(rightColumn.textContent).not.toContain("Run history");
@@ -522,7 +543,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		modal.renderAdditionalSections(leftColumn);
 
 		const card = rightColumn.querySelector<HTMLElement>(
-			".tn-task-modal__hermes-status-item"
+			".tn-task-modal__hermes-activity-card--status.task-card"
 		);
 		expect(card).not.toBeNull();
 		expect(card!.textContent).toContain("Event payload summary");
@@ -609,10 +630,10 @@ describe("TaskEditModal Hermes activity layout", () => {
 		});
 
 		modal.renderAdditionalSections(leftColumn);
-		await Promise.resolve();
-		await Promise.resolve();
+		await flushPromises();
 
-		expect(rightColumn.textContent).toContain("orchestrator - 5 mins ago");
+		expect(rightColumn.textContent).toContain("orchestrator");
+		expect(rightColumn.textContent).toContain("5 mins ago");
 		expect(rightColumn.textContent).toContain("1 hour ago");
 		expect(rightColumn.textContent).toContain("now");
 		expect(detailsContainer.textContent).not.toContain("Jun");
@@ -688,7 +709,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		)!;
 		expect(earlierButton.textContent).toBe("Show earlier activity (1)");
 		expect(earlierList.hidden).toBe(true);
-		expect(threadList.querySelector(".tn-task-modal__hermes-status-indicator")).not.toBeNull();
+		expect(threadList.querySelector(".tn-task-modal__hermes-status-indicator")).toBeNull();
 		expect(threadList.textContent).not.toContain("Status update");
 
 		const visibleCards = Array.from(threadList.children).filter(
@@ -702,10 +723,10 @@ describe("TaskEditModal Hermes activity layout", () => {
 			"Completed refresh-failure regression."
 		);
 		expect(
-			visibleCards[visibleCards.length - 2].classList.contains(
-				"tn-task-modal__hermes-status-item--success"
+			visibleCards[visibleCards.length - 2].querySelector(
+				".tn-task-modal__hermes-activity-card--status.task-card"
 			)
-		).toBe(true);
+		).not.toBeNull();
 		expect(visibleCards[visibleCards.length - 2].textContent).not.toContain("Run");
 		expect(visibleCards[0].textContent).not.toContain("Oldest status update.");
 
@@ -758,11 +779,14 @@ describe("TaskEditModal Hermes activity layout", () => {
 		});
 
 		modal.renderAdditionalSections(leftColumn);
-		await Promise.resolve();
-		await Promise.resolve();
+		await flushPromises();
 
 		expect(rightColumn.textContent).toContain("Completed");
 		expect(rightColumn.textContent).toContain("Root triage/synthesis is complete.");
+		expect(rightColumn.textContent).toContain("+Hermes/default");
+		expect(
+			rightColumn.querySelector(".tn-task-modal__hermes-status-pill--success")
+		).not.toBeNull();
 		expect(rightColumn.textContent).toContain("Result length");
 		expect(rightColumn.textContent).toContain("0");
 		expect(rightColumn.textContent).toContain("Changed files");
@@ -815,8 +839,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		});
 
 		modal.renderAdditionalSections(leftColumn);
-		await Promise.resolve();
-		await Promise.resolve();
+		await flushPromises();
 
 		const pinnedCard = rightColumn.querySelector<HTMLElement>(
 			".tn-task-modal__hermes-review-card--pinned"
@@ -827,6 +850,13 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(pinnedCard!.getAttribute("aria-haspopup")).toBe("dialog");
 		expect(pinnedCard!.getAttribute("aria-expanded")).toBeNull();
 		expect(pinnedCard!.textContent).toContain("Review required");
+		expect(pinnedCard!.textContent).toContain("+Hermes/default");
+		expect(pinnedCard!.querySelector(".task-card__metadata-property--projects")?.textContent).toBe(
+			"+Hermes/default"
+		);
+		expect(pinnedCard!.querySelector(".context-tag")?.textContent).toBe("@peacock");
+		expect(pinnedCard!.textContent).toContain("1 day ago");
+		expect(pinnedCard!.textContent).toContain("Pinned");
 		expect(pinnedCard!.textContent).toContain("Changed files");
 		expect(pinnedCard!.textContent).toContain("1 file");
 		expect(pinnedCard!.textContent).toContain("Tests run");
@@ -911,7 +941,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 
 		localArtifact!.click();
 		remoteArtifact!.click();
-		await Promise.resolve();
+		await flushPromises();
 		expect(plugin.openHermesArtifactPath).toHaveBeenCalledWith("/tmp/review.md");
 		expect(plugin.openHermesArtifactPath).toHaveBeenCalledWith(
 			"https://example.com/review.pdf"
@@ -948,10 +978,14 @@ describe("TaskEditModal Hermes activity layout", () => {
 			".tn-task-modal__hermes-thread-card:not(.tn-task-modal__hermes-thread-card--structured)"
 		);
 		expect(plainComment).not.toBeNull();
-		expect(plainComment!.textContent).toContain("yt");
+		expect(plainComment!.classList.contains("task-card")).toBe(true);
+			expect(plainComment!.textContent).toContain("yt");
+			expect(plainComment!.textContent).toContain("+Hermes/default");
+			expect(plainComment!.querySelector(".context-tag")?.textContent).toBe("@yt");
 		expect(plainComment!.textContent).toContain("Looks good to me — no Hermes payload here.");
 		expect(plainComment!.textContent).not.toContain("View raw");
 		expect(plainComment!.querySelector(".tn-task-modal__hermes-activity-action")).toBeNull();
+		expect(plainComment!.querySelector(".tn-task-modal__hermes-thread-avatar")).toBeNull();
 	});
 
 	it("renders non-pinned handoff comments as structured cards with raw content collapsed", async () => {
@@ -997,6 +1031,8 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(structuredCard).not.toBeNull();
 		expect(structuredCard!.querySelector(".tn-task-modal__hermes-review-badge")).toBeNull();
 		expect(structuredCard!.textContent).toContain("Agent handoff");
+		expect(structuredCard!.textContent).toContain("+Hermes/default");
+		expect(structuredCard!.querySelector(".context-tag")?.textContent).toBe("@peacock");
 		expect(structuredCard!.textContent).toContain("Implementation is ready for QA.");
 		expect(structuredCard!.textContent).not.toContain("Run");
 		expect(structuredCard!.textContent).not.toContain("139");
@@ -1030,7 +1066,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		).find((action) => action.textContent?.includes("tasknotes-hermes.diff"));
 		expect(diffAction).not.toBeUndefined();
 		diffAction!.click();
-		await Promise.resolve();
+		await flushPromises();
 		expect(plugin.openHermesArtifactPath).toHaveBeenCalledWith("/tmp/tasknotes-hermes.diff");
 
 		structuredCard!.querySelector<HTMLButtonElement>(".tn-task-modal__hermes-raw-toggle")!.click();
@@ -1070,8 +1106,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		});
 
 		modal.renderAdditionalSections(leftColumn);
-		await Promise.resolve();
-		await Promise.resolve();
+		await flushPromises();
 
 		const pinnedCard = rightColumn.querySelector<HTMLElement>(
 			".tn-task-modal__hermes-review-card--pinned"
@@ -1122,8 +1157,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		});
 
 		modal.renderAdditionalSections(leftColumn);
-		await Promise.resolve();
-		await Promise.resolve();
+		await flushPromises();
 
 		const actions = Array.from(
 			rightColumn.querySelectorAll<HTMLButtonElement>(
@@ -1140,7 +1174,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 
 		artifactAction!.click();
 		taskAction!.click();
-		await Promise.resolve();
+		await flushPromises();
 
 		expect(plugin.openHermesArtifactPath).toHaveBeenCalledWith(
 			"/Users/yt/Documents/Obsidian/30 Projects/demo/artifact.html"
@@ -1162,11 +1196,10 @@ describe("TaskEditModal Hermes activity layout", () => {
 			runs: [],
 			events: [],
 		};
-		const getTask = jest
-			.spyOn(HermesKanbanApiClient.prototype, "getTask")
-			.mockResolvedValueOnce(initialDetail)
-			.mockResolvedValueOnce(initialDetail)
-			.mockResolvedValue(refreshedDetail);
+			const getTask = jest
+				.spyOn(HermesKanbanApiClient.prototype, "getTask")
+				.mockResolvedValueOnce(initialDetail)
+				.mockResolvedValue(refreshedDetail);
 		const addComment = jest
 			.spyOn(HermesKanbanApiClient.prototype, "addComment")
 			.mockResolvedValue(undefined);
@@ -1292,6 +1325,40 @@ describe("TaskEditModal Hermes activity layout", () => {
 			).toBe(false);
 		});
 
+	it("treats missing live Hermes tasks as stale local mirrors without warning", async () => {
+		jest.spyOn(HermesAvailabilityService.prototype, "recheckHealth").mockResolvedValue(
+			hermesHealth({ status: "connected", mode: "live", canStart: true })
+		);
+		const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+		jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockRejectedValue(
+			new HermesApiError("task t_activity not found", 404, "Not Found")
+		);
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const task = createHermesTask();
+		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+			task,
+		});
+		modal.setFormStateForTest(task);
+		modal.renderContentForTest();
+
+		await flushPromises();
+
+		const footer = getHermesFooter(modal);
+		expect(footer.textContent).toContain("Hermes degraded");
+		expect(footer.textContent).toContain("Degraded");
+		expect(footer.textContent).toContain("cache-only");
+		expect(modal.contentEl.textContent).toContain("Activity (cache-only)");
+		expect(
+			modal.contentEl.querySelector<HTMLTextAreaElement>(".tn-task-modal__hermes-comment-input")
+				?.disabled
+		).toBe(true);
+		expect(
+			warn.mock.calls.some((call) =>
+				call.some((value) => String(value).includes("Failed to load Hermes activity"))
+			)
+		).toBe(false);
+	});
+
 	it("labels cached Hermes mirrors, disables live controls, and offers desktop startup when disconnected", async () => {
 		jest.spyOn(HermesAvailabilityService.prototype, "recheckHealth").mockResolvedValue(
 			hermesHealth({
@@ -1301,7 +1368,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 				message: "Hermes dashboard is not reachable at http://127.0.0.1:9119/.",
 			})
 		);
-		jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockRejectedValue(
+		const getTask = jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockRejectedValue(
 			new Error("offline")
 			);
 			const app = MockObsidian.createMockApp() as unknown as App;
@@ -1331,14 +1398,58 @@ describe("TaskEditModal Hermes activity layout", () => {
 				modal.contentEl.querySelector<HTMLButtonElement>("button[aria-label='Send comment']")
 					?.disabled
 			).toBe(true);
+			expect(getTask).not.toHaveBeenCalled();
 		});
 
+	it("auto-starts Hermes before loading live activity when disconnected on open", async () => {
+		jest.spyOn(HermesAvailabilityService.prototype, "recheckHealth").mockResolvedValue(
+			hermesHealth({
+				status: "disconnected",
+				mode: "cache-only",
+				canStart: true,
+				message: "Hermes dashboard is not reachable at http://127.0.0.1:9119/.",
+			})
+		);
+		const ensureHermesDashboardRunning = jest.fn(async () => ({
+			started: true,
+			pid: 123,
+			command: HERMES_DASHBOARD_START_COMMAND,
+			health: hermesHealth({ status: "connected", mode: "live", canStart: true }),
+		}));
+		const getTask = jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockResolvedValue({
+			task: null,
+			comments: [{ author: "peacock", body: "Live after auto-start", created_at: 1780430000 }],
+			runs: [],
+			events: [],
+		});
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const task = createHermesTask();
+		const modal = new TestTaskEditModal(
+			app,
+			createPlugin(app, { ensureHermesDashboardRunning }) as never,
+			{ task }
+		);
+		modal.setFormStateForTest(task);
+		modal.renderContentForTest();
+
+		await flushPromises();
+		await flushPromises();
+
+		expect(ensureHermesDashboardRunning).toHaveBeenCalledWith({ showNotice: false });
+		expect(getTask).toHaveBeenCalledWith({ board: "default", id: "t_activity" });
+		expect(modal.contentEl.textContent).toContain("Hermes live");
+		expect(modal.contentEl.textContent).toContain("Live after auto-start");
+	});
+
 	it("starts Hermes from the modal, rechecks health, and reloads live activity", async () => {
+		const disconnectedHealth = hermesHealth({
+			status: "disconnected",
+			mode: "cache-only",
+			canStart: true,
+		});
 		const recheckHealth = jest
 			.spyOn(HermesAvailabilityService.prototype, "recheckHealth")
-			.mockResolvedValueOnce(
-				hermesHealth({ status: "disconnected", mode: "cache-only", canStart: true })
-			)
+			.mockResolvedValueOnce(disconnectedHealth)
 			.mockResolvedValue(hermesHealth({ status: "connected", mode: "live", canStart: true }));
 		const startDashboard = jest.spyOn(HermesAvailabilityService.prototype, "startDashboard").mockResolvedValue({
 			started: true,
@@ -1352,21 +1463,36 @@ describe("TaskEditModal Hermes activity layout", () => {
 			runs: [],
 			events: [],
 			});
-			const app = MockObsidian.createMockApp() as unknown as App;
-			const task = createHermesTask();
-			const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
-				task,
-			});
-			modal.setFormStateForTest(task);
-			modal.renderContentForTest();
-			await flushPromises();
+			const ensureHermesDashboardRunning = jest.fn(async (options?: { force?: boolean }) =>
+				options?.force
+					? new HermesAvailabilityService().startDashboard()
+					: {
+							started: false,
+							command: HERMES_DASHBOARD_START_COMMAND,
+							health: disconnectedHealth,
+						}
+			);
+				const app = MockObsidian.createMockApp() as unknown as App;
+				const task = createHermesTask();
+				const modal = new TestTaskEditModal(
+					app,
+					createPlugin(app, { ensureHermesDashboardRunning }) as never,
+					{ task }
+				);
+				modal.setFormStateForTest(task);
+				modal.renderContentForTest();
+				await flushPromises();
 
-			const footer = getHermesFooter(modal);
+				const footer = getHermesFooter(modal);
 			footer.querySelector<HTMLButtonElement>("button[aria-label='Start Hermes dashboard']")!.click();
 			await flushPromises();
 
-			expect(startDashboard).toHaveBeenCalledTimes(1);
-			expect(recheckHealth).toHaveBeenCalledTimes(2);
+				expect(startDashboard).toHaveBeenCalledTimes(1);
+				expect(ensureHermesDashboardRunning).toHaveBeenCalledWith({
+					showNotice: false,
+					force: true,
+				});
+				expect(recheckHealth).toHaveBeenCalledTimes(2);
 			expect(getTask).toHaveBeenCalled();
 			expect(footer.textContent).toContain("Hermes live");
 			expect(modal.contentEl.textContent).toContain("Live comment");
@@ -1412,27 +1538,26 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(specificThreadListBlock).toContain("overflow-y: auto");
 		expect(specificThreadListBlock).toContain("overflow-x: hidden");
 		expect(composerBlock).toContain("flex: 0 0 auto");
+		expect(composerBlock).toContain("background: transparent");
+		expect(composerBlock).toContain("border-top: 1px solid var(--background-modifier-border)");
+		expect(composerBlock).not.toContain("box-shadow");
 		expect(detailsEditorBlock).toContain("flex: 0 0 auto");
 		expect(detailsEditorBlock).toContain("max-height: min(40vh, 360px)");
 	});
 
-	it("styles status updates as compact log rows", () => {
+	it("styles Hermes activity as TaskNotes task-card rows", () => {
 		const cssContent = fs.readFileSync(cssFilePath, "utf-8");
-		const statusItemBlock = extractCssBlock(
-			cssContent,
-			".tasknotes-plugin .tn-task-modal__hermes-status-item"
-		);
-		const statusIndicatorBlock = extractCssBlock(
-			cssContent,
-			".tasknotes-plugin .tn-task-modal__hermes-status-indicator"
-		);
 		const threadListBlock = extractCssBlock(
 			cssContent,
 			".tasknotes-plugin .tn-task-modal__hermes-thread-list"
 		);
 		const threadCardBlock = extractCssBlock(
 			cssContent,
-			".tasknotes-plugin .tn-task-modal__hermes-thread-card"
+			".tasknotes-plugin .tn-task-modal__hermes-thread-card.task-card"
+		);
+		const activityCardBlock = extractCssBlock(
+			cssContent,
+			".tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card"
 		);
 		const activityBodyBlock = extractCssBlock(
 			cssContent,
@@ -1455,20 +1580,22 @@ describe("TaskEditModal Hermes activity layout", () => {
 			".tasknotes-plugin .tn-task-modal__hermes-activity-detail-modal-content"
 		);
 
-		expect(statusItemBlock).toContain("display: grid");
-		expect(statusItemBlock).toContain("grid-template-columns: 22px minmax(0, 1fr)");
-		expect(statusItemBlock).toContain("padding: var(--size-2-1) var(--size-4-2)");
-		expect(statusIndicatorBlock).toContain("border-radius: 50%");
-		expect(statusIndicatorBlock).toContain("height: 10px");
 		expect(threadListBlock).toContain("gap: var(--size-2-2)");
-		expect(threadCardBlock).toContain("grid-template-columns: 22px minmax(0, 1fr)");
-		expect(threadCardBlock).toContain("padding: var(--size-2-2) var(--size-4-2)");
+		expect(activityCardBlock).toContain("background-color: transparent");
+		expect(activityCardBlock).toContain("border: none");
+		expect(threadCardBlock).toContain("display: flex");
+		expect(threadCardBlock).toContain("background-color: transparent");
+		expect(threadCardBlock).toContain("padding: var(--size-2-3) var(--size-4-2)");
 		expect(activityBodyBlock).toContain("-webkit-line-clamp: 2");
 		expect(structuredBodyBlock).toContain("-webkit-line-clamp: 2");
+		expect(cssContent).toContain("tn-task-modal__hermes-status-pill");
+		expect(cssContent).toContain("tn-task-modal__hermes-status-pill--success");
 		expect(activityOpenableBlock).toContain("cursor: pointer");
 		expect(threadOpenableBlock).toContain("cursor: pointer");
 		expect(detailModalContentBlock).toContain("max-height: min(72vh, 760px)");
 		expect(detailModalContentBlock).toContain("overflow: auto");
+		expect(cssContent).not.toContain(".tasknotes-plugin .tn-task-modal__hermes-status-item");
+		expect(cssContent).not.toContain("tn-task-modal__hermes-thread-avatar");
 		expect(cssContent).toContain("tn-task-modal__hermes-activity-detail-row--overflow");
 		expect(cssContent).toContain("tn-task-modal__hermes-activity-action--overflow");
 		expect(cssContent).toContain("tn-task-modal__hermes-activity-overflow-summary");
@@ -1521,9 +1648,9 @@ function hermesHealth(overrides: Partial<HermesAvailabilityHealth>): HermesAvail
 }
 
 async function flushPromises(): Promise<void> {
-	await Promise.resolve();
-	await Promise.resolve();
-	await Promise.resolve();
+	for (let i = 0; i < 10; i++) {
+		await Promise.resolve();
+	}
 }
 
 function extractCssBlock(css: string, selector: string): string {

@@ -1,11 +1,12 @@
-import { EVENT_TASK_UPDATED, type TaskInfo } from "../../../src/types";
+import { TFile } from "obsidian";
+import { EVENT_TASK_DELETED, EVENT_TASK_UPDATED, type TaskInfo } from "../../../src/types";
 import {
 	getHermesManagedBoardFromTaskEvent,
 	shouldHandleHermesTaskEvent,
 	syncHermesManagedTaskFromHermes,
 	syncHermesManagedTasksFromHermes,
 } from "../../../src/hermes/hermesTaskSync";
-import type { HermesTaskRecord } from "../../../src/hermes/hermesApiClient";
+import { HermesApiError, type HermesTaskRecord } from "../../../src/hermes/hermesApiClient";
 
 describe("Hermes managed task sync", () => {
 	it("updates the native TaskNotes note when Hermes status changes", async () => {
@@ -69,12 +70,18 @@ describe("Hermes managed task sync", () => {
 			detailTask: remoteTask,
 		});
 		const mirrorWriter = jest.fn().mockResolvedValue({ taskInfo: mirroredTask });
+		const localTaskDeleter = jest.fn().mockResolvedValue(undefined);
 		const plugin = createPlugin([knownLocalTask]);
 
-		const result = await syncHermesManagedTasksFromHermes(plugin, { api, mirrorWriter });
+		const result = await syncHermesManagedTasksFromHermes(plugin, {
+			api,
+			mirrorWriter,
+			localTaskDeleter,
+		});
 
 		expect(result.updated).toBe(1);
-		expect(result.skipped).toBe(1);
+		expect(result.deleted).toBe(1);
+		expect(result.skipped).toBe(0);
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_missing" });
 		expect(mirrorWriter).toHaveBeenCalledWith(
 			plugin,
@@ -89,6 +96,7 @@ describe("Hermes managed task sync", () => {
 			path: mirroredTask.path,
 			updatedTask: mirroredTask,
 		});
+		expect(localTaskDeleter).toHaveBeenCalledWith(plugin, knownLocalTask);
 	});
 
 	it("refreshes one native note from a Hermes task event", async () => {
@@ -166,6 +174,27 @@ describe("Hermes managed task sync", () => {
 			path: mirroredTask.path,
 			updatedTask: mirroredTask,
 		});
+	});
+
+	it("deletes a local mirror when a Hermes task event reports the live task is gone", async () => {
+		const localTask = createTask();
+		const api = {
+			getTask: jest
+				.fn()
+				.mockRejectedValue(new HermesApiError("task t_sync not found", 404, "Not Found")),
+		};
+		const localTaskDeleter = jest.fn().mockResolvedValue(undefined);
+		const plugin = createPlugin([localTask]);
+
+		const changed = await syncHermesManagedTaskFromHermes(
+			plugin,
+			{ board: "default", id: "t_sync" },
+			{ api, localTaskDeleter }
+		);
+
+		expect(changed).toBe(true);
+		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
+		expect(localTaskDeleter).toHaveBeenCalledWith(plugin, localTask);
 	});
 
 	it("ignores one-task event refreshes for local tasks outside Hermes management", async () => {
@@ -323,6 +352,45 @@ describe("Hermes managed task sync", () => {
 		expect(api.getBoard).not.toHaveBeenCalled();
 	});
 
+	it("deletes local Hermes mirrors that are missing from a loaded board", async () => {
+		const staleTask = createTask({
+			path: "TaskNotes/default/t_gone.md",
+			title: "Gone from Hermes",
+		});
+		const api = createApi({ boardTasks: [], detailTask: createRemoteTask() });
+		const localTaskDeleter = jest.fn().mockResolvedValue(undefined);
+		const plugin = createPlugin([staleTask]);
+
+		const result = await syncHermesManagedTasksFromHermes(plugin, { api, localTaskDeleter });
+
+		expect(result.deleted).toBe(1);
+		expect(result.skipped).toBe(0);
+		expect(result.failed).toBe(0);
+		expect(api.getBoard).toHaveBeenCalledWith("default", { includeArchived: true });
+		expect(api.getTask).not.toHaveBeenCalled();
+		expect(localTaskDeleter).toHaveBeenCalledWith(plugin, staleTask);
+	});
+
+	it("emits a deletion event when using the default local mirror deleter", async () => {
+		const staleTask = createTask({
+			path: "TaskNotes/default/t_gone.md",
+			title: "Gone from Hermes",
+		});
+		const staleFile = new TFile(staleTask.path);
+		const api = createApi({ boardTasks: [], detailTask: createRemoteTask() });
+		const plugin = createPlugin([staleTask], staleFile);
+
+		const result = await syncHermesManagedTasksFromHermes(plugin, { api });
+
+		expect(result.deleted).toBe(1);
+		expect(plugin.app.fileManager.trashFile).toHaveBeenCalledWith(staleFile);
+		expect(plugin.cacheManager.clearCacheEntry).toHaveBeenCalledWith(staleTask.path);
+		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_DELETED, {
+			path: staleTask.path,
+			deletedTask: staleTask,
+		});
+	});
+
 	it("detects Hermes boards from TaskNotes update events for immediate stream subscription", () => {
 		expect(
 			getHermesManagedBoardFromTaskEvent({
@@ -396,7 +464,7 @@ describe("Hermes managed task sync", () => {
 	});
 });
 
-function createPlugin(tasks: TaskInfo[]) {
+function createPlugin(tasks: TaskInfo[], file: unknown = null): any {
 	const frontmatterByPath = new Map(
 		tasks.map((task) => [
 			task.path,
@@ -414,7 +482,10 @@ function createPlugin(tasks: TaskInfo[]) {
 				getFileCache: jest.fn((file: { path: string }) => frontmatterByPath.get(file.path) ?? null),
 			},
 			vault: {
-				getAbstractFileByPath: jest.fn(() => null),
+				getAbstractFileByPath: jest.fn(() => file),
+			},
+			fileManager: {
+				trashFile: jest.fn().mockResolvedValue(undefined),
 			},
 		},
 			cacheManager: {
@@ -422,6 +493,7 @@ function createPlugin(tasks: TaskInfo[]) {
 				getTaskInfo: jest.fn().mockImplementation((path: string) => {
 					return Promise.resolve(tasks.find((task) => task.path === path) ?? null);
 				}),
+				clearCacheEntry: jest.fn(),
 			},
 		emitter: {
 			trigger: jest.fn(),
