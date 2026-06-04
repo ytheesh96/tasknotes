@@ -241,7 +241,7 @@ function getHermesManagedTasksByBoard(
 }
 
 function isHermesManagedTask(task: TaskInfo): boolean {
-	return getHermesTaskIdentity(task) !== null;
+	return (task.tags ?? []).includes("hermes-kanban");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
