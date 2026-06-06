@@ -165,6 +165,48 @@ describe("KanbanView flat incremental DOM reconciliation", () => {
 		}
 	});
 
+	it("defers a pending data-update render if dragging starts before the debounce fires", () => {
+		jest.useFakeTimers();
+		try {
+			const view = makeView();
+			const renderSpy = jest
+				.spyOn(view as any, "renderFromDataUpdate")
+				.mockResolvedValue(undefined);
+
+			(view as any).scheduleDataUpdateRender({ scrollTop: 10 });
+			(view as any).draggedTaskPath = "tasks/a.md";
+			jest.advanceTimersByTime(50);
+
+			expect(renderSpy).not.toHaveBeenCalled();
+			expect((view as any).pendingRender).toBe(true);
+			expect((view as any).pendingDataUpdateTimer).toBeNull();
+			expect((view as any).pendingDataUpdateSavedState).toBeNull();
+		} finally {
+			jest.useRealTimers();
+		}
+	});
+
+	it("suppresses a pending data-update render if post-drop suppression starts before the debounce fires", () => {
+		jest.useFakeTimers();
+		try {
+			const view = makeView();
+			const renderSpy = jest
+				.spyOn(view as any, "renderFromDataUpdate")
+				.mockResolvedValue(undefined);
+
+			(view as any).scheduleDataUpdateRender({ scrollTop: 10 });
+			(view as any).activeDropCount = 1;
+			jest.advanceTimersByTime(50);
+
+			expect(renderSpy).not.toHaveBeenCalled();
+			expect((view as any).pendingRender).toBe(false);
+			expect((view as any).pendingDataUpdateTimer).toBeNull();
+			expect((view as any).pendingDataUpdateSavedState).toBeNull();
+		} finally {
+			jest.useRealTimers();
+		}
+	});
+
 	it("recognizes unchanged flat render state as a semantic no-op", () => {
 		const view = makeView();
 		const taskA = createTask("tasks/a.md");

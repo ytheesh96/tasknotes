@@ -418,6 +418,23 @@ export class KanbanView extends BasesViewBase {
 			const stateForRender = this.pendingDataUpdateSavedState;
 			this.pendingDataUpdateTimer = null;
 			this.pendingDataUpdateSavedState = null;
+
+			if (this.draggedTaskPath) {
+				this.debugLog("DATA-UPDATE-DEBOUNCE-TIMER-FIRED: deferred (drag active)", {
+					draggedTask: this.draggedTaskPath.split("/").pop(),
+				});
+				this.pendingRender = true;
+				return;
+			}
+
+			if (this.activeDropCount > 0 || Date.now() < this.suppressRenderUntil) {
+				this.debugLog("DATA-UPDATE-DEBOUNCE-TIMER-FIRED: suppressed", {
+					activeDropCount: this.activeDropCount,
+					msRemaining: this.suppressRenderUntil - Date.now(),
+				});
+				return;
+			}
+
 			void this.renderFromDataUpdate(stateForRender);
 		}, this.DATA_UPDATE_RENDER_DEBOUNCE_MS);
 	}
