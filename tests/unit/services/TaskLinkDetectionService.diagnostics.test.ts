@@ -15,6 +15,7 @@ function createSink() {
 function createPlugin(options: {
 	file?: TFile | null;
 	getTaskInfo?: jest.Mock;
+	getTaskInfoFromFrontmatter?: jest.Mock;
 	resolveLink?: jest.Mock;
 	debugEnabled?: () => boolean;
 }): TaskNotesPlugin {
@@ -40,6 +41,7 @@ function createPlugin(options: {
 		},
 		cacheManager: {
 			getTaskInfo,
+			getTaskInfoFromFrontmatter: options.getTaskInfoFromFrontmatter,
 		},
 	} as unknown as TaskNotesPlugin;
 }
@@ -127,5 +129,38 @@ describe("TaskLinkDetectionService diagnostics", () => {
 			{ linkPath: "Linked Task", sourcePath: "Notes/source.md" },
 			error
 		);
+	});
+
+	it("detects task links from note frontmatter before pending cache data", async () => {
+		const file = new TFile("Tasks/Linked Task.md");
+		const staleTask = {
+			title: "Stale pending title",
+			status: "open",
+			priority: "normal",
+			path: file.path,
+			archived: false,
+		};
+		const frontmatterTask = {
+			...staleTask,
+			title: "Fresh frontmatter title",
+			status: "done",
+		};
+		const getTaskInfo = jest.fn(async () => staleTask);
+		const getTaskInfoFromFrontmatter = jest.fn(async () => frontmatterTask);
+		const plugin = createPlugin({
+			file,
+			getTaskInfo,
+			getTaskInfoFromFrontmatter,
+		});
+		const service = new TaskLinkDetectionService(plugin);
+
+		await expect(service.detectTaskLink("[[Linked Task]]", "Notes/source.md")).resolves.toEqual({
+			isValidTaskLink: true,
+			taskPath: file.path,
+			taskInfo: frontmatterTask,
+			displayText: undefined,
+		});
+		expect(getTaskInfoFromFrontmatter).toHaveBeenCalledWith(file.path);
+		expect(getTaskInfo).not.toHaveBeenCalled();
 	});
 });

@@ -16,6 +16,11 @@ const mockHermesApi = {
 };
 
 const mockCreateOrUpdateHermesMirrorNote = jest.fn();
+const mockExecFile = jest.fn();
+
+jest.mock("child_process", () => ({
+	execFile: (...args: unknown[]) => mockExecFile(...args),
+}));
 
 jest.mock("../../../src/hermes/hermesApiClient", () => ({
 	HermesKanbanApiClient: jest.fn(() => mockHermesApi),
@@ -47,6 +52,7 @@ describe("Hermes Goal Mode create behavior", () => {
 		mockHermesApi.listBoards.mockReset();
 		mockHermesApi.listAssignees.mockReset();
 		mockCreateOrUpdateHermesMirrorNote.mockReset();
+		mockExecFile.mockReset();
 		jest.spyOn(HermesAvailabilityService.prototype, "recheckHealth").mockResolvedValue({
 			status: "connected",
 			mode: "live",
@@ -139,6 +145,175 @@ describe("Hermes Goal Mode create behavior", () => {
 		);
 
 		expect(mockHermesApi.createTask).not.toHaveBeenCalled();
+	});
+
+	it("submits a native TaskNotes card through the Hermes CLI when dashboard health is down", async () => {
+		mockExecFile.mockImplementation((_command, _args, _options, callback) => {
+			callback(
+				null,
+				JSON.stringify({ id: "t_cli", title: "Native CLI task", status: "triage" }),
+				""
+			);
+		});
+		(
+			HermesAvailabilityService.prototype.recheckHealth as jest.MockedFunction<
+				HermesAvailabilityService["recheckHealth"]
+			>
+		).mockResolvedValueOnce({
+			status: "connected",
+			mode: "live",
+			transport: "kanban-cli",
+			writeStatus: "writable-via-cli",
+			message: "Hermes Kanban CLI is available for board developer.",
+		});
+		mockHermesApi.getTask.mockResolvedValue({
+			task: { id: "t_cli", title: "Native CLI task", status: "triage" },
+			links: { parents: [], children: [] },
+		});
+		mockCreateOrUpdateHermesMirrorNote.mockResolvedValue({
+			file: { path: "TaskNotes/developer/t_cli.md" },
+			taskInfo: { title: "Native CLI task", path: "TaskNotes/developer/t_cli.md" },
+		});
+		const app = {} as never;
+		const plugin = {
+			settings: {
+				customStatuses: [],
+				customPriorities: [],
+				nlpDefaultToScheduled: true,
+				nlpLanguage: "en",
+				nlpTriggers: undefined,
+				userFields: [],
+				taskIdentificationMethod: "none",
+				taskTag: "task",
+				openTaskAfterCreation: "none",
+				defaultTaskStatus: "open",
+				hermesKanbanTransport: "kanban-cli",
+			},
+			i18n: {
+				translate: (key: string, params?: Record<string, string | number>) =>
+					params?.message ? `${key}: ${params.message}` : key,
+			},
+			cacheManager: {
+				getTaskInfo: jest.fn(),
+			},
+		} as never;
+		const modal = new TaskCreationModal(app, plugin, {
+			hermesBoardPicker: { boards: ["developer"], selectedBoard: "developer" },
+			creationTargetPicker: { boards: ["developer"], selectedTarget: "hermes:developer" },
+		});
+		const modalHarness = modal as never as Record<string, unknown>;
+		modalHarness.title = "Native CLI task";
+		modalHarness.details = "created while the dashboard API is down";
+		modalHarness.contexts = "";
+		modalHarness.status = "open";
+		modalHarness.validateHermesCreationRouting = jest
+			.fn()
+			.mockResolvedValue({ assignee: null });
+		modalHarness.resolveHermesDependencyIds = jest
+			.fn()
+			.mockResolvedValue({ ids: [], unresolved: [] });
+
+		await (modalHarness.handleHermesApiCreate as () => Promise<void>)();
+
+		expect(HermesAvailabilityService.prototype.recheckHealth).toHaveBeenCalledWith({
+			board: "developer",
+			transport: "kanban-cli",
+		});
+		expect(mockHermesApi.createTask).not.toHaveBeenCalled();
+		expect(mockExecFile).toHaveBeenCalledWith(
+			"hermes",
+			expect.arrayContaining([
+				"kanban",
+				"--board",
+				"developer",
+				"create",
+				"Native CLI task",
+				"--body",
+				"created while the dashboard API is down",
+				"--triage",
+				"--created-by",
+				"tasknotes",
+				"--json",
+			]),
+			expect.objectContaining({ shell: false }),
+			expect.any(Function)
+		);
+		const cliArgs = mockExecFile.mock.calls[0][1] as string[];
+		expect(cliArgs).not.toContain("--assignee");
+	});
+
+	it("passes explicit TaskNotes routing metadata to the Hermes CLI", async () => {
+		mockExecFile.mockImplementation((_command, _args, _options, callback) => {
+			callback(null, JSON.stringify({ id: "t_routed", title: "Routed", status: "triage" }), "");
+		});
+		mockHermesApi.getTask.mockResolvedValue({
+			task: { id: "t_routed", title: "Routed", status: "triage", assignee: "peacock" },
+			links: { parents: ["t_parent"], children: [] },
+		});
+		mockCreateOrUpdateHermesMirrorNote.mockResolvedValue({
+			file: { path: "TaskNotes/developer/t_routed.md" },
+			taskInfo: { title: "Routed", path: "TaskNotes/developer/t_routed.md" },
+		});
+		const app = {} as never;
+		const plugin = {
+			settings: {
+				customStatuses: [],
+				customPriorities: [],
+				nlpDefaultToScheduled: true,
+				nlpLanguage: "en",
+				nlpTriggers: undefined,
+				userFields: [],
+				taskIdentificationMethod: "none",
+				taskTag: "task",
+				openTaskAfterCreation: "none",
+				defaultTaskStatus: "open",
+				hermesKanbanTransport: "kanban-cli",
+			},
+			i18n: {
+				translate: (key: string, params?: Record<string, string | number>) =>
+					params?.message ? `${key}: ${params.message}` : key,
+			},
+			cacheManager: {
+				getTaskInfo: jest.fn(),
+			},
+		} as never;
+		const modal = new TaskCreationModal(app, plugin, {
+			hermesBoardPicker: { boards: ["developer"], selectedBoard: "developer" },
+			creationTargetPicker: { boards: ["developer"], selectedTarget: "hermes:developer" },
+		});
+		const modalHarness = modal as never as Record<string, unknown>;
+		modalHarness.title = "Routed";
+		modalHarness.details = "route me";
+		modalHarness.contexts = "peacock";
+		modalHarness.status = "triage";
+		modalHarness.blockedByItems = [{ type: "hermes", board: "developer", id: "t_parent" }];
+		modalHarness.validateHermesCreationRouting = jest
+			.fn()
+			.mockResolvedValue({ assignee: "peacock" });
+		modalHarness.resolveHermesDependencyIds = jest
+			.fn()
+			.mockResolvedValueOnce({ ids: ["t_parent"], unresolved: [] })
+			.mockResolvedValueOnce({ ids: [], unresolved: [] });
+
+		await (modalHarness.handleHermesApiCreate as () => Promise<void>)();
+
+		const cliArgs = mockExecFile.mock.calls[0][1] as string[];
+		expect(cliArgs).toEqual(
+			expect.arrayContaining([
+				"--board",
+				"developer",
+				"--body",
+				"route me",
+				"--triage",
+				"--assignee",
+				"peacock",
+				"--parent",
+				"t_parent",
+				"--created-by",
+				"tasknotes",
+				"--json",
+			])
+		);
 	});
 
 	it("keeps the created Hermes card visible when goal-tag comment sync fails after create", async () => {

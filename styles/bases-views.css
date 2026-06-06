@@ -426,6 +426,106 @@ body.is-mobile .tn-bases-tasknotes-list {
 	min-width: 0;
 }
 
+.tasknotes-plugin .agent-roster-view__task-row {
+	align-items: center;
+	background: var(--tn-bg-secondary);
+	border: 1px solid var(--tn-border-color);
+	border-radius: var(--tn-radius-sm);
+	display: flex;
+	gap: var(--tn-spacing-sm);
+	min-width: 0;
+	padding: var(--tn-spacing-xs) var(--tn-spacing-sm);
+}
+
+.tasknotes-plugin .agent-roster-view__task-row--completed {
+	opacity: 0.72;
+}
+
+.tasknotes-plugin .agent-roster-view__task-main {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.tasknotes-plugin .agent-roster-view__task-title {
+	color: var(--tn-text-normal);
+	font-size: var(--tn-font-size-sm);
+	font-weight: var(--tn-font-weight-medium);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tasknotes-plugin .agent-roster-view__task-row--completed .agent-roster-view__task-title {
+	text-decoration: line-through;
+}
+
+.tasknotes-plugin .agent-roster-view__task-meta {
+	color: var(--tn-text-muted);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: var(--tn-font-size-xs);
+	gap: var(--tn-spacing-xs);
+	min-width: 0;
+}
+
+.tasknotes-plugin .agent-roster-view__task-board,
+.tasknotes-plugin .agent-roster-view__task-status,
+.tasknotes-plugin .agent-roster-view__task-updated {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tasknotes-plugin .agent-roster-view__open-task-button {
+	background: var(--tn-bg-primary);
+	border: 1px solid var(--tn-border-color);
+	border-radius: var(--tn-radius-sm);
+	color: var(--tn-text-normal);
+	cursor: var(--cursor-link, pointer);
+	flex: 0 0 auto;
+	font-size: var(--tn-font-size-xs);
+	min-height: 26px;
+	padding: 4px 8px;
+}
+
+.tasknotes-plugin .agent-roster-view__open-task-button:hover,
+.tasknotes-plugin .agent-roster-view__open-task-button:focus-visible {
+	background: var(--background-modifier-hover);
+	border-color: var(--background-modifier-border-focus);
+}
+
+.tasknotes-plugin .agent-roster-view__history {
+	border-top: 1px solid var(--tn-border-color);
+	padding-top: var(--tn-spacing-xs);
+}
+
+.tasknotes-plugin .agent-roster-view__history-toggle {
+	color: var(--tn-text-muted);
+	cursor: var(--cursor-link, pointer);
+	font-size: var(--tn-font-size-xs);
+	padding: var(--tn-spacing-xs) 0;
+}
+
+.tasknotes-plugin .agent-roster-view__completed-agents {
+	border-top: 1px solid var(--tn-border-color);
+	padding-top: var(--tn-spacing-sm);
+}
+
+.tasknotes-plugin .agent-roster-view__completed-agents-toggle {
+	color: var(--tn-text-muted);
+	cursor: var(--cursor-link, pointer);
+	font-size: var(--tn-font-size-sm);
+	font-weight: var(--tn-font-weight-medium);
+	padding: var(--tn-spacing-xs) 0;
+}
+
+.tasknotes-plugin .agent-roster-view__completed-agents .agent-roster-view__grid {
+	margin-top: var(--tn-spacing-sm);
+}
+
 .tasknotes-plugin .agent-roster-view__more {
 	color: var(--tn-text-muted);
 	font-size: var(--tn-font-size-xs);
@@ -550,6 +650,19 @@ body.is-mobile .tasknotes-plugin .agent-roster-view__content {
 	text-transform: uppercase;
 }
 
+.tasknotes-plugin .hermes-boards-view__summary-copy {
+	align-items: center;
+	background: var(--tn-bg-secondary);
+	border: 1px solid var(--tn-border-color);
+	border-radius: var(--tn-radius-sm);
+	color: var(--tn-text-muted);
+	display: flex;
+	font-size: var(--tn-font-size-sm);
+	min-width: 0;
+	overflow-wrap: anywhere;
+	padding: var(--tn-spacing-sm) var(--tn-spacing-md);
+}
+
 .tasknotes-plugin .hermes-boards-view__grid {
 	display: grid;
 	gap: var(--tn-spacing-md);
@@ -560,7 +673,6 @@ body.is-mobile .tasknotes-plugin .agent-roster-view__content {
 	background: var(--tn-bg-primary);
 	border: 1px solid var(--tn-border-color);
 	border-radius: var(--tn-radius-md);
-	cursor: var(--cursor-link, pointer);
 	display: flex;
 	flex-direction: column;
 	gap: var(--tn-spacing-sm);
@@ -569,10 +681,9 @@ body.is-mobile .tasknotes-plugin .agent-roster-view__content {
 }
 
 .tasknotes-plugin .hermes-boards-view__board:hover,
-.tasknotes-plugin .hermes-boards-view__board:focus-visible {
+.tasknotes-plugin .hermes-boards-view__board:focus-within {
 	border-color: var(--background-modifier-border-focus);
 	box-shadow: 0 0 0 1px var(--background-modifier-border-focus);
-	outline: none;
 }
 
 .tasknotes-plugin .hermes-boards-view__board-header {
@@ -599,6 +710,21 @@ body.is-mobile .tasknotes-plugin .agent-roster-view__content {
 	white-space: nowrap;
 }
 
+.tasknotes-plugin .hermes-boards-view__title-link {
+	appearance: none;
+	background: transparent;
+	border: 0;
+	cursor: var(--cursor-link, pointer);
+	padding: 0;
+	text-align: left;
+}
+
+.tasknotes-plugin .hermes-boards-view__title-link:hover,
+.tasknotes-plugin .hermes-boards-view__title-link:focus-visible {
+	color: var(--text-accent);
+	text-decoration: underline;
+}
+
 .tasknotes-plugin .hermes-boards-view__board-source {
 	color: var(--tn-text-muted);
 	font-size: var(--tn-font-size-xs);
@@ -608,10 +734,40 @@ body.is-mobile .tasknotes-plugin .agent-roster-view__content {
 	background: transparent;
 	border: 1px solid transparent;
 	color: var(--tn-text-muted);
-	flex: 0 0 28px;
-	height: 28px;
-	padding: 0;
-	width: 28px;
+	font-size: var(--tn-font-size-xs);
+	min-height: 28px;
+	padding: 3px 8px;
+}
+
+.tasknotes-plugin .hermes-boards-view__board-actions {
+	flex: 0 0 auto;
+	position: relative;
+}
+
+.tasknotes-plugin .hermes-boards-view__actions-toggle {
+	border: 1px solid var(--tn-border-color);
+	border-radius: var(--tn-radius-sm);
+	color: var(--tn-text-muted);
+	cursor: var(--cursor-link, pointer);
+	font-size: var(--tn-font-size-xs);
+	line-height: 1;
+	list-style: none;
+	padding: 6px 8px;
+}
+
+.tasknotes-plugin .hermes-boards-view__actions-toggle::-webkit-details-marker {
+	display: none;
+}
+
+.tasknotes-plugin .hermes-boards-view__actions-toggle:hover,
+.tasknotes-plugin .hermes-boards-view__actions-toggle:focus-visible {
+	background: var(--background-modifier-hover);
+	border-color: var(--background-modifier-border-focus);
+	color: var(--tn-text-normal);
+}
+
+.tasknotes-plugin .hermes-boards-view__board-actions[open] .hermes-boards-view__secondary-action {
+	margin-top: var(--tn-spacing-xs);
 }
 
 .tasknotes-plugin .hermes-boards-view__delete-button:hover,
@@ -671,10 +827,35 @@ body.is-mobile .tasknotes-plugin .agent-roster-view__content {
 	white-space: nowrap;
 }
 
+.tasknotes-plugin .hermes-boards-view__metric--secondary {
+	opacity: 0.66;
+}
+
 .tasknotes-plugin .hermes-boards-view__agents {
 	color: var(--tn-text-muted);
 	font-size: var(--tn-font-size-xs);
 	overflow-wrap: anywhere;
+}
+
+.tasknotes-plugin .hermes-boards-view__open-button {
+	align-items: center;
+	background: var(--tn-bg-secondary);
+	border: 1px solid var(--tn-border-color);
+	border-radius: var(--tn-radius-sm);
+	color: var(--tn-text-normal);
+	cursor: var(--cursor-link, pointer);
+	display: inline-flex;
+	font-size: var(--tn-font-size-sm);
+	font-weight: var(--tn-font-weight-medium);
+	justify-content: center;
+	min-height: 30px;
+	padding: 5px 10px;
+}
+
+.tasknotes-plugin .hermes-boards-view__open-button:hover,
+.tasknotes-plugin .hermes-boards-view__open-button:focus-visible {
+	background: var(--background-modifier-hover);
+	border-color: var(--background-modifier-border-focus);
 }
 
 .tasknotes-plugin .hermes-boards-view__empty-icon {
@@ -991,6 +1172,76 @@ body.is-mobile .tn-bases-kanban-column {
     border: 1px solid color-mix(in srgb, var(--tn-border-color) 72%, transparent);
     padding: 2px 6px;
     border-radius: var(--tn-radius-sm);
+}
+
+.kanban-view__swimlane-label--hermes-run {
+    display: flex;
+    flex-direction: column;
+    gap: var(--tn-spacing-xs);
+}
+
+.kanban-view__run-lane-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--tn-spacing-xs);
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--tn-text-normal);
+    text-align: left;
+    cursor: pointer;
+}
+
+.kanban-view__run-lane-toggle-icon {
+    color: var(--tn-text-muted);
+    flex: 0 0 auto;
+}
+
+.kanban-view__run-lane-title {
+    min-width: 0;
+}
+
+.kanban-view__run-lane-badges,
+.kanban-view__run-lane-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--tn-spacing-xs);
+}
+
+.kanban-view__run-lane-badge,
+.kanban-view__run-lane-summary-chip {
+    border: 1px solid var(--tn-border-color);
+    border-radius: var(--tn-radius-sm);
+    color: var(--tn-text-muted);
+    font-size: var(--tn-font-size-xs);
+    line-height: 1.4;
+    padding: 1px 6px;
+}
+
+.kanban-view__run-lane-badge--status {
+    color: var(--tn-text-normal);
+}
+
+.kanban-view__run-lane-copy {
+    color: var(--tn-text-muted);
+    font-size: var(--tn-font-size-xs);
+    line-height: 1.35;
+}
+
+.kanban-view__run-lane-copy--warning {
+    color: var(--tn-text-error);
+    font-weight: var(--tn-font-weight-medium);
+}
+
+.kanban-view__swimlane-row--collapsed {
+    max-height: none;
+}
+
+.kanban-view__swimlane-column--collapsed-summary {
+    align-items: flex-start;
+    justify-content: center;
+    min-height: 72px;
 }
 
 /* Column header cell in header row */

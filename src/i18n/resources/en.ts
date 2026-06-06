@@ -1700,6 +1700,15 @@ export const en: TranslationTree = {
 					description:
 						"When enabled, editing a hermes-linked task note can quietly start hermes if it is offline.",
 				},
+				kanbanTransport: {
+					name: "Kanban task creation transport",
+					description:
+						"Choose whether TaskNotes creates hermes Kanban cards through the dashboard API or by invoking the local hermes CLI.",
+					options: {
+						dashboardApi: "Dashboard API",
+						kanbanCli: "Local hermes CLI",
+					},
+				},
 				startNow: {
 					name: "Start hermes",
 					description:

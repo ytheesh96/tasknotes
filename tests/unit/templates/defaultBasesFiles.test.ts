@@ -20,6 +20,7 @@ const createMockPlugin = (settingsOverride: Record<string, unknown> = {}) => {
 	return {
 		settings: {
 			taskTag: "task",
+			tasksFolder: "TaskNotes/Tasks",
 			taskIdentificationMethod: "tag",
 			customPriorities: [
 				{ value: "high", label: "High", weight: 0 },
@@ -75,6 +76,8 @@ describe("defaultBasesFiles", () => {
 		expect(template).toContain("boardProperty: projects");
 		expect(template).toContain("agentProperty: contexts");
 		expect(template).toContain("doneStatuses: done,completed");
+		expect(template).toContain('file.inFolder("TaskNotes/Tasks")');
+		expect(template).not.toContain("file.hasTag");
 	});
 
 	it("adds a dedicated manual-order task list view while preserving urgency views", () => {
@@ -167,7 +170,7 @@ describe("defaultBasesFiles", () => {
 		expect(template).not.toContain("note.Task Type");
 	});
 
-	it("uses tag membership when property-based task identification targets tags (#1156)", () => {
+	it("uses task-folder discovery when property-based task identification targets tags (#1156)", () => {
 		const template = generateBasesFileTemplate(
 			"open-tasks-view",
 			createMockPlugin({
@@ -177,7 +180,8 @@ describe("defaultBasesFiles", () => {
 			}) as any
 		);
 
-		expect(template).toContain('file.hasTag("task")');
+		expect(template).toContain('file.inFolder("TaskNotes/Tasks")');
+		expect(template).not.toContain('file.hasTag("task")');
 		expect(template).not.toContain('note["tags"] == "task"');
 	});
 

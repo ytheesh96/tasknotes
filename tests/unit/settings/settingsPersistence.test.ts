@@ -8,6 +8,7 @@ import {
 	pluginDataFileExists,
 } from "../../../src/settings/settingsPersistence";
 import { HERMES_ACTIVITY_USER_FIELDS } from "../../../src/hermes/hermesActivityFrontmatter";
+import { createDefaultFieldConfig } from "../../../src/utils/fieldConfigDefaults";
 import type { TaskNotesSettings } from "../../../src/types/settings";
 
 function createHost(options: {
@@ -255,6 +256,45 @@ describe("settings persistence helpers", () => {
 		]);
 		expect(settings.defaultVisibleProperties).toEqual(["status", "contexts"]);
 		expect(settings.inlineVisibleProperties).toEqual(["status"]);
+		expect(shouldPersistMigratedSettings).toBe(true);
+	});
+
+	it("deduplicates persisted Hermes activity modal and user fields on load", () => {
+		const activityField = HERMES_ACTIVITY_USER_FIELDS[0];
+		const modalFieldsConfig = createDefaultFieldConfig();
+		const firstActivityModalField = modalFieldsConfig.fields.find(
+			(field) => field.id === activityField.id
+		);
+
+		expect(firstActivityModalField).toBeDefined();
+
+		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData({
+			userFields: [
+				{ ...activityField, displayName: "Activity Feed" },
+				{ ...activityField, displayName: "Duplicate Activity Feed" },
+			],
+			modalFieldsConfig: {
+				...modalFieldsConfig,
+				fields: [
+					...modalFieldsConfig.fields,
+					{
+						...firstActivityModalField!,
+						displayName: "Duplicate Activity Feed",
+						order: 99,
+					},
+				],
+			},
+		});
+
+		expect(
+			settings.userFields.filter((field) => field.id === activityField.id)
+		).toHaveLength(1);
+		expect(
+			settings.modalFieldsConfig?.fields.filter((field) => field.id === activityField.id)
+		).toHaveLength(1);
+		expect(settings.modalFieldsConfig?.fields.map((field) => field.id)).toEqual(
+			Array.from(new Set(settings.modalFieldsConfig?.fields.map((field) => field.id)))
+		);
 		expect(shouldPersistMigratedSettings).toBe(true);
 	});
 

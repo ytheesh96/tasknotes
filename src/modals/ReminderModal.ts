@@ -4,6 +4,7 @@ import { TaskInfo, Reminder } from "../types";
 import { formatDateForDisplay } from "../utils/dateUtils";
 import { attachDateInputBehavior } from "../ui/dateInputBehavior";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/ReminderModal" });
 
@@ -71,7 +72,7 @@ export class ReminderModal extends Modal {
 
 		// Fetch fresh task data to avoid working with stale data
 		if (this.task.path && this.task.path.trim() !== "") {
-			const freshTask = await this.plugin.cacheManager.getTaskInfo(this.task.path);
+			const freshTask = await getTaskInfoFromNoteFirst(this.plugin, this.task.path);
 			if (freshTask) {
 				this.task = freshTask;
 				this.reminders = freshTask.reminders ? [...freshTask.reminders] : [];

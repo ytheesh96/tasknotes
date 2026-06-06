@@ -3,6 +3,7 @@ import { EventRef, TFile } from "obsidian";
 import TaskNotesPlugin from "../main";
 import { TaskInfo } from "../types";
 import { parseLinkToPath } from "../utils/linkUtils";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/ProjectSubtasksService" });
@@ -87,7 +88,7 @@ export class ProjectSubtasksService {
 
 			for (const sourcePath of linkingSources) {
 				// Check if this source file is a task with project references
-				const taskInfo = await this.plugin.cacheManager.getTaskInfo(sourcePath);
+				const taskInfo = await getTaskInfoFromNoteFirst(this.plugin, sourcePath);
 				if (
 					taskInfo &&
 					(await this.isLinkFromProjectsField(sourcePath, projectFile.path))

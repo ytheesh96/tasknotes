@@ -1,6 +1,7 @@
 import { Notice } from "obsidian";
 import type TaskNotesPlugin from "../main";
 import type { TaskInfo } from "../types";
+import { getAllTasksFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger, type TaskNotesLogger } from "../utils/tasknotesLogger";
 import { openTaskSelector } from "./TaskSelectorWithCreateModal";
 
@@ -30,7 +31,7 @@ const taskSelectorLogger = createTaskNotesLogger({ tag: "TaskModal/TaskSelector"
 
 export async function openTaskModalTaskSelector({
 	plugin,
-	getAllTasks = async () => (await plugin.cacheManager.getAllTasks?.()) ?? [],
+	getAllTasks = async () => getAllTasksFromNoteFirst(plugin),
 	getCandidates,
 	onSelect,
 	translate,

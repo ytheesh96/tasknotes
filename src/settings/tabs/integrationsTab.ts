@@ -208,6 +208,30 @@ export function renderIntegrationsTab(
 
 			group.addSetting(
 				(setting) =>
+					void configureDropdownSetting(setting, {
+						name: translate("settings.integrations.hermes.kanbanTransport.name"),
+						desc: translate("settings.integrations.hermes.kanbanTransport.description"),
+						options: [
+							{
+								value: "dashboard-api",
+								label: translate("settings.integrations.hermes.kanbanTransport.options.dashboardApi"),
+							},
+							{
+								value: "kanban-cli",
+								label: translate("settings.integrations.hermes.kanbanTransport.options.kanbanCli"),
+							},
+						],
+						getValue: () => plugin.settings.hermesKanbanTransport,
+						setValue: async (value: string) => {
+							plugin.settings.hermesKanbanTransport =
+								value === "kanban-cli" ? "kanban-cli" : "dashboard-api";
+							save();
+						},
+					})
+			);
+
+			group.addSetting(
+				(setting) =>
 					void configureButtonSetting(setting, {
 						name: translate("settings.integrations.hermes.startNow.name"),
 						desc: translate("settings.integrations.hermes.startNow.description"),

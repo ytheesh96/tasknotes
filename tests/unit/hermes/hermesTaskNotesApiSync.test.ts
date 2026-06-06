@@ -10,11 +10,12 @@ import {
 } from "../../../src/hermes/hermesTaskNotesApiSync";
 
 describe("Hermes TaskNotes API sync contract", () => {
-	it("treats TaskNotes board-folder paths as eligible without requiring legacy frontmatter", () => {
+	it("treats canonical TaskNotes task mirrors as eligible without requiring legacy tags", () => {
 		const task = createTask({
-			path: "TaskNotes/hhmi/t_123.md",
+			path: "TaskNotes/Tasks/t_123.md",
 			tags: ["task"],
-			projects: ["Hermes/hhmi"],
+			projects: [],
+			customProperties: { hermesTaskId: "t_123", hermesBoard: "hhmi" },
 		});
 
 		expect(isHermesTaskNotesEligibleTask(task)).toBe(true);
@@ -37,9 +38,9 @@ describe("Hermes TaskNotes API sync contract", () => {
 
 	it("collects eligible boards from TaskNotes tasks", () => {
 		const tasks = [
-			createTask({ path: "TaskNotes/hhmi/t_1.md", status: "ready" }),
-			createTask({ path: "TaskNotes/default/t_2.md", status: "done" }),
-			createTask({ path: "TaskNotes/hhmi/t_3.md", archived: true }),
+			createTask({ path: "TaskNotes/Tasks/t_1.md", status: "ready", customProperties: { hermesTaskId: "t_1", hermesBoard: "hhmi" } }),
+			createTask({ path: "TaskNotes/Tasks/t_2.md", status: "done", customProperties: { hermesTaskId: "t_2", hermesBoard: "default" } }),
+			createTask({ path: "TaskNotes/Tasks/t_3.md", archived: true, customProperties: { hermesTaskId: "t_3", hermesBoard: "hhmi" } }),
 			createTask({ path: "Other/t_4.md", status: "ready" }),
 		];
 
@@ -51,12 +52,13 @@ describe("Hermes TaskNotes API sync contract", () => {
 
 	it("extracts board identity from task lifecycle webhook-style event data", () => {
 		const task = createTask({
-			path: "TaskNotes/job-hunt/t_abc.md",
-			tags: ["task", "hermes-kanban"],
+			path: "TaskNotes/Tasks/t_abc.md",
+			tags: ["task"],
+			customProperties: { hermesTaskId: "t_abc", hermesBoard: "job-hunt" },
 		});
 
 		expect(
-			getHermesTaskNotesBoardFromTaskEvent({ updatedTask: task }, { tags: ["hermes-kanban"] })
+			getHermesTaskNotesBoardFromTaskEvent({ updatedTask: task })
 		).toBe("job-hunt");
 		expect(
 			getHermesTaskNotesBoardFromTaskEvent({ deletedTask: { ...task, archived: true } })
@@ -87,7 +89,6 @@ describe("Hermes TaskNotes API sync contract", () => {
 	it("builds the HTTP API query Hermes should use for board reconciliation", () => {
 		const query = buildHermesTaskNotesBoardQuery({
 			board: "hhmi",
-			tag: "hermes-kanban",
 			statuses: ["ready", "review"],
 		});
 
@@ -106,16 +107,10 @@ describe("Hermes TaskNotes API sync contract", () => {
 					operator: "is-not-checked",
 				}),
 				expect.objectContaining({
-					id: "project",
-					property: "projects",
-					operator: "contains",
-					value: "Hermes/hhmi",
-				}),
-				expect.objectContaining({
-					id: "tag",
-					property: "tags",
-					operator: "contains",
-					value: "hermes-kanban",
+					id: "board",
+					property: "hermesBoard",
+					operator: "is",
+					value: "hhmi",
 				}),
 				expect.objectContaining({
 					id: "statuses",
@@ -130,7 +125,7 @@ describe("Hermes TaskNotes API sync contract", () => {
 			status: "review",
 			assignee: "yt",
 			priority: "high",
-			blockedBy: [{ uid: "[[TaskNotes/hhmi/t_parent]]", reltype: "FINISHTOSTART" }],
+			blockedBy: [{ uid: "[[TaskNotes/Tasks/t_parent.md]]", reltype: "FINISHTOSTART" }],
 			artifactFieldKey: "hermesArtifacts",
 			artifactLinks: ["file:///tmp/result.md"],
 			activitySummaryFieldKey: "hermesLatestActivity",
@@ -141,7 +136,7 @@ describe("Hermes TaskNotes API sync contract", () => {
 			status: "review",
 			contexts: ["yt"],
 			priority: "high",
-			blockedBy: [{ uid: "[[TaskNotes/hhmi/t_parent]]", reltype: "FINISHTOSTART" }],
+			blockedBy: [{ uid: "[[TaskNotes/Tasks/t_parent.md]]", reltype: "FINISHTOSTART" }],
 			customProperties: {
 				hermesArtifacts: ["file:///tmp/result.md"],
 				hermesLatestActivity: "Ready for review",
@@ -155,11 +150,12 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 		title: "Task",
 		status: "ready",
 		priority: "normal",
-		path: "TaskNotes/default/t_123.md",
+		path: "TaskNotes/Tasks/t_123.md",
 		archived: false,
-		tags: ["task", "hermes-kanban"],
+		tags: ["task"],
 		contexts: [],
-		projects: ["Hermes/default"],
+		projects: [],
+		customProperties: { hermesTaskId: "t_123", hermesBoard: "default" },
 		...overrides,
 	};
 }

@@ -1,6 +1,7 @@
 import { Menu, Notice, TFile, setIcon, setTooltip } from "obsidian";
 import { TaskContextMenu } from "../components/TaskContextMenu";
 import type TaskNotesPlugin from "../main";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import { prepareInteractiveControl } from "./taskCardIndicators";
 
@@ -72,7 +73,7 @@ export async function showTaskContextMenu(
 	};
 
 	try {
-		const task = await plugin.cacheManager.getTaskInfo(taskPath);
+		const task = await getTaskInfoFromNoteFirst(plugin, taskPath);
 		if (!task) {
 			showFileMenuFallback();
 			return;

@@ -282,6 +282,8 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 		modalFieldsConfig: modalFieldsSettings.config,
 		defaultVisibleProperties: defaultVisibleProperties.properties,
 		inlineVisibleProperties: inlineVisibleProperties.properties,
+		hermesKanbanTransport:
+			loadedData?.hermesKanbanTransport === "kanban-cli" ? "kanban-cli" : "dashboard-api",
 		defaultTaskStatus: statusSettings.defaultTaskStatus,
 		customStatuses: statusSettings.customStatuses,
 		customPriorities: loadedData?.customPriorities || DEFAULT_SETTINGS.customPriorities,

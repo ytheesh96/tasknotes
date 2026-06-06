@@ -81,6 +81,7 @@ describe("issue #1761 - native file menu TaskNotes actions", () => {
 
 		const editClick = editItem.onClick.mock.calls[0][0];
 		await editClick(new MouseEvent("click"));
+		await new Promise((resolve) => setTimeout(resolve, 0));
 
 		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith(task.path);
 		expect(plugin.openTaskEditModal).toHaveBeenCalledWith(task);

@@ -1,6 +1,7 @@
 import { TFile } from "obsidian";
 import type TaskNotesPlugin from "../main";
 import { EVENT_TASK_DELETED, type TaskInfo } from "../types";
+import { HERMES_BOARD_FRONTMATTER, canonicalHermesBoardValue } from "../hermes/hermesCanonicalTaskNotes";
 
 function getBoardMirrorPathPrefix(board: string): string {
 	return `TaskNotes/${board}/`;
@@ -12,6 +13,12 @@ export function getLocalHermesMirrorTasksForBoard(
 ): TaskInfo[] {
 	const prefix = getBoardMirrorPathPrefix(board);
 	return tasks.filter((task) => {
+		const canonicalBoard = canonicalHermesBoardValue(
+			task.customProperties?.[HERMES_BOARD_FRONTMATTER]
+		);
+		if (canonicalBoard) {
+			return canonicalBoard === board;
+		}
 		if (!task.path.startsWith(prefix)) {
 			return false;
 		}

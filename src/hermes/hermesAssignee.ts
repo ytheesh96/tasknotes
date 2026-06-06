@@ -62,6 +62,12 @@ const LEGACY_HERMES_REVIEW_RAIL_FIELD_ID = "hermes-review-rail";
 const HERMES_ACTIVITY_USER_FIELD_IDS = new Set(
 	HERMES_ACTIVITY_USER_FIELDS.flatMap((field) => [field.id, field.key])
 );
+const HERMES_ACTIVITY_USER_FIELD_BY_ID = new Map(
+	HERMES_ACTIVITY_USER_FIELDS.flatMap((field) => [
+		[field.id, field],
+		[field.key, field],
+	])
+);
 const RETIRED_HERMES_ACTIVITY_USER_FIELD_IDS = new Set([
 	"hermesActivityComments",
 	"hermesActivityRuns",
@@ -252,22 +258,66 @@ function normalizeModalField(
 	field: TaskModalFieldsConfig["fields"][number],
 	legacyReviewRailField: TaskModalFieldsConfig["fields"][number] | undefined
 ): TaskModalFieldsConfig["fields"][number] {
-	const isActivityField = HERMES_ACTIVITY_USER_FIELD_IDS.has(field.id);
+	const activityField = HERMES_ACTIVITY_USER_FIELD_BY_ID.get(field.id);
+	const isActivityField = Boolean(activityField);
 	const legacyRailHidden =
 		legacyReviewRailField &&
 		(!legacyReviewRailField.enabled || !legacyReviewRailField.visibleInEdit);
 	return {
 		...field,
+		...(activityField
+			? {
+					id: activityField.id,
+					fieldType: "user" as const,
+					displayName: activityField.displayName,
+					visibleInCreation: false,
+				}
+			: {}),
 		group: isActivityField ? "activity" : normalizeModalFieldGroup(field.group),
 		...(isActivityField && legacyRailHidden ? { enabled: false, visibleInEdit: false } : {}),
 	};
 }
 
+function deduplicateUserFieldsByIdOrKey(
+	fields: readonly UserMappedField[]
+): { fields: UserMappedField[]; changed: boolean } {
+	const seen = new Set<string>();
+	const deduplicated: UserMappedField[] = [];
+	for (const field of fields) {
+		const keys = [field.id, field.key].filter(Boolean);
+		if (keys.some((key) => seen.has(key))) {
+			continue;
+		}
+		for (const key of keys) {
+			seen.add(key);
+		}
+		deduplicated.push(field);
+	}
+	return { fields: deduplicated, changed: deduplicated.length !== fields.length };
+}
+
+function deduplicateModalFieldsById(
+	fields: readonly TaskModalFieldsConfig["fields"][number][]
+): { fields: TaskModalFieldsConfig["fields"]; changed: boolean } {
+	const seen = new Set<string>();
+	const deduplicated: TaskModalFieldsConfig["fields"] = [];
+	for (const field of fields) {
+		if (seen.has(field.id)) {
+			continue;
+		}
+		seen.add(field.id);
+		deduplicated.push(field);
+	}
+	return { fields: deduplicated, changed: deduplicated.length !== fields.length };
+}
+
 export function normalizeHermesUserFields(
 	userFields: readonly UserMappedField[] | undefined
 ): { fields: UserMappedField[]; changed: boolean } {
-	const fieldsWithoutLegacy = (userFields ?? []).filter((field) => !isLegacyHermesUserField(field));
-	const fields = [...fieldsWithoutLegacy];
+	const fieldsWithoutLegacy = deduplicateUserFieldsByIdOrKey(
+		(userFields ?? []).filter((field) => !isLegacyHermesUserField(field))
+	);
+	const fields = [...fieldsWithoutLegacy.fields];
 	for (const activityField of HERMES_ACTIVITY_USER_FIELDS) {
 		const existingIndex = fields.findIndex(
 			(field) => field.id === activityField.id || field.key === activityField.key
@@ -287,6 +337,7 @@ export function normalizeHermesUserFields(
 	return {
 		fields,
 		changed:
+			fieldsWithoutLegacy.changed ||
 			JSON.stringify(fields) !== JSON.stringify(userFields ?? []),
 	};
 }
@@ -303,10 +354,11 @@ export function normalizeHermesModalFieldsConfig(
 	const legacyReviewRailHidden =
 		legacyReviewRailField &&
 		(!legacyReviewRailField.enabled || !legacyReviewRailField.visibleInEdit);
-	const fieldsWithoutLegacy: TaskModalFieldsConfig["fields"] = config.fields
+	const normalizedFields = config.fields
 		.filter((field) => !isLegacyHermesFieldId(field.id))
 		.map((field) => normalizeModalField(field, legacyReviewRailField));
-	const fields = [...fieldsWithoutLegacy];
+	const fieldsWithoutLegacy = deduplicateModalFieldsById(normalizedFields);
+	const fields = [...fieldsWithoutLegacy.fields];
 	for (const [index, activityField] of HERMES_ACTIVITY_USER_FIELDS.entries()) {
 		if (fields.some((field) => field.id === activityField.id)) {
 			continue;
@@ -324,6 +376,7 @@ export function normalizeHermesModalFieldsConfig(
 	}
 	const changed =
 		JSON.stringify(config.groups) !== JSON.stringify(DEFAULT_FIELD_GROUPS) ||
+		fieldsWithoutLegacy.changed ||
 		JSON.stringify(fields) !== JSON.stringify(config.fields);
 	return {
 		config: changed

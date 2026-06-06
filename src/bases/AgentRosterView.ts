@@ -1,8 +1,7 @@
-import { Notice, setIcon, setTooltip } from "obsidian";
+import { Notice, TFile, setIcon, setTooltip } from "obsidian";
 import type { BasesView, BasesViewFactory } from "obsidian";
 import { BasesViewBase } from "./BasesViewBase";
 import { identifyTaskNotesFromBasesData } from "./helpers";
-import { createTaskCard } from "../ui/TaskCard";
 import type { TaskInfo } from "../types";
 import type TaskNotesPlugin from "../main";
 import type { BasesTaskUpdateSource } from "./basesUpdateEvents";
@@ -29,6 +28,7 @@ export type AgentRosterViewOptions = {
 	readyStatuses: Set<string>;
 	busyStatuses: Set<string>;
 	reviewStatuses: Set<string>;
+	doneStatuses: Set<string>;
 	ignoredAgentValues: Set<string>;
 };
 
@@ -37,11 +37,13 @@ export type AgentRosterAgent = {
 	primaryBoard: string;
 	boards: string[];
 	tasks: TaskInfo[];
+	completedTasks: TaskInfo[];
 	runningCount: number;
 	reviewCount: number;
 	blockedCount: number;
 	readyCount: number;
 	activeCount: number;
+	completedCount: number;
 	status: "busy" | "review" | "blocked" | "available" | "active";
 };
 
@@ -166,6 +168,25 @@ function getTaskStatus(task: TaskInfo, options: AgentRosterViewOptions): string 
 	).toLowerCase();
 }
 
+function getTaskUpdatedLabel(task: TaskInfo): string {
+	const timestamp = task.dateModified || task.completedDate || task.dateCreated;
+	if (!timestamp) return "Updated unknown";
+	const value = Date.parse(timestamp);
+	if (!Number.isFinite(value)) return "Updated unknown";
+	const days = Math.max(0, Math.floor((Date.now() - value) / 86400000));
+	if (days === 0) return "Updated today";
+	if (days === 1) return "Updated 1 day ago";
+	return `Updated ${days} days ago`;
+}
+
+function formatRosterStatus(status: string): string {
+	return status.length > 0 ? status.charAt(0).toUpperCase() + status.slice(1) : "No status";
+}
+
+function getPrimaryTaskBoard(task: TaskInfo, options: AgentRosterViewOptions): string {
+	return getTaskBoards(task, options)[0] || options.defaultBoard;
+}
+
 function sortTasksForRoster(tasks: TaskInfo[], options: AgentRosterViewOptions): TaskInfo[] {
 	const rankTask = (task: TaskInfo): number => {
 		const status = getTaskStatus(task, options);
@@ -199,6 +220,7 @@ export function buildAgentRoster(
 		const isReview = options.reviewStatuses.has(status);
 		const isBlocked = status === "blocked" || task.isBlocked === true;
 		const isReady = options.readyStatuses.has(status);
+		const isDone = options.doneStatuses.has(status);
 
 		for (const agentName of taskAgents) {
 			let agent = agents.get(agentName);
@@ -208,11 +230,13 @@ export function buildAgentRoster(
 					primaryBoard: taskBoards[0] || options.defaultBoard,
 					boards: [],
 					tasks: [],
+					completedTasks: [],
 					runningCount: 0,
 					reviewCount: 0,
 					blockedCount: 0,
 					readyCount: 0,
 					activeCount: 0,
+					completedCount: 0,
 					status: "available",
 				};
 				agents.set(agentName, agent);
@@ -223,12 +247,17 @@ export function buildAgentRoster(
 					agent.boards.push(board);
 				}
 			}
-			agent.tasks.push(task);
+			if (isDone) {
+				agent.completedTasks.push(task);
+			} else {
+				agent.tasks.push(task);
+			}
 			agent.runningCount += isRunning ? 1 : 0;
 			agent.reviewCount += isReview ? 1 : 0;
 			agent.blockedCount += isBlocked ? 1 : 0;
 			agent.readyCount += isReady ? 1 : 0;
-			agent.activeCount += status !== "done" ? 1 : 0;
+			agent.activeCount += isDone ? 0 : 1;
+			agent.completedCount += isDone ? 1 : 0;
 		}
 	}
 
@@ -250,6 +279,7 @@ export function buildAgentRoster(
 				boards: agent.boards.sort((left, right) => left.localeCompare(right)),
 				primaryBoard: agent.primaryBoard || agent.boards[0] || options.defaultBoard,
 				tasks: sortTasksForRoster(agent.tasks, options),
+				completedTasks: sortTasksForRoster(agent.completedTasks, options),
 			};
 		})
 		.sort((left, right) => {
@@ -264,6 +294,18 @@ export function buildAgentRoster(
 			if (rankDelta !== 0) return rankDelta;
 			return left.name.localeCompare(right.name);
 		});
+}
+
+export function splitAgentRosterHistory(roster: AgentRosterAgent[]): {
+	activeRoster: AgentRosterAgent[];
+	completedOnlyRoster: AgentRosterAgent[];
+} {
+	return {
+		activeRoster: roster.filter((agent) => agent.activeCount > 0),
+		completedOnlyRoster: roster.filter(
+			(agent) => agent.activeCount === 0 && agent.completedTasks.length > 0
+		),
+	};
 }
 
 export class AgentRosterView extends BasesViewBase {
@@ -292,6 +334,7 @@ export class AgentRosterView extends BasesViewBase {
 			readyStatuses: new Set(["triage", "todo", "scheduled", "ready"]),
 			busyStatuses: new Set(["running"]),
 			reviewStatuses: new Set(["review"]),
+			doneStatuses: new Set(["done", "completed"]),
 			ignoredAgentValues: new Set(["hermes-kanban"]),
 		};
 	}
@@ -332,6 +375,7 @@ export class AgentRosterView extends BasesViewBase {
 			]),
 			busyStatuses: parseCsvSet(this.config.get("busyStatuses"), ["running"]),
 			reviewStatuses: parseCsvSet(this.config.get("reviewStatuses"), ["review"]),
+			doneStatuses: parseCsvSet(this.config.get("doneStatuses"), ["done", "completed"]),
 			ignoredAgentValues: parseCsvSet(this.config.get("ignoredAgentValues"), [
 				"hermes-kanban",
 			]),
@@ -355,16 +399,23 @@ export class AgentRosterView extends BasesViewBase {
 			const taskNotes = await identifyTaskNotesFromBasesData(dataItems, this.plugin);
 			const filteredTasks = this.applySearchFilter(taskNotes);
 			const roster = buildAgentRoster(filteredTasks, this.options);
+			const { activeRoster, completedOnlyRoster } = splitAgentRosterHistory(roster);
 
-			if (roster.length === 0) {
+			if (activeRoster.length === 0 && completedOnlyRoster.length === 0) {
 				this.renderEmptyState();
 				return;
 			}
 
-			this.renderSummary(roster);
-			const grid = this.contentEl.createDiv({ cls: "agent-roster-view__grid" });
-			for (const agent of roster) {
-				this.renderAgentCard(grid, agent);
+			if (activeRoster.length > 0) {
+				this.renderSummary(activeRoster);
+				const grid = this.contentEl.createDiv({ cls: "agent-roster-view__grid" });
+				for (const agent of activeRoster) {
+					this.renderAgentCard(grid, agent);
+				}
+			}
+
+			if (completedOnlyRoster.length > 0) {
+				this.renderCompletedAgentsHistory(completedOnlyRoster);
 			}
 		} catch (error) {
 			this.renderError(error as Error);
@@ -420,6 +471,28 @@ export class AgentRosterView extends BasesViewBase {
 		metric.createSpan({ cls: "agent-roster-view__summary-label", text: label });
 	}
 
+	private renderCompletedAgentsHistory(agents: AgentRosterAgent[]): void {
+		if (!this.contentEl) return;
+		const history = this.contentEl.createEl("details", {
+			cls: "agent-roster-view__completed-agents",
+		});
+		history.createEl("summary", {
+			cls: "agent-roster-view__completed-agents-toggle",
+			text: `Completed-only agents (${agents.length})`,
+		});
+
+		let rendered = false;
+		const renderHistory = (): void => {
+			if (rendered || !history.open) return;
+			rendered = true;
+			const grid = history.createDiv({ cls: "agent-roster-view__grid" });
+			for (const agent of agents) {
+				this.renderAgentCard(grid, agent);
+			}
+		};
+		history.addEventListener("toggle", renderHistory);
+	}
+
 	private renderAgentCard(container: HTMLElement, agent: AgentRosterAgent): void {
 		const card = container.createDiv({
 			cls: `agent-roster-view__agent agent-roster-view__agent--${agent.status}`,
@@ -450,13 +523,15 @@ export class AgentRosterView extends BasesViewBase {
 				cls: "agent-roster-view__submit-button",
 				attr: {
 					type: "button",
-					"aria-label": `Submit task to ${agent.name} on Hermes/${board}`,
+					"aria-label": `Submit new task to ${agent.name} on Hermes/${board}`,
 				},
 			});
 			const icon = button.createSpan({ cls: "agent-roster-view__submit-icon" });
 			setIcon(icon, "plus");
-			button.createSpan({ text: board });
-			setTooltip(button, `Submit task to Hermes/${board}`, { placement: "top" });
+			button.createSpan({ text: `Submit to ${board}` });
+			setTooltip(button, `Submit new task to ${agent.name} on Hermes/${board}`, {
+				placement: "top",
+			});
 			button.addEventListener("click", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
@@ -467,22 +542,82 @@ export class AgentRosterView extends BasesViewBase {
 		const taskList = card.createDiv({ cls: "agent-roster-view__task-list" });
 		const visibleTasks = agent.tasks.slice(0, this.options.maxTasksPerAgent);
 		for (const task of visibleTasks) {
-			const wrapper = taskList.createDiv({ cls: "agent-roster-view__task-card" });
-			wrapper.setAttribute("data-task-path", task.path);
-			wrapper.appendChild(
-				createTaskCard(task, this.plugin, this.getVisibleProperties(), {
-					...this.buildTaskCardOptions({ layout: "compact" }),
-				})
-			);
+			this.renderTaskRow(taskList, agent, task, false);
 		}
 
 		const remaining = agent.tasks.length - visibleTasks.length;
 		if (remaining > 0) {
 			taskList.createDiv({
 				cls: "agent-roster-view__more",
-				text: `+${remaining} more`,
+				text: `+${remaining} more active`,
 			});
 		}
+
+		if (agent.completedTasks.length > 0) {
+			const history = card.createEl("details", {
+				cls: "agent-roster-view__history",
+			});
+			history.createEl("summary", {
+				cls: "agent-roster-view__history-toggle",
+				text: `Completed history (${agent.completedCount})`,
+			});
+			let historyRendered = false;
+			const renderHistory = (): void => {
+				if (historyRendered || !history.open) return;
+				historyRendered = true;
+				const historyList = history.createDiv({ cls: "agent-roster-view__task-list" });
+				for (const task of agent.completedTasks) {
+					this.renderTaskRow(historyList, agent, task, true);
+				}
+			};
+			history.addEventListener("toggle", renderHistory);
+		}
+	}
+
+	private renderTaskRow(
+		container: HTMLElement,
+		agent: AgentRosterAgent,
+		task: TaskInfo,
+		completed: boolean
+	): void {
+		const status = getTaskStatus(task, this.options);
+		const board = getPrimaryTaskBoard(task, this.options);
+		const row = container.createDiv({
+			cls: completed
+				? "agent-roster-view__task-row agent-roster-view__task-row--completed"
+				: "agent-roster-view__task-row",
+		});
+		row.setAttribute("data-task-path", task.path);
+
+		const main = row.createDiv({ cls: "agent-roster-view__task-main" });
+		main.createDiv({ cls: "agent-roster-view__task-title", text: task.title });
+		const meta = main.createDiv({ cls: "agent-roster-view__task-meta" });
+		meta.createSpan({ cls: "agent-roster-view__task-board", text: `Hermes/${board}` });
+		meta.createSpan({ cls: "agent-roster-view__task-status", text: formatRosterStatus(status) });
+		meta.createSpan({ cls: "agent-roster-view__task-updated", text: getTaskUpdatedLabel(task) });
+
+		const openButton = row.createEl("button", {
+			cls: "agent-roster-view__open-task-button",
+			attr: {
+				type: "button",
+				"aria-label": `Open task ${task.title} for ${agent.name} on Hermes/${board}`,
+			},
+			text: "Open",
+		});
+		openButton.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.openTask(task);
+		});
+	}
+
+	private async openTask(task: TaskInfo): Promise<void> {
+		const file = this.plugin.app.vault.getAbstractFileByPath(task.path);
+		if (!(file instanceof TFile)) {
+			new Notice(`Could not open task: ${task.path}`);
+			return;
+		}
+		await this.plugin.app.workspace.getLeaf("tab").openFile(file);
 	}
 
 	private renderAgentMetric(container: HTMLElement, label: string, value: number): void {

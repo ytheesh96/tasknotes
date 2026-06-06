@@ -1,8 +1,14 @@
 import { requestUrl } from "obsidian";
 import type { TaskInfo } from "../types";
+import {
+	readHermesBoardFrontmatter,
+	readHermesTaskIdFrontmatter,
+} from "./hermesCanonicalTaskNotes";
 
 const DEFAULT_HERMES_KANBAN_API_BASE = "http://127.0.0.1:9119/api/plugins/kanban";
-const TASKNOTES_KANBAN_TASK_PATH = /^TaskNotes\/([^/]+)\/(t_[^/]+)\.md$/;
+const TASKNOTES_CANONICAL_TASK_PATH = /^TaskNotes\/Tasks\/(t_[^/]+)\.md$/;
+const TASKNOTES_LEGACY_BOARD_TASK_PATH = /^TaskNotes\/([^/]+)\/(t_[^/]+)\.md$/;
+const RESERVED_TASKNOTES_FOLDERS = new Set(["Activity", "Hermes", "Tasks", "Views"]);
 
 interface HermesHttpResponse {
 	ok: boolean;
@@ -20,6 +26,11 @@ export interface HermesTaskRecord {
 	assignee?: string | null;
 	priority?: number | null;
 	tenant?: string | null;
+	run_id?: string | null;
+	root_run_id?: string | null;
+	run_title?: string | null;
+	run_type?: string | null;
+	run_assignment_source?: string | null;
 	created_by?: string | null;
 	workspace_kind?: string | null;
 	workspace_path?: string | null;
@@ -70,8 +81,24 @@ export interface HermesBoardTaskColumn {
 	tasks: HermesTaskRecord[];
 }
 
+export interface HermesRunLaneColumn {
+	name: string;
+	tasks: HermesTaskRecord[];
+	count?: number | null;
+}
+
+export interface HermesRunLaneRecord {
+	id: string;
+	title?: string | null;
+	run_type?: string | null;
+	status?: string | null;
+	counts?: Record<string, number> | null;
+	columns?: HermesRunLaneColumn[];
+}
+
 export interface HermesBoardStateResponse {
 	columns?: HermesBoardTaskColumn[];
+	run_lanes?: HermesRunLaneRecord[];
 	latest_event_id?: number;
 }
 
@@ -92,6 +119,7 @@ export interface HermesCreateTaskPayload {
 	assignee?: string;
 	tenant?: string;
 	priority?: number;
+	created_by?: string;
 	workspace_kind?: string;
 	workspace_path?: string;
 	parents?: string[];
@@ -112,6 +140,13 @@ export interface HermesUpdateTaskPayload {
 	block_reason?: string;
 	summary?: string;
 	metadata?: Record<string, unknown>;
+}
+
+export interface HermesAssignTaskRunPayload {
+	runId: string | null;
+	source?: string;
+	actor?: string;
+	force?: boolean;
 }
 
 export interface HermesCommentPayload {
@@ -143,9 +178,23 @@ export interface HermesTaskDetailResponse extends HermesTaskResponse {
 }
 
 export function getHermesTaskIdentity(task: TaskInfo): HermesTaskIdentity | null {
-	const tasknotesMatch = task.path.match(TASKNOTES_KANBAN_TASK_PATH);
-	if (tasknotesMatch) {
-		return { board: tasknotesMatch[1], id: tasknotesMatch[2] };
+	const frontmatterId = readHermesTaskIdFrontmatter(task.customProperties);
+	const frontmatterBoard = readHermesBoardFrontmatter(task.customProperties);
+	if (frontmatterId && frontmatterBoard) {
+		return { board: frontmatterBoard, id: frontmatterId };
+	}
+
+	const canonicalPathMatch = task.path.match(TASKNOTES_CANONICAL_TASK_PATH);
+	if (canonicalPathMatch && frontmatterBoard) {
+		return { board: frontmatterBoard, id: canonicalPathMatch[1] };
+	}
+
+	const legacyPathMatch = task.path.match(TASKNOTES_LEGACY_BOARD_TASK_PATH);
+	if (legacyPathMatch) {
+		if (RESERVED_TASKNOTES_FOLDERS.has(legacyPathMatch[1])) {
+			return null;
+		}
+		return { board: legacyPathMatch[1], id: legacyPathMatch[2] };
 	}
 	return null;
 }
@@ -197,11 +246,25 @@ export class HermesKanbanApiClient {
 
 	async getBoard(
 		board: string,
-		options: { includeArchived?: boolean } = {}
+		options: {
+			includeArchived?: boolean;
+			groupBy?: "run";
+			runScope?: "root" | "direct";
+			runId?: string;
+		} = {}
 	): Promise<HermesBoardStateResponse> {
 		const params = new URLSearchParams({ board });
 		if (options.includeArchived) {
 			params.set("include_archived", "true");
+		}
+		if (options.groupBy === "run") {
+			params.set("group_by", "run");
+			if (options.runScope) {
+				params.set("run_scope", options.runScope);
+			}
+			if (options.runId) {
+				params.set("run_id", options.runId);
+			}
 		}
 		return this.request<HermesBoardStateResponse>(`/board?${params.toString()}`);
 	}
@@ -232,6 +295,25 @@ export class HermesKanbanApiClient {
 			}
 		);
 		return requireTask(response, "update task");
+	}
+
+	async assignTaskRun(
+		identity: HermesTaskIdentity,
+		payload: HermesAssignTaskRunPayload
+	): Promise<HermesTaskRecord> {
+		const response = await this.request<HermesTaskResponse>(
+			`/tasks/${encodeURIComponent(identity.id)}/run?board=${encodeURIComponent(identity.board)}`,
+			{
+				method: "POST",
+				body: JSON.stringify({
+					run_id: payload.runId,
+					...(payload.source ? { source: payload.source } : {}),
+					...(payload.actor ? { actor: payload.actor } : {}),
+					...(payload.force ? { force: payload.force } : {}),
+				}),
+			}
+		);
+		return requireTask(response, "assign task run");
 	}
 
 	async deleteTask(identity: HermesTaskIdentity): Promise<void> {

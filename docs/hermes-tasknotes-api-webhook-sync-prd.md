@@ -131,9 +131,6 @@ MVP eligibility rules:
 Suggested conventions:
 
 ```yaml
-tags:
-    - task
-    - hermes-kanban
 projects:
     - Hermes/hhmi
 contexts:
@@ -141,9 +138,9 @@ contexts:
 assignee: codex
 ```
 
-The MVP should support folder-derived board identity even if the tag or project
-is missing, but production setups should prefer explicit filters so ordinary
-TaskNotes folders are not accidentally consumed.
+The MVP should support folder-derived board identity even if the project is
+missing, but production setups should prefer explicit board-folder or project
+filters so ordinary TaskNotes folders are not accidentally consumed.
 
 ## Integration Architecture
 

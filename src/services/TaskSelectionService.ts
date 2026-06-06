@@ -1,6 +1,7 @@
 import type TaskNotesPlugin from "../main";
 import type { TaskInfo } from "../types";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/TaskSelectionService" });
 
@@ -253,7 +254,7 @@ export class TaskSelectionService {
 	async getSelectedTasks(): Promise<TaskInfo[]> {
 		const tasks: TaskInfo[] = [];
 		for (const path of this.selectedTaskPaths) {
-			const task = await this.plugin.cacheManager.getTaskInfo(path);
+			const task = await getTaskInfoFromNoteFirst(this.plugin, path);
 			if (task) {
 				tasks.push(task);
 			}

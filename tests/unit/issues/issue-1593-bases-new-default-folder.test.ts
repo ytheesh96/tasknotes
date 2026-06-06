@@ -95,6 +95,8 @@ describe("Issue #1593: Bases New button should use TaskNotes task creation", () 
 
 		expect(staleButtonClick).not.toHaveBeenCalled();
 		expect(nativeNewClick).not.toHaveBeenCalled();
+		const options = (TaskCreationModal as unknown as jest.Mock).mock.calls[0][2];
+		expect(options.prePopulatedValues).not.toHaveProperty("tags");
 		expect(TaskCreationModal).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.anything(),
@@ -104,7 +106,6 @@ describe("Issue #1593: Bases New button should use TaskNotes task creation", () 
 					contexts: [],
 					customFrontmatter: {},
 					status: "triage",
-					tags: ["hermes-kanban"],
 				}),
 			})
 		);

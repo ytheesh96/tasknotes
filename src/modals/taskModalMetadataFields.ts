@@ -43,7 +43,11 @@ export function createTaskModalContextsField(
 
 		inputEl = text.inputEl;
 		context.attachMobileKeyboardScrollGuard(text.inputEl);
-		new ContextSuggest(context.app, text.inputEl, context.plugin, options.contextSuggestOptions);
+		if (options.contextSuggestOptions) {
+			new ContextSuggest(context.app, text.inputEl, context.plugin, options.contextSuggestOptions);
+		} else {
+			new ContextSuggest(context.app, text.inputEl, context.plugin);
+		}
 	});
 
 	if (!inputEl) {

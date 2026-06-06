@@ -283,7 +283,9 @@ export const DEFAULT_SETTINGS: TaskNotesSettings = {
 	taskOrgFiltersCollapsed: false, // Default to expanded
 	// Hermes integration defaults
 	hermesStartCommand: HERMES_DASHBOARD_START_COMMAND,
+	hermesKanbanTransport: "dashboard-api",
 	hermesAutoStartOnTaskChange: false,
+	hermesTaskNotesWebhookSecret: "",
 	// Task filename defaults
 	taskFilenameFormat: "zettel", // Keep existing behavior as default
 	storeTitleInFilename: true,

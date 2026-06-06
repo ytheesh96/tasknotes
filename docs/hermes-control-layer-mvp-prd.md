@@ -71,9 +71,6 @@ Example:
 ```yaml
 ---
 type: task
-tags:
-  - task
-  - hermes-kanban
 title: Draft packet cleanup
 status: ready
 priority: normal

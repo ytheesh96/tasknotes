@@ -3,6 +3,7 @@ import { TaskInfo } from "../types";
 import TaskNotesPlugin from "../main";
 import { createTaskNotesLogger, type TaskNotesLogger } from "../utils/tasknotesLogger";
 import { resolveTaskLinkDisplayText } from "../editor/taskLinkDisplayText";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 export interface TaskLinkInfo {
 	isValidTaskLink: boolean;
@@ -73,7 +74,7 @@ export class TaskLinkDetectionService {
 
 		// Check if file contains task metadata
 		try {
-			const taskInfo = await this.plugin.cacheManager.getTaskInfo(resolvedPath);
+			const taskInfo = await getTaskInfoFromNoteFirst(this.plugin, resolvedPath);
 			if (taskInfo) {
 				const displayText =
 					linkType === "markdown"

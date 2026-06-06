@@ -8,6 +8,7 @@ import {
 	sortExpandedRelationshipTasks,
 	type TaskCardRelationshipOptions,
 } from "./taskCardRelationships";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 export type TaskCardExpansionElement = HTMLElement & {
 	_taskPath?: string;
@@ -265,7 +266,7 @@ export async function toggleBlockingTasksExpansion(
 
 	try {
 		const dependentInfos = task.blocking
-			? await Promise.all(task.blocking.map((path) => plugin.cacheManager.getTaskInfo(path)))
+			? await Promise.all(task.blocking.map((path) => getTaskInfoFromNoteFirst(plugin, path)))
 			: [];
 		const relationshipOptions = getRelationshipOptions(context, card);
 		const dependents = filterExpandedRelationshipTasks(
@@ -331,7 +332,7 @@ export async function toggleBlockedByTasksExpansion(
 	try {
 		const blockerPaths = getBlockedByTaskPaths(task, plugin.app);
 		const blockerInfos = await Promise.all(
-			blockerPaths.map((path) => plugin.cacheManager.getTaskInfo(path))
+			blockerPaths.map((path) => getTaskInfoFromNoteFirst(plugin, path))
 		);
 		const relationshipOptions = getRelationshipOptions(context, card);
 		const blockers = filterExpandedRelationshipTasks(
@@ -383,7 +384,7 @@ export async function refreshParentTaskSubtasksExpansion(
 	const maxAttempts = 10;
 	while (attempts < maxAttempts) {
 		try {
-			const cachedTask = await plugin.cacheManager.getTaskInfo(updatedTask.path);
+			const cachedTask = await getTaskInfoFromNoteFirst(plugin, updatedTask.path);
 			if (cachedTask && cachedTask.dateModified === updatedTask.dateModified) {
 				break;
 			}
@@ -438,7 +439,7 @@ export async function refreshParentTaskSubtasksExpansion(
 		}
 
 		try {
-			const parentTask = await plugin.cacheManager.getTaskInfo(projectTaskPath);
+			const parentTask = await getTaskInfoFromNoteFirst(plugin, projectTaskPath);
 			if (parentTask) {
 				await toggleSubtasksExpansion(context, taskCard, parentTask, true);
 			}

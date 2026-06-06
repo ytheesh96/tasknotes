@@ -59,6 +59,14 @@ class TestTaskEditModal extends TaskEditModal {
 		this.createModalContent();
 	}
 
+	async refreshTaskDataForTest(): Promise<void> {
+		await (this as unknown as { refreshTaskData: () => Promise<void> }).refreshTaskData();
+	}
+
+	getTaskForTest(): TaskInfo {
+		return this.task;
+	}
+
 	setFormStateForTest(task: TaskInfo): void {
 		this.title = task.title;
 		this.status = task.status || "open";
@@ -132,13 +140,39 @@ function createPlugin(app: App, overrides: Record<string, unknown> = {}) {
 		},
 		statusManager: {
 			isCompletedStatus: jest.fn(() => false),
+			getCompletedStatuses: jest.fn(() => ["done"]),
+			getNextStatus: jest.fn(() => "open"),
+			getStatusConfig: jest.fn((status: string) => ({
+				value: status,
+				label: status,
+				color: status === "done" ? "#16a34a" : "#9ca3af",
+			})),
+		},
+		priorityManager: {
+			getPriorityConfig: jest.fn((priority: string | undefined) => ({
+				value: priority ?? "normal",
+				label: priority ?? "normal",
+				color: "#cccccc",
+			})),
 		},
 		cacheManager: {
 			getTaskInfo: jest.fn(),
+			getTaskInfoFromFrontmatter: jest.fn().mockResolvedValue(null),
 			isTaskFile: jest.fn(() => true),
 		},
 		fieldMapper: {
 			toUserField: jest.fn((key: string) => key),
+			getMapping: jest.fn(() => ({
+				status: "status",
+				priority: "priority",
+				projects: "projects",
+				contexts: "contexts",
+				due: "due",
+				scheduled: "scheduled",
+			})),
+			isPropertyForField: jest.fn((propertyId: string, internalField: string) =>
+				propertyId === internalField
+			),
 		},
 		taskService: {
 			deleteTask: jest.fn(async () => undefined),
@@ -163,8 +197,9 @@ function createPlugin(app: App, overrides: Record<string, unknown> = {}) {
 								started: false,
 								command: HERMES_DASHBOARD_START_COMMAND,
 								health: await new HermesAvailabilityService().recheckHealth(),
-							}
+					}
 			),
+			getActiveTimeSession: jest.fn(() => null),
 		};
 	return Object.assign(plugin, overrides);
 }
@@ -320,7 +355,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(forceClose).not.toHaveBeenCalled();
 	});
 
-	it("commits Hermes title edits through TaskNotes without closing the modal", async () => {
+	it("renders Hermes task titles as read-only context", async () => {
 		const updateTask = jest
 			.spyOn(HermesKanbanApiClient.prototype, "updateTask")
 			.mockResolvedValue(undefined);
@@ -341,27 +376,115 @@ describe("TaskEditModal Hermes activity layout", () => {
 		modal.setFormStateForTest(task);
 		modal.renderContentForTest();
 
-		const titleInput = modal.contentEl.querySelector<HTMLTextAreaElement>(
-			".title-input-detailed"
-		)!;
-		titleInput.value = "Updated live title";
-		titleInput.dispatchEvent(new Event("input", { bubbles: true }));
-		modal.setTitleForTest("Updated live title");
+		expect(modal.contentEl.querySelector(".title-input-detailed")).toBeNull();
+		expect(
+			modal.contentEl.querySelector(".tn-task-modal__hermes-readonly-title")?.textContent
+		).toBe(task.title);
+		expect(
+			modal.contentEl.querySelector(".tn-task-modal__hermes-readonly-tag")?.textContent
+		).toBe("#hermes-kanban");
+		expect(
+			modal.contentEl.querySelector(".tn-task-modal__hermes-readonly-tags-setting input")
+		).toBeNull();
 		expect(
 			(modal as unknown as { getChanges: () => Partial<TaskInfo> }).getChanges()
-		).toMatchObject({ title: "Updated live title" });
-		await (
-			modal as unknown as {
-				flushHermesLiveSave: (options?: { showSuccessNotice?: boolean }) => Promise<boolean>;
-			}
-		).flushHermesLiveSave();
+		).not.toHaveProperty("title");
 
-		expect(plugin.taskService.updateTask).toHaveBeenCalledWith(
-			task,
-			expect.objectContaining({ title: "Updated live title" })
-		);
+		expect(plugin.taskService.updateTask).not.toHaveBeenCalled();
 		expect(updateTask).not.toHaveBeenCalled();
 		expect(forceClose).not.toHaveBeenCalled();
+	});
+
+	it("refreshes Hermes modal state from note frontmatter before using pending cache data", async () => {
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const path = "TaskNotes/default/t_activity.md";
+		MockObsidian.createTestFile(
+			path,
+			[
+				"---",
+				"title: Fresh frontmatter title",
+				"status: done",
+				"tags:",
+				"  - task",
+				"  - hermes-kanban",
+				"projects:",
+				"  - Hermes/default",
+				"---",
+				"",
+				"Fresh body details.",
+			].join("\n")
+		);
+		const staleTask = {
+			...createHermesTask(),
+			path,
+			title: "Stale pending title",
+			status: "in-progress",
+		};
+		const freshTask = {
+			...staleTask,
+			title: "Fresh frontmatter title",
+			status: "done",
+			projects: ["Hermes/default"],
+			tags: ["task", "hermes-kanban"],
+		};
+		const plugin = createPlugin(app);
+		plugin.cacheManager.getTaskInfoFromFrontmatter.mockResolvedValue(freshTask);
+		plugin.cacheManager.getTaskInfo.mockResolvedValue(staleTask);
+		const modal = new TestTaskEditModal(app, plugin as never, { task: staleTask });
+
+		await modal.refreshTaskDataForTest();
+
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(path);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+		expect(modal.getTaskForTest()).toMatchObject({
+			title: "Fresh frontmatter title",
+			status: "done",
+			details: "Fresh body details.",
+		});
+	});
+
+	it("refreshes standard task modal state from note frontmatter before pending cache data", async () => {
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const path = "Tasks/plain.md";
+		MockObsidian.createTestFile(
+			path,
+			[
+				"---",
+				"title: Fresh standard title",
+				"status: done",
+				"tags:",
+				"  - task",
+				"---",
+				"",
+				"Fresh standard details.",
+			].join("\n")
+		);
+		const staleTask = {
+			...createHermesTask(),
+			path,
+			title: "Stale pending title",
+			status: "in-progress",
+			tags: ["task"],
+		};
+		const freshTask = {
+			...staleTask,
+			title: "Fresh standard title",
+			status: "done",
+		};
+		const plugin = createPlugin(app);
+		plugin.cacheManager.getTaskInfoFromFrontmatter.mockResolvedValue(freshTask);
+		plugin.cacheManager.getTaskInfo.mockResolvedValue(staleTask);
+		const modal = new TestTaskEditModal(app, plugin as never, { task: staleTask });
+
+		await modal.refreshTaskDataForTest();
+
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(path);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+		expect(modal.getTaskForTest()).toMatchObject({
+			title: "Fresh standard title",
+			status: "done",
+			details: "Fresh standard details.",
+		});
 	});
 
 	it("keeps tasks without board identity on the standard icon set", () => {
@@ -410,9 +533,12 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(rightColumn.textContent).toContain("Activity");
 		expect(rightColumn.textContent).toContain("orchestrator");
 		expect(rightColumn.querySelector(".tn-task-modal__hermes-composer")).not.toBeNull();
-		expect(
-			rightColumn.querySelector(".tn-task-modal__hermes-composer .modal-form__input")
-		).not.toBeNull();
+		const commentInput = rightColumn.querySelector<HTMLTextAreaElement>(
+			".tn-task-modal__hermes-composer .modal-form__input"
+		);
+		expect(commentInput).not.toBeNull();
+		expect(commentInput!.placeholder).toBe("Add a review comment...");
+		expect(commentInput!.placeholder).not.toContain("Shift+Enter");
 		expect(
 			rightColumn.querySelector(".tn-task-modal__hermes-composer button[aria-label='Send comment']")
 		).not.toBeNull();
@@ -430,7 +556,11 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(rightColumn.textContent).not.toContain("Worker log");
 		expect(leftColumn.textContent).not.toContain("Task Information");
 		expect(detailsContainer.querySelector(".task-card__status-dot")).toBeNull();
-		expect(rightColumn.querySelector(".task-card__status-dot")).toBeNull();
+		expect(
+			rightColumn.querySelector(
+				".tn-task-modal__hermes-status-toggle .task-card__status-dot"
+			)
+		).not.toBeNull();
 		expect(rightColumn.querySelector(".tn-task-modal__hermes-activity-expand")).toBeNull();
 	});
 
@@ -577,7 +707,225 @@ describe("TaskEditModal Hermes activity layout", () => {
 		modal.renderAdditionalSections(leftColumn);
 
 		expect(rightColumn.textContent).toContain("Cached YAML review comment.");
-		expect(rightColumn.textContent).toContain("Cached YAML event summary.");
+		expect(rightColumn.textContent).toContain("Run 12 - reviewer-qa - blocked");
+		expect(rightColumn.textContent).not.toContain("Cached YAML event summary.");
+		expect(rightColumn.textContent).not.toContain("No activity yet.");
+	});
+
+	it("keeps linked cached run artifacts as a tray when the live activity payload has no runs", async () => {
+		jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockResolvedValue({
+			task: null,
+			comments: [],
+			runs: [],
+			events: [],
+		});
+		const app = MockObsidian.createMockApp() as unknown as App;
+		MockObsidian.createTestFile(
+			"TaskNotes/default/activity/runs/run142.md",
+			[
+				"---",
+				"type: hermes-run",
+				'runId: "142"',
+				"profile: peacock",
+				"status: blocked",
+				"outcome: blocked",
+				"summary: Cached run note summary with artifact evidence.",
+				'endedAt: "2026-06-02T11:00:00.000Z"',
+				"artifacts:",
+				"  - _Artifacts/hermes-review.md",
+				"changedFiles:",
+				"  - src/modals/TaskEditModal.ts",
+				"  - styles/task-modal.css",
+				"---",
+				"",
+				"# Raw run",
+			].join("\n")
+		);
+		(
+			app.metadataCache as unknown as {
+				setCache: (path: string, metadata: { frontmatter: Record<string, unknown> }) => void;
+			}
+		).setCache("TaskNotes/default/activity/runs/run142.md", {
+			frontmatter: {
+				type: "hermes-run",
+				runId: "142",
+				profile: "peacock",
+				status: "blocked",
+				outcome: "blocked",
+				summary: "Cached run note summary with artifact evidence.",
+				endedAt: "2026-06-02T11:00:00.000Z",
+				artifacts: ["_Artifacts/hermes-review.md"],
+				changedFiles: ["src/modals/TaskEditModal.ts", "styles/task-modal.css"],
+			},
+		});
+		expect(
+			(
+				app.metadataCache as unknown as {
+					getCache: (path: string) => { frontmatter?: Record<string, unknown> } | null;
+				}
+			).getCache("TaskNotes/default/activity/runs/run142.md")?.frontmatter?.summary
+		).toBe("Cached run note summary with artifact evidence.");
+		const plugin = createPlugin(app);
+		const task = {
+			...createHermesTask(),
+			details: "",
+			customProperties: {
+				[HERMES_ACTIVITY_FIELD_KEYS.runs]: [
+					"[[TaskNotes/default/activity/runs/run142|Run 142]]",
+				],
+			},
+		};
+		const modal = new TestTaskEditModal(app, plugin as never, { task });
+		const { rightColumn } = renderHermesSections(modal);
+
+		await flushPromises();
+
+		const artifactTray = rightColumn.querySelector<HTMLElement>(
+			".tn-task-modal__hermes-artifact-tray"
+		);
+		expect(artifactTray).not.toBeNull();
+		expect(artifactTray!.getAttribute("aria-label")).toBe("Linked artifacts tray");
+		expect(artifactTray!.textContent).toContain("Artifacts");
+		expect(artifactTray!.textContent).toContain("3 linked artifacts");
+		expect(artifactTray!.textContent).toContain("hermes-review.md");
+		expect(artifactTray!.textContent).toContain("_Artifacts/hermes-review.md");
+		expect(artifactTray!.textContent).toContain("TaskEditModal.ts");
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-run-card.task-card")).toBeNull();
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-drawer-toggle")).toBeNull();
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-activity-drawer")).toBeNull();
+		const artifactButton = Array.from(
+			artifactTray!.querySelectorAll<HTMLButtonElement>(
+				".tn-task-modal__hermes-artifact-open"
+			)
+		).find((button) => button.getAttribute("aria-label")?.includes("hermes-review.md"));
+		expect(artifactButton).not.toBeUndefined();
+		artifactButton!.click();
+		expect(plugin.openHermesArtifactPath).toHaveBeenCalledWith("_Artifacts/hermes-review.md");
+	});
+
+	it("hydrates cached activity from the primary Hermes activity feed", async () => {
+		jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockResolvedValue({
+			task: null,
+			comments: [],
+			runs: [],
+			events: [],
+		});
+		const app = MockObsidian.createMockApp() as unknown as App;
+		MockObsidian.createTestFile(
+			"TaskNotes/default/activity/comments/t_activity-comment11.md",
+			[
+				"---",
+				"type: hermes-comment",
+				"hermesCommentId: 11",
+				"hermesCommentAuthor: orchestrator",
+				"hermesCommentSummary: Feed-backed summary fallback.",
+				'hermesCommentCreatedAt: "2026-06-02T10:00:00.000Z"',
+				"---",
+				"",
+				"Full markdown comment body from linked note.",
+			].join("\n")
+		);
+		MockObsidian.createTestFile(
+			"TaskNotes/default/activity/runs/t_activity-run142.md",
+			[
+				"---",
+				"type: hermes-run",
+				"hermesRunId: 142",
+				"hermesRunProfile: peacock",
+				"hermesRunStatus: blocked",
+				"hermesRunOutcome: blocked",
+				"hermesRunSummary: Feed-backed run card summary.",
+				'hermesRunEndedAt: "2026-06-02T11:00:00.000Z"',
+				"hermesRunArtifacts:",
+				"  - '[[TaskNotes/default/activity/artifacts/t_activity-run142-feed-review|feed-review.md]]'",
+				"---",
+			].join("\n")
+		);
+		MockObsidian.createTestFile(
+			"TaskNotes/default/activity/artifacts/t_activity-run142-feed-review.md",
+			[
+				"---",
+				"type: hermes-artifact",
+				"hermesArtifactLabel: feed-review.md",
+				"hermesArtifactStoredPath: _Artifacts/feed-review.md",
+				"---",
+			].join("\n")
+		);
+		(
+			app.metadataCache as unknown as {
+				setCache: (path: string, metadata: { frontmatter: Record<string, unknown> }) => void;
+			}
+		).setCache("TaskNotes/default/activity/comments/t_activity-comment11.md", {
+			frontmatter: {
+				type: "hermes-comment",
+				hermesCommentId: "11",
+				hermesCommentAuthor: "orchestrator",
+				hermesCommentSummary: "Feed-backed summary fallback.",
+				hermesCommentCreatedAt: "2026-06-02T10:00:00.000Z",
+			},
+		});
+		(
+			app.metadataCache as unknown as {
+				setCache: (path: string, metadata: { frontmatter: Record<string, unknown> }) => void;
+			}
+		).setCache("TaskNotes/default/activity/runs/t_activity-run142.md", {
+			frontmatter: {
+				type: "hermes-run",
+				hermesRunId: "142",
+				hermesRunProfile: "peacock",
+				hermesRunStatus: "blocked",
+				hermesRunOutcome: "blocked",
+				hermesRunSummary: "Feed-backed run card summary.",
+				hermesRunEndedAt: "2026-06-02T11:00:00.000Z",
+				hermesRunArtifacts: [
+					"[[TaskNotes/default/activity/artifacts/t_activity-run142-feed-review|feed-review.md]]",
+				],
+			},
+		});
+		(
+			app.metadataCache as unknown as {
+				setCache: (path: string, metadata: { frontmatter: Record<string, unknown> }) => void;
+			}
+		).setCache("TaskNotes/default/activity/artifacts/t_activity-run142-feed-review.md", {
+			frontmatter: {
+				type: "hermes-artifact",
+				hermesArtifactLabel: "feed-review.md",
+				hermesArtifactStoredPath: "_Artifacts/feed-review.md",
+			},
+		});
+		const plugin = createPlugin(app);
+		const task = {
+			...createHermesTask(),
+			details: "",
+			customProperties: {
+				[HERMES_ACTIVITY_FIELD_KEYS.feed]: [
+					"[[TaskNotes/default/activity/comments/t_activity-comment11|Comment 11]]",
+					"[[TaskNotes/default/activity/runs/t_activity-run142|Run 142]]",
+				],
+			},
+		};
+		const modal = new TestTaskEditModal(app, plugin as never, { task });
+		const { rightColumn } = renderHermesSections(modal);
+
+		await flushPromises();
+
+		expect(rightColumn.textContent).toContain("Full markdown comment body from linked note.");
+		expect(rightColumn.textContent).not.toContain("Feed-backed summary fallback.");
+		const artifactTray = rightColumn.querySelector<HTMLElement>(
+			".tn-task-modal__hermes-artifact-tray"
+		);
+		expect(artifactTray).not.toBeNull();
+		expect(artifactTray!.textContent).toContain("Artifacts");
+		expect(artifactTray!.textContent).toContain("feed-review.md");
+		expect(artifactTray!.textContent).toContain("_Artifacts/feed-review.md");
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-run-card.task-card")).toBeNull();
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-drawer-toggle")).toBeNull();
+		const artifactAction = Array.from(
+			artifactTray!.querySelectorAll<HTMLButtonElement>(".tn-task-modal__hermes-artifact-open")
+		).find((button) => button.textContent?.includes("feed-review.md"));
+		expect(artifactAction).not.toBeUndefined();
+		artifactAction!.click();
+		expect(plugin.openHermesArtifactPath).toHaveBeenCalledWith("_Artifacts/feed-review.md");
 		expect(rightColumn.textContent).not.toContain("No activity yet.");
 	});
 
@@ -605,7 +953,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 					id: 1,
 					kind: "commented",
 					payload: "Event payload.",
-					created_at: Math.floor(new Date("2026-06-02T12:00:00.000Z").getTime() / 1000),
+						created_at: Math.floor((Date.now() - 36 * 60 * 60 * 1000) / 1000),
 				},
 			],
 		});
@@ -635,9 +983,70 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(rightColumn.textContent).toContain("orchestrator");
 		expect(rightColumn.textContent).toContain("5 mins ago");
 		expect(rightColumn.textContent).toContain("1 hour ago");
-		expect(rightColumn.textContent).toContain("now");
+		expect(rightColumn.textContent).not.toContain("Event payload.");
 		expect(detailsContainer.textContent).not.toContain("Jun");
 		expect(rightColumn.textContent).not.toContain("Jun");
+	});
+
+	it("renders Hermes run artifacts as a simple tray without run-card drawers", async () => {
+		jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockResolvedValue({
+			task: null,
+			comments: [],
+			runs: [
+				{
+					id: 146,
+					profile: "peacock",
+					status: "review_required",
+					summary: "Completed parser/card pass and kept raw preservation intact.",
+					ended_at: Math.floor(new Date("2026-06-02T11:00:00.000Z").getTime() / 1000),
+					metadata: {
+						changed_files: [
+							"src/modals/TaskEditModal.ts",
+							"styles/task-modal.css",
+						],
+						artifacts: ["/tmp/hermes-review-thread-card-qa-report.md"],
+					},
+				},
+			],
+			events: [],
+		});
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const plugin = createPlugin(app);
+		const modal = new TestTaskEditModal(app, plugin as never, {
+			task: {
+				...createHermesTask(),
+				path: "TaskNotes/default/t_activity.md",
+			},
+		});
+		const { rightColumn } = renderHermesSections(modal);
+		await flushPromises();
+
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-run-card.task-card")).toBeNull();
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-drawer-toggle")).toBeNull();
+		expect(rightColumn.querySelector(".tn-task-modal__hermes-activity-drawer")).toBeNull();
+		const artifactTray = rightColumn.querySelector<HTMLElement>(
+			".tn-task-modal__hermes-artifact-tray"
+		);
+		expect(artifactTray).not.toBeNull();
+		expect(artifactTray!.getAttribute("aria-label")).toBe("Linked artifacts tray");
+		expect(artifactTray!.textContent).toContain("Artifacts");
+		expect(artifactTray!.textContent).toContain("3 linked artifacts");
+		expect(artifactTray!.textContent).toContain("TaskEditModal.ts");
+		expect(artifactTray!.textContent).toContain("styles/task-modal.css");
+		expect(artifactTray!.textContent).toContain("hermes-review-thread-card-qa-report.md");
+		expect(
+			artifactTray!.querySelectorAll(".tn-task-modal__hermes-artifact-row")
+		).toHaveLength(3);
+
+		const artifactButton = Array.from(
+			artifactTray!.querySelectorAll<HTMLButtonElement>(".tn-task-modal__hermes-artifact-open")
+		).find((button) => button.textContent?.includes("qa-report.md"));
+		expect(artifactButton).not.toBeUndefined();
+		artifactButton!.click();
+		await flushPromises();
+		expect(plugin.openHermesArtifactPath).toHaveBeenCalledWith(
+			"/tmp/hermes-review-thread-card-qa-report.md"
+		);
 	});
 
 	it("keeps the newest thread entries closest to the comment composer", async () => {
@@ -785,7 +1194,18 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(rightColumn.textContent).toContain("Root triage/synthesis is complete.");
 		expect(rightColumn.textContent).toContain("+Hermes/default");
 		expect(
+			rightColumn.querySelector(".tn-task-modal__hermes-activity-card .task-card__title")
+		).toBeNull();
+		expect(
 			rightColumn.querySelector(".tn-task-modal__hermes-status-pill--success")
+		).toBeNull();
+		expect(
+			rightColumn.querySelector(
+				".tn-task-modal__hermes-status-toggle .tn-task-modal__hermes-run-status-dot--success"
+			)
+		).not.toBeNull();
+		expect(
+			rightColumn.querySelector(".tn-task-modal__hermes-activity-drawer[data-drawer='signals']")
 		).not.toBeNull();
 		expect(rightColumn.textContent).toContain("Result length");
 		expect(rightColumn.textContent).toContain("0");
@@ -849,23 +1269,29 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(pinnedCard!.classList.contains("tn-task-modal__hermes-activity-card--openable")).toBe(true);
 		expect(pinnedCard!.getAttribute("aria-haspopup")).toBe("dialog");
 		expect(pinnedCard!.getAttribute("aria-expanded")).toBeNull();
-		expect(pinnedCard!.textContent).toContain("Review required");
+		expect(pinnedCard!.querySelector(".task-card__title")).toBeNull();
+		expect(pinnedCard!.querySelector(".tn-task-modal__hermes-activity-label")).toBeNull();
+		expect(pinnedCard!.querySelector(".tn-task-modal__hermes-comment-avatar")).not.toBeNull();
 		expect(pinnedCard!.textContent).toContain("+Hermes/default");
 		expect(pinnedCard!.querySelector(".task-card__metadata-property--projects")?.textContent).toBe(
 			"+Hermes/default"
 		);
 		expect(pinnedCard!.querySelector(".context-tag")?.textContent).toBe("@peacock");
-		expect(pinnedCard!.textContent).toContain("1 day ago");
+			expect(
+				pinnedCard!.querySelector(".tn-task-modal__hermes-activity-time")?.textContent
+			).toContain("ago");
 		expect(pinnedCard!.textContent).toContain("Pinned");
-		expect(pinnedCard!.textContent).toContain("Changed files");
-		expect(pinnedCard!.textContent).toContain("1 file");
-		expect(pinnedCard!.textContent).toContain("Tests run");
-		expect(pinnedCard!.textContent).toContain("1 item");
-		expect(pinnedCard!.textContent).toContain("Open review.md");
+		expect(pinnedCard!.textContent).toContain("comments live in right rail");
+		expect(pinnedCard!.textContent).not.toContain("Changed files");
+		expect(pinnedCard!.textContent).not.toContain("Tests run");
+		expect(pinnedCard!.textContent).not.toContain("Open review.md");
+		expect(pinnedCard!.querySelector(".tn-task-modal__hermes-activity-details")).toBeNull();
+		expect(pinnedCard!.querySelector(".tn-task-modal__hermes-activity-action")).toBeNull();
+		expect(pinnedCard!.querySelector(".tn-task-modal__hermes-raw-toggle")).toBeNull();
 		expect(pinnedCard!.textContent).not.toContain('"changed_files"');
 		expect(
 			pinnedCard!.querySelectorAll(".tn-task-modal__hermes-activity-detail-row--overflow")
-		).toHaveLength(2);
+		).toHaveLength(0);
 
 		const openSpy = jest.spyOn(Modal.prototype, "open");
 		pinnedCard!.click();
@@ -874,10 +1300,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(detailModal.contentEl.textContent).toContain("Review required");
 		expect(detailModal.contentEl.textContent).toContain("Decisions");
 		expect(detailModal.contentEl.textContent).toContain("Open review.md");
-
-		pinnedCard!.querySelector<HTMLButtonElement>(".tn-task-modal__hermes-raw-toggle")!.click();
-		expect(pinnedCard!.textContent).toContain("review-required handoff:");
-		expect(pinnedCard!.textContent).toContain('"changed_files"');
+		expect(detailModal.contentEl.textContent).toContain("View raw");
 	});
 
 	it("renders a raw review-required JSON blob as a structured card with raw content collapsed", async () => {
@@ -916,17 +1339,30 @@ describe("TaskEditModal Hermes activity layout", () => {
 		);
 		expect(structuredCard).not.toBeNull();
 		expect(structuredCard!.querySelector(".tn-task-modal__hermes-review-badge")).toBeNull();
-		expect(structuredCard!.textContent).toContain("Review required");
+		expect(structuredCard!.querySelector(".task-card__title")).toBeNull();
+		expect(structuredCard!.querySelector(".tn-task-modal__hermes-activity-label")).toBeNull();
+		expect(structuredCard!.querySelector(".tn-task-modal__hermes-comment-avatar")).not.toBeNull();
 		expect(structuredCard!.textContent).toContain("Feature is implemented but needs review.");
-		expect(structuredCard!.textContent).toContain("Changed files");
-		expect(structuredCard!.textContent).toContain("1 file");
-		expect(structuredCard!.textContent).toContain("Open review.md");
-		expect(structuredCard!.textContent).toContain("Open review.pdf");
-		expect(structuredCard!.textContent).toContain("View raw");
+		expect(structuredCard!.textContent).not.toContain("Changed files");
+		expect(structuredCard!.textContent).not.toContain("Open review.md");
+		expect(structuredCard!.textContent).not.toContain("Open review.pdf");
+		expect(structuredCard!.textContent).not.toContain("View raw");
+		expect(structuredCard!.querySelector(".tn-task-modal__hermes-activity-details")).toBeNull();
+		expect(structuredCard!.querySelector(".tn-task-modal__hermes-activity-action")).toBeNull();
 		expect(structuredCard!.textContent).not.toContain('"needs_review"');
 
+		const openSpy = jest.spyOn(Modal.prototype, "open");
+		structuredCard!.click();
+		expect(openSpy).toHaveBeenCalledTimes(1);
+		const detailModal = openSpy.mock.instances[0] as Modal;
+		expect(detailModal.contentEl.textContent).toContain("Changed files");
+		expect(detailModal.contentEl.textContent).toContain("1 file");
+		expect(detailModal.contentEl.textContent).toContain("Open review.md");
+		expect(detailModal.contentEl.textContent).toContain("Open review.pdf");
+		expect(detailModal.contentEl.textContent).toContain("View raw");
+
 		const artifactButtons = Array.from(
-			structuredCard!.querySelectorAll<HTMLButtonElement>(
+			detailModal.contentEl.querySelectorAll<HTMLButtonElement>(
 				".tn-task-modal__hermes-activity-action"
 			)
 		);
@@ -947,8 +1383,8 @@ describe("TaskEditModal Hermes activity layout", () => {
 			"https://example.com/review.pdf"
 		);
 
-		structuredCard!.querySelector<HTMLButtonElement>(".tn-task-modal__hermes-raw-toggle")!.click();
-		expect(structuredCard!.textContent).toContain('"needs_review"');
+		detailModal.contentEl.querySelector<HTMLButtonElement>(".tn-task-modal__hermes-raw-toggle")!.click();
+		expect(detailModal.contentEl.textContent).toContain('"needs_review"');
 	});
 
 	it("renders ordinary comments with the plain comment card treatment", async () => {
@@ -979,13 +1415,22 @@ describe("TaskEditModal Hermes activity layout", () => {
 		);
 		expect(plainComment).not.toBeNull();
 		expect(plainComment!.classList.contains("task-card")).toBe(true);
-			expect(plainComment!.textContent).toContain("yt");
-			expect(plainComment!.textContent).toContain("+Hermes/default");
-			expect(plainComment!.querySelector(".context-tag")?.textContent).toBe("@yt");
+		expect(plainComment!.querySelector(".tn-task-modal__hermes-comment-avatar")).not.toBeNull();
+		expect(plainComment!.querySelector(".task-card__title")).toBeNull();
+		expect(plainComment!.textContent).toContain("yt");
+		expect(plainComment!.textContent).toContain("+Hermes/default");
+		expect(plainComment!.querySelector(".context-tag")?.textContent).toBe("@yt");
 		expect(plainComment!.textContent).toContain("Looks good to me — no Hermes payload here.");
 		expect(plainComment!.textContent).not.toContain("View raw");
 		expect(plainComment!.querySelector(".tn-task-modal__hermes-activity-action")).toBeNull();
 		expect(plainComment!.querySelector(".tn-task-modal__hermes-thread-avatar")).toBeNull();
+		expect(plainComment!.classList.contains("tn-task-modal__hermes-thread-card--openable")).toBe(true);
+
+		const openSpy = jest.spyOn(Modal.prototype, "open");
+		plainComment!.click();
+		expect(openSpy).toHaveBeenCalledTimes(1);
+		const detailModal = openSpy.mock.instances[0] as Modal;
+		expect(detailModal.contentEl.textContent).toContain("Looks good to me — no Hermes payload here.");
 	});
 
 	it("renders non-pinned handoff comments as structured cards with raw content collapsed", async () => {
@@ -1071,6 +1516,136 @@ describe("TaskEditModal Hermes activity layout", () => {
 
 		structuredCard!.querySelector<HTMLButtonElement>(".tn-task-modal__hermes-raw-toggle")!.click();
 		expect(structuredCard!.textContent).toContain('"changed_files"');
+	});
+
+	it("hides duplicate child task action buttons when the child-task toggle is available", async () => {
+		jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockResolvedValue({
+			task: null,
+			comments: [
+				{
+					author: "auto-decomposer",
+					body: [
+						"handoff:",
+						"```json",
+						JSON.stringify({
+							summary: "Decomposed into child cards.",
+							children: ["t_e775e4d5", "t_867d671a"],
+						}),
+						"```",
+					].join("\n"),
+					created_at: Math.floor(new Date("2026-06-02T12:00:00.000Z").getTime() / 1000),
+				},
+			],
+			runs: [],
+			events: [],
+		});
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const modal = new TestTaskEditModal(app, createPlugin(app) as never, {
+			task: {
+				...createHermesTask(),
+				path: "TaskNotes/default/t_activity.md",
+			},
+		});
+		const { rightColumn } = renderHermesSections(modal);
+		await flushPromises();
+
+		const structuredCard = rightColumn.querySelector<HTMLElement>(
+			".tn-task-modal__hermes-thread-card--structured"
+		);
+		expect(structuredCard).not.toBeNull();
+		const bodyEl = structuredCard!.querySelector<HTMLElement>(
+			".tn-task-modal__hermes-activity-body"
+		);
+		const metadataEl = structuredCard!.querySelector<HTMLElement>(".task-card__metadata");
+		expect(bodyEl).not.toBeNull();
+		expect(metadataEl).not.toBeNull();
+		expect(
+			Boolean(bodyEl!.compareDocumentPosition(metadataEl!) & Node.DOCUMENT_POSITION_FOLLOWING)
+		).toBe(true);
+		const childToggle = structuredCard!.querySelector<HTMLElement>(
+			".tn-task-modal__hermes-child-toggle"
+		);
+		expect(childToggle).not.toBeNull();
+		expect(childToggle!.dataset.count).toBe("2");
+		expect(childToggle!.getAttribute("role")).toBe("button");
+		expect(childToggle!.getAttribute("tabindex")).toBe("0");
+		expect(childToggle!.closest(".task-card__badges")).not.toBeNull();
+		expect(childToggle!.closest(".task-card__metadata")).toBeNull();
+		expect(
+			structuredCard!.querySelector(".tn-task-modal__hermes-activity-actions")
+		).toBeNull();
+		expect(structuredCard!.textContent).not.toContain("Edit t_e775e4d5");
+		expect(structuredCard!.textContent).not.toContain("Edit t_867d671a");
+	});
+
+	it("expands Hermes child tasks from note frontmatter before pending cache data", async () => {
+		jest.spyOn(HermesKanbanApiClient.prototype, "getTask").mockResolvedValue({
+			task: null,
+			comments: [
+				{
+					author: "auto-decomposer",
+					body: [
+						"handoff:",
+						"```json",
+						JSON.stringify({
+							summary: "Decomposed into child cards.",
+							children: ["t_e775e4d5"],
+						}),
+						"```",
+					].join("\n"),
+					created_at: Math.floor(new Date("2026-06-02T12:00:00.000Z").getTime() / 1000),
+				},
+			],
+			runs: [],
+			events: [],
+		});
+		const app = MockObsidian.createMockApp() as unknown as App;
+		const frontmatterChild = {
+			...createHermesTask(),
+			path: "TaskNotes/default/t_e775e4d5.md",
+			title: "Fresh frontmatter child",
+			status: "done",
+		};
+		const stalePendingChild = {
+			...frontmatterChild,
+			title: "Stale pending child",
+			status: "open",
+		};
+		const plugin = createPlugin(app);
+		plugin.cacheManager.getTaskInfoFromFrontmatter.mockImplementation(async (path: string) =>
+			path === frontmatterChild.path ? frontmatterChild : null
+		);
+		plugin.cacheManager.getTaskInfo.mockResolvedValue(stalePendingChild);
+		const modal = new TestTaskEditModal(app, plugin as never, {
+			task: {
+				...createHermesTask(),
+				path: "TaskNotes/default/t_activity.md",
+			},
+		});
+		const { rightColumn } = renderHermesSections(modal);
+		await flushPromises();
+
+		plugin.cacheManager.getTaskInfoFromFrontmatter.mockClear();
+		plugin.cacheManager.getTaskInfo.mockClear();
+		const childToggle = rightColumn.querySelector<HTMLElement>(
+			".tn-task-modal__hermes-child-toggle"
+		);
+		childToggle!.click();
+		await flushPromises();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			frontmatterChild.path
+		);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+		const childTasks = rightColumn.querySelector<HTMLElement>(
+			".tn-task-modal__hermes-child-tasks"
+		);
+		expect(childTasks).not.toBeNull();
+		const childCard = childTasks!.querySelector<HTMLElement>(".task-card");
+		expect(childCard).not.toBeNull();
+		expect(childCard!.dataset.taskPath).toBe(frontmatterChild.path);
+		expect(childCard!.dataset.status).toBe("done");
 	});
 
 	it("pins blocked task context even when no run history exists", async () => {
@@ -1388,7 +1963,6 @@ describe("TaskEditModal Hermes activity layout", () => {
 			expect(footer.textContent).toContain("Start");
 			expect(footer.textContent).not.toContain("Start Hermes");
 			expect(footer.textContent).toContain("Recheck");
-			expect(modal.contentEl.textContent).toContain("Cached Hermes activity");
 			expect(modal.contentEl.textContent).toContain("Activity (cache-only)");
 			expect(
 				modal.contentEl.querySelector<HTMLTextAreaElement>(".tn-task-modal__hermes-comment-input")
@@ -1563,9 +2137,17 @@ describe("TaskEditModal Hermes activity layout", () => {
 			cssContent,
 			".tasknotes-plugin .tn-task-modal__hermes-activity-body"
 		);
+		const activityBadgesBlock = extractCssBlock(
+			cssContent,
+			".tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card .task-card__badges"
+		);
 		const structuredBodyBlock = extractCssBlock(
 			cssContent,
 			".tasknotes-plugin .tn-task-modal__hermes-thread-body--structured"
+		);
+		const commentBodyBlock = extractCssBlock(
+			cssContent,
+			".tasknotes-plugin .tn-task-modal__hermes-comment-body"
 		);
 		const activityOpenableBlock = extractCssBlock(
 			cssContent,
@@ -1586,8 +2168,20 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(threadCardBlock).toContain("display: flex");
 		expect(threadCardBlock).toContain("background-color: transparent");
 		expect(threadCardBlock).toContain("padding: var(--size-2-3) var(--size-4-2)");
+		expect(activityBadgesBlock).toContain("align-self: flex-start");
+		expect(activityBadgesBlock).toContain("gap: 5px");
+		expect(activityBadgesBlock).toContain("margin-top: 1px");
+		expect(cssContent).toContain(
+			".tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card:hover"
+		);
+		expect(cssContent).toContain(
+			".tasknotes-plugin .tn-task-modal__hermes-activity-card.task-card:focus-within"
+		);
 		expect(activityBodyBlock).toContain("-webkit-line-clamp: 2");
 		expect(structuredBodyBlock).toContain("-webkit-line-clamp: 2");
+		expect(commentBodyBlock).toContain("-webkit-line-clamp: 3");
+		expect(commentBodyBlock).toContain("overflow: hidden");
+		expect(cssContent).toContain("tn-task-modal__hermes-activity-label");
 		expect(cssContent).toContain("tn-task-modal__hermes-status-pill");
 		expect(cssContent).toContain("tn-task-modal__hermes-status-pill--success");
 		expect(activityOpenableBlock).toContain("cursor: pointer");
@@ -1596,6 +2190,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		expect(detailModalContentBlock).toContain("overflow: auto");
 		expect(cssContent).not.toContain(".tasknotes-plugin .tn-task-modal__hermes-status-item");
 		expect(cssContent).not.toContain("tn-task-modal__hermes-thread-avatar");
+		expect(cssContent).not.toContain("tn-task-modal__hermes-activity-title");
 		expect(cssContent).toContain("tn-task-modal__hermes-activity-detail-row--overflow");
 		expect(cssContent).toContain("tn-task-modal__hermes-activity-action--overflow");
 		expect(cssContent).toContain("tn-task-modal__hermes-activity-overflow-summary");

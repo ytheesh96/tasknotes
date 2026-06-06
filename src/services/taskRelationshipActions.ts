@@ -4,6 +4,7 @@ import type { TaskInfo } from "../types";
 import { generateLink, parseLinkToPath } from "../utils/linkUtils";
 import { filterTaskIdentificationTags } from "../utils/taskTagFiltering";
 import { publishUserNotice } from "../core/userNotices";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 function translate(
 	plugin: TaskNotesPlugin,
@@ -69,16 +70,17 @@ export async function addTaskToProject(
 	task: TaskInfo,
 	projectFile: TFile
 ): Promise<TaskInfo | null> {
+	const targetTask = (await getTaskInfoFromNoteFirst(plugin, task.path)) ?? task;
 	const projectReference = generateLink(
 		plugin.app,
 		projectFile,
-		task.path,
+		targetTask.path,
 		"",
 		"",
 		plugin.settings.useFrontmatterMarkdownLinks
 	);
 	const legacyReference = `[[${projectFile.basename}]]`;
-	const currentProjects = Array.isArray(task.projects) ? task.projects : [];
+	const currentProjects = Array.isArray(targetTask.projects) ? targetTask.projects : [];
 
 	if (currentProjects.includes(projectReference) || currentProjects.includes(legacyReference)) {
 		publishUserNotice(
@@ -90,7 +92,7 @@ export async function addTaskToProject(
 
 	const sanitizedProjects = currentProjects.filter((entry) => entry !== legacyReference);
 	const updatedProjects = [...sanitizedProjects, projectReference];
-	const updatedTask = await plugin.updateTaskProperty(task, "projects", updatedProjects);
+	const updatedTask = await plugin.updateTaskProperty(targetTask, "projects", updatedProjects);
 
 	publishUserNotice(
 		plugin.emitter,
@@ -106,16 +108,17 @@ export async function assignTaskAsSubtask(
 	parentFile: TFile,
 	subtask: TaskInfo
 ): Promise<TaskInfo | null> {
+	const targetSubtask = (await getTaskInfoFromNoteFirst(plugin, subtask.path)) ?? subtask;
 	const projectReference = generateLink(
 		plugin.app,
 		parentFile,
-		subtask.path,
+		targetSubtask.path,
 		"",
 		"",
 		plugin.settings.useFrontmatterMarkdownLinks
 	);
 	const legacyReference = `[[${parentFile.basename}]]`;
-	const subtaskProjects = Array.isArray(subtask.projects) ? subtask.projects : [];
+	const subtaskProjects = Array.isArray(targetSubtask.projects) ? targetSubtask.projects : [];
 
 	if (subtaskProjects.includes(projectReference) || subtaskProjects.includes(legacyReference)) {
 		publishUserNotice(
@@ -127,12 +130,16 @@ export async function assignTaskAsSubtask(
 
 	const sanitizedProjects = subtaskProjects.filter((entry) => entry !== legacyReference);
 	const updatedProjects = [...sanitizedProjects, projectReference];
-	const updatedSubtask = await plugin.updateTaskProperty(subtask, "projects", updatedProjects);
+	const updatedSubtask = await plugin.updateTaskProperty(
+		targetSubtask,
+		"projects",
+		updatedProjects
+	);
 
 	publishUserNotice(
 		plugin.emitter,
 		translate(plugin, "contextMenus.task.organization.notices.addedAsSubtask", {
-			subtask: subtask.title,
+			subtask: targetSubtask.title,
 			parent: parentFile.basename,
 		})
 	);

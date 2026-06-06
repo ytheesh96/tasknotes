@@ -5,6 +5,7 @@ import { PriorityContextMenu } from "../components/PriorityContextMenu";
 import { RecurrenceContextMenu } from "../components/RecurrenceContextMenu";
 import { ReminderModal } from "../modals/ReminderModal";
 import { getEffectiveTaskStatus } from "../utils/helpers";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 export type TaskCardStatusVisualUpdater = (
@@ -52,7 +53,7 @@ export function createStatusCycleHandler(
 					return;
 				}
 
-				const freshTask = await plugin.cacheManager.getTaskInfo(task.path);
+				const freshTask = await getTaskInfoFromNoteFirst(plugin, task.path);
 				if (!freshTask) {
 					new Notice("Task not found");
 					return;

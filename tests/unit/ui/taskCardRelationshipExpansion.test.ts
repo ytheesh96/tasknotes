@@ -3,6 +3,7 @@ import type TaskNotesPlugin from "../../../src/main";
 import type { TaskInfo } from "../../../src/types";
 import {
 	cleanupTaskCardExpansions,
+	refreshParentTaskSubtasksExpansion,
 	toggleBlockedByTasksExpansion,
 	toggleBlockingTasksExpansion,
 	toggleSubtasksExpansion,
@@ -68,6 +69,7 @@ function createPlugin(): TaskNotesPlugin {
 		},
 		cacheManager: {
 			getTaskInfo: jest.fn(),
+			getTaskInfoFromFrontmatter: jest.fn(),
 		},
 	} as unknown as TaskNotesPlugin;
 }
@@ -168,6 +170,30 @@ describe("taskCardRelationshipExpansion", () => {
 		expect(card.classList.contains("task-card--nested-interactive-hover")).toBe(false);
 	});
 
+	it("renders blocking dependencies from note frontmatter before falling back to pending cache data", async () => {
+		const plugin = createPlugin();
+		const freshDependent = createTask("Tasks/dependent.md", "Fresh frontmatter dependent");
+		const staleDependent = createTask("Tasks/dependent.md", "Stale pending dependent");
+		(plugin.cacheManager.getTaskInfoFromFrontmatter as jest.Mock).mockResolvedValue(
+			freshDependent
+		);
+		(plugin.cacheManager.getTaskInfo as jest.Mock).mockResolvedValue(staleDependent);
+		const task = createTask("Tasks/blocker.md", "Blocker");
+		task.blocking = [freshDependent.path];
+		const card = createCard(task.path);
+
+		await toggleBlockingTasksExpansion(createContext(plugin), card, task, true);
+
+		const rendered = card.querySelector<HTMLElement>(
+			".task-card__blocking > .task-card"
+		);
+		expect(rendered?.textContent).toBe("Fresh frontmatter dependent");
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			freshDependent.path
+		);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+	});
+
 	it("renders blocked-by dependencies from normalized dependency entries", async () => {
 		const plugin = createPlugin();
 		const blocker = createTask("Tasks/blocker.md", "Blocking prerequisite");
@@ -185,6 +211,74 @@ describe("taskCardRelationshipExpansion", () => {
 		);
 		expect(rendered.map((blockerCard) => blockerCard.dataset.taskPath)).toEqual([blocker.path]);
 		expect(rendered[0]?.classList.contains("task-card--dependency")).toBe(true);
+	});
+
+	it("renders blocked-by dependencies from note frontmatter before pending cache data", async () => {
+		const plugin = createPlugin();
+		const freshBlocker = createTask("Tasks/blocker.md", "Fresh frontmatter blocker");
+		const staleBlocker = createTask("Tasks/blocker.md", "Stale pending blocker");
+		(plugin.cacheManager.getTaskInfoFromFrontmatter as jest.Mock).mockResolvedValue(
+			freshBlocker
+		);
+		(plugin.cacheManager.getTaskInfo as jest.Mock).mockResolvedValue(staleBlocker);
+		const task = createTask("Tasks/blocked.md", "Blocked");
+		task.blockedBy = [{ uid: "Tasks/blocker.md", reltype: "FINISHTOSTART" }];
+		const card = createCard(task.path);
+
+		await toggleBlockedByTasksExpansion(createContext(plugin), card, task, true);
+
+		const rendered = card.querySelector<HTMLElement>(
+			".task-card__blocked-by > .task-card"
+		);
+		expect(rendered?.textContent).toBe("Fresh frontmatter blocker");
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			freshBlocker.path
+		);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+	});
+
+	it("refreshes expanded parent subtasks from note frontmatter before pending cache data", async () => {
+		const plugin = createPlugin();
+		const updatedTask = createTask("Tasks/child.md", "Updated child");
+		updatedTask.dateModified = "2026-06-04T10:00:00Z";
+		updatedTask.projects = ["project"];
+		const parentTask = createTask("Tasks/project.md", "Fresh frontmatter parent");
+		const staleParentTask = createTask("Tasks/project.md", "Stale pending parent");
+		(plugin.cacheManager.getTaskInfoFromFrontmatter as jest.Mock).mockImplementation(
+			async (path: string) => {
+				if (path === updatedTask.path) return updatedTask;
+				if (path === parentTask.path) return parentTask;
+				return null;
+			}
+		);
+		(plugin.cacheManager.getTaskInfo as jest.Mock).mockResolvedValue(staleParentTask);
+		(plugin.projectSubtasksService.getTasksLinkedToProject as jest.Mock).mockResolvedValue([
+			updatedTask,
+		]);
+		const renderTaskCard = jest.fn(createRenderedCard);
+		const root = document.createElement("div");
+		const parentCard = createCard(parentTask.path);
+		parentCard.createDiv({ cls: "task-card__chevron task-card__chevron--expanded" });
+		parentCard.createDiv({ cls: "task-card__subtasks" });
+		root.append(parentCard);
+
+		await refreshParentTaskSubtasksExpansion(
+			createContext(plugin, {}, renderTaskCard),
+			updatedTask,
+			root
+		);
+
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			updatedTask.path
+		);
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			parentTask.path
+		);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+		expect(plugin.projectSubtasksService.getTasksLinkedToProject).toHaveBeenCalledWith(
+			expect.objectContaining({ path: parentTask.path })
+		);
+		expect(renderTaskCard).toHaveBeenCalledWith(updatedTask, {});
 	});
 
 	it("cleans up stored relationship containers", async () => {

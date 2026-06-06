@@ -60,6 +60,7 @@ function createPlugin(overrides: Partial<TaskNotesPlugin> = {}): TaskNotesPlugin
 		},
 		cacheManager: {
 			getTaskInfo: jest.fn(async () => task),
+			getTaskInfoFromFrontmatter: jest.fn(async () => null),
 		},
 		updateTaskProperty: jest.fn(async (updatedTask, property, value) => ({
 			...updatedTask,
@@ -75,8 +76,9 @@ function createPlugin(overrides: Partial<TaskNotesPlugin> = {}): TaskNotesPlugin
 }
 
 async function flushAsyncHandlers(): Promise<void> {
-	await Promise.resolve();
-	await Promise.resolve();
+	for (let i = 0; i < 5; i++) {
+		await Promise.resolve();
+	}
 }
 
 describe("taskCardActions", () => {
@@ -105,6 +107,36 @@ describe("taskCardActions", () => {
 			expect.objectContaining({ status: "done" }),
 			"done",
 			true
+		);
+	});
+
+	it("cycles status from note frontmatter before pending cache data", async () => {
+		const frontmatterTask = { ...task, status: "ready" };
+		const pendingTask = { ...task, status: "blocked" };
+		const plugin = createPlugin({
+			cacheManager: {
+				getTaskInfoFromFrontmatter: jest.fn(async () => frontmatterTask),
+				getTaskInfo: jest.fn(async () => pendingTask),
+			},
+		} as Partial<TaskNotesPlugin>);
+		const updateStatusVisuals = jest.fn();
+		const handler = createStatusCycleHandler({
+			task,
+			plugin,
+			targetDate: new Date("2026-05-19T00:00:00Z"),
+			updateStatusVisuals,
+		});
+
+		handler({ stopPropagation: jest.fn(), shiftKey: false } as unknown as MouseEvent);
+		await flushAsyncHandlers();
+
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(task.path);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+		expect(plugin.statusManager.getNextStatus).toHaveBeenCalledWith("ready");
+		expect(plugin.updateTaskProperty).toHaveBeenCalledWith(
+			frontmatterTask,
+			"status",
+			"done"
 		);
 	});
 

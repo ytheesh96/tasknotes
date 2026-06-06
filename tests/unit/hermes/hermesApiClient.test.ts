@@ -45,7 +45,7 @@ describe("HermesKanbanApiClient", () => {
 		expect(getHermesTaskIdentity(task)).toBeNull();
 	});
 
-	it("treats every direct TaskNotes folder as a possible board", () => {
+	it("does not treat reserved TaskNotes folders as board task identities", () => {
 		const task = {
 			title: "Example",
 			status: "triage",
@@ -55,13 +55,26 @@ describe("HermesKanbanApiClient", () => {
 			tags: ["task"],
 		} satisfies TaskInfo;
 
+		expect(getHermesTaskIdentity(task)).toBeNull();
+	});
+
+	it("treats direct TaskNotes board folders as board task identities", () => {
+		const task = {
+			title: "Example",
+			status: "triage",
+			priority: "normal",
+			path: "TaskNotes/job-hunt/t_1234.md",
+			archived: false,
+			tags: ["task"],
+		} satisfies TaskInfo;
+
 		expect(getHermesTaskIdentity(task)).toEqual({
-			board: "Tasks",
+			board: "job-hunt",
 			id: "t_1234",
 		});
 	});
 
-	it("ignores legacy Hermes custom properties for identity", () => {
+	it("honors legacy Hermes custom properties for identity recovery", () => {
 		const task = {
 			title: "Example",
 			status: "triage",
@@ -74,7 +87,7 @@ describe("HermesKanbanApiClient", () => {
 			},
 		} satisfies TaskInfo;
 
-		expect(getHermesTaskIdentity(task)).toBeNull();
+		expect(getHermesTaskIdentity(task)).toEqual({ board: "obsidian-os", id: "t_abcd" });
 	});
 
 	it("checks the localhost dashboard root used by the kanban API", async () => {
@@ -244,6 +257,99 @@ describe("HermesKanbanApiClient", () => {
 				url: "http://127.0.0.1:9119/api/plugins/kanban/board?board=obsidian-os&include_archived=true",
 				method: "GET",
 				throw: false,
+			})
+		);
+	});
+
+	it("requests and preserves run-grouped board swimlanes with backend query parameters", async () => {
+		requestUrlMock.mockResolvedValueOnce(
+			jsonResponse({
+				columns: [],
+				run_lanes: [
+					{
+						id: "run_active",
+						title: "Active run",
+						run_type: "user",
+						counts: { total: 2, active: 2 },
+						columns: [
+							{
+								name: "running",
+								tasks: [{ id: "t_running", title: "Running", status: "running" }],
+							},
+						],
+					},
+				],
+			})
+		);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const board = await api.getBoard("obsidian-os", {
+			groupBy: "run",
+			runScope: "direct",
+			runId: "run_active",
+		});
+
+		expect(board.run_lanes?.[0]?.id).toBe("run_active");
+		expect(board.run_lanes?.[0]?.columns?.[0]?.tasks[0]?.id).toBe("t_running");
+		expect(requestUrlMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+			url: "http://127.0.0.1:9119/api/plugins/kanban/board?board=obsidian-os&group_by=run&run_scope=direct&run_id=run_active",
+				method: "GET",
+				throw: false,
+			})
+		);
+	});
+
+	it("posts explicit run reassignment payloads and preserves returned audit fields", async () => {
+		requestUrlMock.mockResolvedValueOnce(
+			jsonResponse({
+				task: {
+					id: "t_run",
+					title: "Run task",
+					status: "todo",
+					run_id: "run_target",
+					run_assignment_source: "dashboard_edit",
+				},
+			})
+		);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const task = await api.assignTaskRun(
+			{ board: "obsidian-os", id: "t_run" },
+			{ runId: "run_target", source: "dashboard_edit", actor: "tasknotes" }
+		);
+
+		expect(task.run_id).toBe("run_target");
+		expect(task.run_assignment_source).toBe("dashboard_edit");
+		expect(requestUrlMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/tasks/t_run/run?board=obsidian-os",
+				method: "POST",
+				body: JSON.stringify({
+					run_id: "run_target",
+					source: "dashboard_edit",
+					actor: "tasknotes",
+				}),
+				throw: false,
+			})
+		);
+	});
+
+	it("posts explicit unset to move a task to No run", async () => {
+		requestUrlMock.mockResolvedValueOnce(
+			jsonResponse({ task: { id: "t_run", title: "Run task", status: "todo", run_id: null } })
+		);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const task = await api.assignTaskRun(
+			{ board: "obsidian-os", id: "t_run" },
+			{ runId: null, source: "unset", actor: "tasknotes" }
+		);
+
+		expect(task.run_id).toBeNull();
+		expect(requestUrlMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				body: JSON.stringify({ run_id: null, source: "unset", actor: "tasknotes" }),
 			})
 		);
 	});

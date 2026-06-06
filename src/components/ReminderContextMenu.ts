@@ -3,6 +3,7 @@ import TaskNotesPlugin from "../main";
 import { TaskInfo, Reminder } from "../types";
 import { ReminderModal } from "../modals/ReminderModal";
 import { ContextMenu } from "./ContextMenu";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 export class ReminderContextMenu {
 	private plugin: TaskNotesPlugin;
@@ -141,20 +142,26 @@ export class ReminderContextMenu {
 			description,
 		};
 
-		const updatedReminders = [...(this.task.reminders || []), reminder];
-		await this.saveReminders(updatedReminders);
+		const freshTask = await this.getFreshTask();
+		const reminderSource = freshTask || this.task;
+		const updatedReminders = [...(reminderSource.reminders || []), reminder];
+		await this.saveReminders(updatedReminders, freshTask);
 	}
 
 	private async clearAllReminders(): Promise<void> {
 		await this.saveReminders([]);
 	}
 
-	private async saveReminders(reminders: Reminder[]): Promise<void> {
+	private async saveReminders(
+		reminders: Reminder[],
+		freshTaskOverride?: TaskInfo | null
+	): Promise<void> {
 		let updatedTask: TaskInfo;
 
 		// If task has a path, try to fetch the latest data to avoid overwriting changes
 		if (this.task.path && this.task.path.trim() !== "") {
-			const freshTask = await this.plugin.cacheManager.getTaskInfo(this.task.path);
+			const freshTask =
+				freshTaskOverride !== undefined ? freshTaskOverride : await this.getFreshTask();
 			if (freshTask) {
 				// Use fresh task data as base if available
 				updatedTask = {
@@ -180,8 +187,18 @@ export class ReminderContextMenu {
 			};
 		}
 
+		this.task = updatedTask;
+
 		// Always notify the caller about the update (for local state management)
 		this.onUpdate(updatedTask);
+	}
+
+	private async getFreshTask(): Promise<TaskInfo | null> {
+		if (!this.task.path || this.task.path.trim() === "") {
+			return null;
+		}
+
+		return getTaskInfoFromNoteFirst(this.plugin, this.task.path);
 	}
 
 	private openReminderModal(): void {

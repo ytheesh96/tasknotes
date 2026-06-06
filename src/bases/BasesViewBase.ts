@@ -494,7 +494,7 @@ export abstract class BasesViewBase extends Component {
 			() => {
 				this.refresh();
 			},
-			this.plugin.settings.taskCreationDefaults.defaultProjects
+			this.plugin.settings.taskCreationDefaults?.defaultProjects ?? ""
 		);
 
 		// Open TaskNotes creation modal

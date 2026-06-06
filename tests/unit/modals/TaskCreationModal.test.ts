@@ -135,6 +135,10 @@ class TestTaskCreationModal extends TaskCreationModal {
 		this.createActionBar(container);
 	}
 
+	getPrimaryActionTextForTest(): string | undefined {
+		return this.getPrimaryActionText();
+	}
+
 	renderRoutingFieldsForTest(container: HTMLElement): void {
 		this.createProjectsField(container);
 		this.createContextsField(container);
@@ -342,6 +346,64 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 			expect((modal as any).scheduledDate).toBe("2025-01-15");
 		});
 
+		it("defaults generic Hermes-board creation to the live Hermes target", async () => {
+			modal = new TaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				prePopulatedValues: {
+					title: "Kanban toolbar task",
+					projects: ["Hermes/default"],
+					tags: ["review"],
+				},
+			});
+
+			await (modal as any).initializeFormData();
+
+			expect((modal as any).selectedCreationTarget).toBe("hermes:default");
+			expect((modal as any).selectedHermesBoard).toBe("default");
+			expect((modal as any).projects).toBe("Hermes/default");
+			expect((modal as any).tags).toBe("review");
+		});
+
+		it("uses Hermes-specific title and primary action for Hermes targets", () => {
+			const hermesModal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				creationTargetPicker: {
+					boards: ["developer"],
+					selectedTarget: "hermes:developer",
+				},
+			});
+
+			expect(hermesModal.getModalTitle()).toBe("Submit to Hermes");
+			expect(hermesModal.getPrimaryActionTextForTest()).toBe("Submit to Hermes");
+			hermesModal.close();
+		});
+
+		it("lets explicit modal title and primary action text override Hermes defaults", () => {
+			const hermesModal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				modalTitle: "Submit to Hermes smoke",
+				saveButtonText: "Submit to Hermes",
+				creationTargetPicker: {
+					boards: ["developer"],
+					selectedTarget: "hermes:developer",
+				},
+			});
+
+			expect(hermesModal.getModalTitle()).toBe("Submit to Hermes smoke");
+			expect(hermesModal.getPrimaryActionTextForTest()).toBe("Submit to Hermes");
+			hermesModal.close();
+		});
+
+		it("keeps local creation copy for non-Hermes targets", () => {
+			const localModal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				creationTargetPicker: {
+					boards: ["developer"],
+					selectedTarget: "default",
+				},
+			});
+
+			expect(localModal.getModalTitle()).toBe("modals.taskCreation.title");
+			expect(localModal.getPrimaryActionTextForTest()).toBeUndefined();
+			localModal.close();
+		});
+
 		it("should apply task creation defaults", async () => {
 			mockPlugin.settings.taskCreationDefaults = {
 				defaultDueDate: "tomorrow",
@@ -481,6 +543,33 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 			expect(Notice).toHaveBeenCalledWith('Task "Test Task" created successfully');
 		});
 
+		it("routes Hermes board prefilled tasks through Hermes even when the modal target is local", async () => {
+			(modal as any).title = "Kanban toolbar task";
+			(modal as any).status = "triage";
+			(modal as any).priority = "normal";
+			(modal as any).projects = "Hermes/default";
+			(modal as any).tags = "review";
+			(modal as any).frequencyMode = "NONE";
+			const hermesCreate = jest
+				.spyOn(modal as any, "handleHermesApiCreate")
+				.mockResolvedValue(undefined);
+
+			await modal.handleSave();
+
+			expect(hermesCreate).toHaveBeenCalledWith(
+				{},
+				expect.objectContaining({
+					board: "default",
+					taskData: expect.objectContaining({
+						title: "Kanban toolbar task",
+						projects: ["Hermes/default"],
+						tags: expect.not.arrayContaining(["hermes-kanban"]),
+					}),
+				})
+			);
+			expect(mockPlugin.taskService.createTask).not.toHaveBeenCalled();
+		});
+
 		it("should ignore duplicate submits while creation is in flight", async () => {
 			let resolveCreateTask!: (value: {
 				file: TFile;
@@ -498,6 +587,8 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 
 			const firstSubmit = modal.handleSave();
 			const secondSubmit = modal.handleSave();
+
+			await Promise.resolve();
 
 			expect(mockPlugin.taskService.createTask).toHaveBeenCalledTimes(1);
 			resolveCreateTask({
@@ -740,7 +831,10 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 			const result = await modal.startHermesDashboardAndRefreshOptions();
 
 			expect(startDashboard).toHaveBeenCalledTimes(1);
-			expect(getOptions).toHaveBeenCalledWith("cached-board");
+			expect(getOptions).toHaveBeenCalledTimes(1);
+			const [refreshedBoard, refreshOptions] = getOptions.mock.calls[0];
+			expect(refreshedBoard).toBe("cached-board");
+			expect(refreshOptions?.transport).toBeUndefined();
 			expect(result.health.status).toBe("connected");
 			expect((modal as any).hermesBoardOptions).toEqual(["live-board", "ops"]);
 			expect((modal as any).hermesAssigneeOptions).toEqual(["orchestrator", "peacock"]);

@@ -6,11 +6,18 @@ export const HERMES_DASHBOARD_PORT = 9119;
 export const HERMES_DASHBOARD_ROOT_URL = `http://${HERMES_DASHBOARD_HOST}:${HERMES_DASHBOARD_PORT}/`;
 export const HERMES_KANBAN_API_URL = `${HERMES_DASHBOARD_ROOT_URL}api/plugins/kanban`;
 export const HERMES_DASHBOARD_START_COMMAND =
-	"hermes dashboard --host 127.0.0.1 --port 9119 --no-open --skip-build --tui";
+	"hermes dashboard --host 127.0.0.1 --port 9119 --no-open --skip-build";
 export const HERMES_STATUS_OPTIONS = ["triage", "todo", "running", "blocked", "done"];
 
 export type HermesAvailabilityStatus = "connected" | "degraded" | "disconnected" | "starting";
 export type HermesAvailabilityMode = "live" | "cache-only" | "read-only";
+export type HermesKanbanTransport = "dashboard-api" | "kanban-cli";
+export type HermesWriteAvailabilityStatus =
+	| "writable-via-dashboard"
+	| "writable-via-cli"
+	| "dashboard-unavailable"
+	| "cli-unavailable"
+	| "board-unavailable";
 
 export interface HermesAvailabilityHealth {
 	status: HermesAvailabilityStatus;
@@ -18,9 +25,16 @@ export interface HermesAvailabilityHealth {
 	rootUrl: string;
 	apiUrl: string;
 	canStart: boolean;
+	transport?: HermesKanbanTransport;
+	writeStatus?: HermesWriteAvailabilityStatus;
 	message?: string;
 	warning?: string;
 	rootStatus?: number;
+}
+
+export interface HermesAvailabilityCheckOptions {
+	transport?: HermesKanbanTransport;
+	board?: string;
 }
 
 export interface HermesAvailabilityOptions {
@@ -45,6 +59,10 @@ export interface HermesDashboardStartResult {
 	error?: HermesStartupErrorData;
 }
 
+export interface HermesDashboardStartOptions {
+	env?: Record<string, string | undefined>;
+}
+
 interface HermesRequestResponse {
 	ok: boolean;
 	status: number;
@@ -67,18 +85,39 @@ interface SpawnedDashboardChildProcess extends SpawnedDashboardProcess {
 	unref?: () => void;
 }
 
+interface HermesExecutableCheckResult {
+	available: boolean;
+	command?: string;
+	message?: string;
+}
+
+interface HermesKanbanBoardValidationResult {
+	available: boolean;
+	message?: string;
+}
+
 interface ChildProcessModuleLike {
 	spawn(
 		command: string,
 		args: string[],
-		options: { detached: boolean; stdio: "ignore" }
+		options: { detached: boolean; stdio: "ignore"; env?: Record<string, string | undefined> }
 	): SpawnedDashboardChildProcess;
 }
 
 export interface HermesAvailabilityServiceDeps {
+	transport?: HermesKanbanTransport;
 	request?: (url: string) => Promise<HermesRequestResponse>;
 	kanbanClient?: HermesAvailabilityKanbanClient;
-	spawnDashboard?: (command: string, args: string[]) => Promise<SpawnedDashboardProcess>;
+	checkHermesExecutable?: () => Promise<HermesExecutableCheckResult>;
+	validateKanbanBoard?: (
+		board: string,
+		command: string
+	) => Promise<HermesKanbanBoardValidationResult>;
+	spawnDashboard?: (
+		command: string,
+		args: string[],
+		options?: HermesDashboardStartOptions
+	) => Promise<SpawnedDashboardProcess>;
 	detectDashboardProcessCount?: () => Promise<number | null>;
 	isStartupAvailable?: () => boolean;
 }
@@ -86,7 +125,15 @@ export interface HermesAvailabilityServiceDeps {
 export class HermesAvailabilityService {
 	constructor(private readonly deps: HermesAvailabilityServiceDeps = {}) {}
 
-	async checkHealth(): Promise<HermesAvailabilityHealth> {
+	async checkHealth(options: HermesAvailabilityCheckOptions = {}): Promise<HermesAvailabilityHealth> {
+		const transport = options.transport ?? this.deps.transport ?? "dashboard-api";
+		if (transport === "kanban-cli") {
+			return this.checkCliHealth(options.board);
+		}
+		return this.checkDashboardApiHealth();
+	}
+
+	private async checkDashboardApiHealth(): Promise<HermesAvailabilityHealth> {
 		const canStart = this.canStartDashboard();
 		const base = this.baseHealth(canStart);
 
@@ -98,6 +145,7 @@ export class HermesAvailabilityService {
 				...base,
 				status: "disconnected",
 				mode: canStart ? "cache-only" : "read-only",
+				writeStatus: "dashboard-unavailable",
 				message: `Hermes dashboard is not reachable at ${HERMES_DASHBOARD_ROOT_URL}.`,
 			};
 		}
@@ -107,6 +155,7 @@ export class HermesAvailabilityService {
 				...base,
 				status: "disconnected",
 				mode: canStart ? "cache-only" : "read-only",
+				writeStatus: "dashboard-unavailable",
 				rootStatus: rootResponse.status,
 				message: `Hermes dashboard returned HTTP ${rootResponse.status} at ${HERMES_DASHBOARD_ROOT_URL}.`,
 			};
@@ -119,6 +168,7 @@ export class HermesAvailabilityService {
 				...base,
 				status: "degraded",
 				mode: "cache-only",
+				writeStatus: "dashboard-unavailable",
 				rootStatus: rootResponse.status,
 				message: "Hermes dashboard root is reachable, but the Kanban API is unavailable.",
 			};
@@ -136,12 +186,16 @@ export class HermesAvailabilityService {
 		};
 	}
 
-	async recheckHealth(): Promise<HermesAvailabilityHealth> {
-		return this.checkHealth();
+	async recheckHealth(options: HermesAvailabilityCheckOptions = {}): Promise<HermesAvailabilityHealth> {
+		return this.checkHealth(options);
 	}
 
-	async getOptions(board?: string): Promise<HermesAvailabilityOptions> {
-		const health = await this.checkHealth();
+	async getOptions(
+		board?: string,
+		options: HermesAvailabilityCheckOptions = {}
+	): Promise<HermesAvailabilityOptions> {
+		const normalizedBoard = board?.trim() || options.board?.trim();
+		const health = await this.checkHealth({ ...options, board: normalizedBoard });
 		if (health.status !== "connected") {
 			return {
 				boards: [],
@@ -150,10 +204,18 @@ export class HermesAvailabilityService {
 				health,
 			};
 		}
+		if (health.transport === "kanban-cli") {
+			return {
+				boards: normalizedBoard ? [normalizedBoard] : [],
+				assignees: [],
+				statuses: [...HERMES_STATUS_OPTIONS],
+				health,
+			};
+		}
 
 		const [boards, assignees] = await Promise.all([
 			this.client().listBoards(),
-			this.client().listAssignees(board),
+			this.client().listAssignees(normalizedBoard),
 		]);
 		return {
 			boards: boards.filter((boardRecord) => !boardRecord.archived).map((boardRecord) => boardRecord.slug),
@@ -163,7 +225,10 @@ export class HermesAvailabilityService {
 		};
 	}
 
-	async startDashboard(commandLine = HERMES_DASHBOARD_START_COMMAND): Promise<HermesDashboardStartResult> {
+	async startDashboard(
+		commandLine = HERMES_DASHBOARD_START_COMMAND,
+		options: HermesDashboardStartOptions = {}
+	): Promise<HermesDashboardStartResult> {
 		const startCommand = normalizeHermesDashboardStartCommand(commandLine);
 		const currentHealth = await this.checkHealth();
 		if (currentHealth.status === "connected") {
@@ -195,7 +260,7 @@ export class HermesAvailabilityService {
 		}
 
 		try {
-			const process = await this.spawnDashboard(startCommand);
+			const process = await this.spawnDashboard(startCommand, options);
 			const health = await this.healthAfterStart(process.pid);
 			return {
 				started: true,
@@ -215,6 +280,52 @@ export class HermesAvailabilityService {
 				},
 			};
 		}
+	}
+
+	private async checkCliHealth(board: string | undefined): Promise<HermesAvailabilityHealth> {
+		const base = { ...this.baseHealth(false), transport: "kanban-cli" as const };
+		const executable = await this.checkHermesExecutable();
+		if (!executable.available || !executable.command) {
+			return {
+				...base,
+				status: "disconnected",
+				mode: "read-only",
+				writeStatus: "cli-unavailable",
+				message: executable.message ?? "Hermes CLI is unavailable; install Hermes or configure HERMES_EXECUTABLE.",
+			};
+		}
+
+		const normalizedBoard = board?.trim();
+		if (!normalizedBoard) {
+			return {
+				...base,
+				status: "degraded",
+				mode: "read-only",
+				writeStatus: "board-unavailable",
+				message: "Choose a Hermes board before writing through the CLI.",
+			};
+		}
+
+		const boardValidation = await this.validateKanbanBoard(normalizedBoard, executable.command);
+		if (!boardValidation.available) {
+			return {
+				...base,
+				status: "degraded",
+				mode: "read-only",
+				writeStatus: "board-unavailable",
+				message:
+					boardValidation.message ??
+					`Hermes board ${normalizedBoard} is not available through the CLI.`,
+			};
+		}
+
+		return {
+			...base,
+			status: "connected",
+			mode: "live",
+			writeStatus: "writable-via-cli",
+			message: `Hermes Kanban CLI is available for board ${normalizedBoard}.`,
+		};
 	}
 
 	private async healthAfterStart(pid: number | undefined): Promise<HermesAvailabilityHealth> {
@@ -249,16 +360,39 @@ export class HermesAvailabilityService {
 		return this.deps.kanbanClient ?? new HermesKanbanApiClient(HERMES_KANBAN_API_URL);
 	}
 
+	private async checkHermesExecutable(): Promise<HermesExecutableCheckResult> {
+		if (this.deps.checkHermesExecutable) {
+			return this.deps.checkHermesExecutable();
+		}
+		return defaultCheckHermesExecutable();
+	}
+
+	private async validateKanbanBoard(
+		board: string,
+		command: string
+	): Promise<HermesKanbanBoardValidationResult> {
+		if (this.deps.validateKanbanBoard) {
+			return this.deps.validateKanbanBoard(board, command);
+		}
+		return defaultValidateKanbanBoard(board, command);
+	}
+
 	private canStartDashboard(): boolean {
 		return this.deps.isStartupAvailable?.() ?? (Boolean(Platform.isDesktop) && !Platform.isMobile);
 	}
 
-	private async spawnDashboard(commandLine: string): Promise<SpawnedDashboardProcess> {
+	private async spawnDashboard(
+		commandLine: string,
+		options: HermesDashboardStartOptions
+	): Promise<SpawnedDashboardProcess> {
 		const parsed = parseHermesDashboardStartCommand(commandLine);
 		if (this.deps.spawnDashboard) {
+			if (hasSpawnEnv(options)) {
+				return this.deps.spawnDashboard(parsed.command, parsed.args, options);
+			}
 			return this.deps.spawnDashboard(parsed.command, parsed.args);
 		}
-		return defaultSpawnDashboard(parsed.command, parsed.args);
+		return defaultSpawnDashboard(parsed.command, parsed.args, options);
 	}
 
 	private async detectDashboardProcessCount(): Promise<number | null> {
@@ -297,7 +431,50 @@ async function defaultRequest(url: string): Promise<HermesRequestResponse> {
 	return new HermesKanbanApiClient(`${url.replace(/\/$/, "")}/api/plugins/kanban`).checkRoot();
 }
 
-async function defaultSpawnDashboard(command: string, args: string[]): Promise<SpawnedDashboardProcess> {
+async function defaultCheckHermesExecutable(): Promise<HermesExecutableCheckResult> {
+	let sawExecutableEnv = false;
+	for (const candidate of hermesExecutableCandidates("hermes")) {
+		sawExecutableEnv = sawExecutableEnv || candidate === process.env.HERMES_EXECUTABLE?.trim();
+		try {
+			await execFileUtf8(candidate, ["--version"]);
+			return { available: true, command: candidate };
+		} catch (error) {
+			if (!isSpawnEnoent(error)) {
+				return {
+					available: false,
+					message: `Hermes CLI is not executable: ${sanitizeCliError(error)}.`,
+				};
+			}
+		}
+	}
+	return {
+		available: false,
+		message: sawExecutableEnv
+			? "Hermes CLI is not available from HERMES_EXECUTABLE or PATH."
+			: "Hermes CLI is not available on PATH.",
+	};
+}
+
+async function defaultValidateKanbanBoard(
+	board: string,
+	command: string
+): Promise<HermesKanbanBoardValidationResult> {
+	try {
+		await execFileUtf8(command, ["kanban", "--board", board, "list", "--json"]);
+		return { available: true };
+	} catch (error) {
+		return {
+			available: false,
+			message: `Hermes board ${board} is not available through the CLI: ${sanitizeCliError(error)}.`,
+		};
+	}
+}
+
+async function defaultSpawnDashboard(
+	command: string,
+	args: string[],
+	options: HermesDashboardStartOptions
+): Promise<SpawnedDashboardProcess> {
 	// Lazy-load Node child_process so mobile/browser contexts can import this module safely.
 	// eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules -- desktop-only Hermes startup requires Node child_process.
 	const childProcess = require("child_process") as ChildProcessModuleLike;
@@ -307,7 +484,7 @@ async function defaultSpawnDashboard(command: string, args: string[]): Promise<S
 		: [command];
 	for (const candidate of candidates) {
 		try {
-			return await spawnDashboardProcess(childProcess, candidate, args);
+			return await spawnDashboardProcess(childProcess, candidate, args, options);
 		} catch (error) {
 			lastError = error;
 			if (!isSpawnEnoent(error)) {
@@ -340,10 +517,11 @@ function shouldUseHermesExecutableCandidates(command: string): boolean {
 function spawnDashboardProcess(
 	childProcess: ChildProcessModuleLike,
 	command: string,
-	args: string[]
+	args: string[],
+	options: HermesDashboardStartOptions
 ): Promise<SpawnedDashboardProcess> {
 	return new Promise((resolve, reject) => {
-		const process = childProcess.spawn(command, args, { detached: true, stdio: "ignore" });
+		const process = childProcess.spawn(command, args, spawnOptions(options));
 		let settled = false;
 		process.on?.("error", (error) => {
 			if (!settled) {
@@ -363,6 +541,81 @@ function spawnDashboardProcess(
 			resolve({ pid: process.pid });
 		}
 	});
+}
+
+function execFileUtf8(command: string, args: string[]): Promise<string> {
+	// Lazy-load Node child_process so mobile/browser contexts can import this module safely.
+	// eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules -- desktop-only CLI probing requires Node child_process.
+	const childProcess = require("child_process") as {
+		execFile: (
+			command: string,
+			args: string[],
+			options: { encoding: "utf8"; timeout: number; windowsHide: boolean },
+			callback: (error: Error | null, stdout: string, stderr: string) => void
+		) => void;
+	};
+	return new Promise((resolve, reject) => {
+		childProcess.execFile(
+			command,
+			args,
+			{ encoding: "utf8", timeout: 5000, windowsHide: true },
+			(error, stdout, stderr) => {
+				if (error) {
+					reject(Object.assign(error, { stderr }));
+					return;
+				}
+				resolve(stdout);
+			}
+		);
+	});
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sanitizeCliError(error: unknown): string {
+	const stderrValue =
+		typeof error === "object" && error !== null && "stderr" in error ? error.stderr : undefined;
+	const stderr = typeof stderrValue === "string" ? stderrValue : "";
+	const raw = stderr.trim() || errorMessage(error);
+	const home = process.env.HOME?.trim();
+	const sanitized = raw
+		.replace(/([A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD)[A-Z0-9_]*=)\S+/gi, "$1[redacted]")
+		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+		.replace(home ? new RegExp(escapeRegExp(home), "g") : /\b\B/g, "~")
+		.replace(/\/Users\/[^\s:]+/g, "[path]")
+		.split(/\r?\n/)[0]
+		.trim();
+	return sanitized.slice(0, 240) || "command failed";
+}
+
+function spawnOptions(
+	options: HermesDashboardStartOptions
+): { detached: boolean; stdio: "ignore"; env?: Record<string, string | undefined> } {
+	const base = { detached: true, stdio: "ignore" as const };
+	if (!hasSpawnEnv(options)) {
+		return base;
+	}
+	const extraEnv = Object.fromEntries(
+		Object.entries(options.env ?? {}).filter((entry): entry is [string, string] => {
+			const [, value] = entry;
+			return typeof value === "string" && value.length > 0;
+		})
+	);
+	return {
+		...base,
+		env: {
+			...process.env,
+			...extraEnv,
+		},
+	};
+}
+
+function hasSpawnEnv(options: HermesDashboardStartOptions): boolean {
+	return Object.values(options.env ?? {}).some(
+		(value) => typeof value === "string" && value.length > 0
+	);
 }
 
 function isSpawnEnoent(error: unknown): boolean {

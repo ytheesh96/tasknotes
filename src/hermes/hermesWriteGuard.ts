@@ -4,8 +4,11 @@ import {
 	type HermesAvailabilityHealth,
 	type HermesAvailabilityMode,
 	type HermesAvailabilityStatus,
+	type HermesAvailabilityCheckOptions,
+	type HermesKanbanTransport,
 } from "./hermesAvailabilityService";
 import { getHermesTaskIdentity } from "./hermesApiClient";
+import { evaluateHermesBoardMovePolicy } from "./hermesCanonicalTaskNotes";
 import { normalizeHermesBoardValue, splitHermesList } from "./hermesRouting";
 
 export const HERMES_WRITE_BLOCKED_MESSAGE =
@@ -29,11 +32,12 @@ export type HermesWriteReadiness =
 	  };
 
 export interface HermesWriteGuardHealthService {
-	recheckHealth(): Promise<HermesAvailabilityHealth>;
+	recheckHealth(options?: HermesAvailabilityCheckOptions): Promise<HermesAvailabilityHealth>;
 }
 
 export interface HermesWriteGuardDeps {
 	availabilityService?: HermesWriteGuardHealthService;
+	transport?: HermesKanbanTransport;
 }
 
 export class HermesWriteUnavailableError extends Error {
@@ -80,7 +84,7 @@ export class HermesWriteGuard {
 	}
 
 	private async checkBoard(board: string, taskId?: string): Promise<HermesWriteReadiness> {
-		const health = await this.healthService().recheckHealth();
+		const health = await this.healthService().recheckHealth(this.checkOptions(board));
 		if (isHermesWriteHealthLive(health)) {
 			return { allowed: true, board, taskId, health };
 		}
@@ -98,6 +102,10 @@ export class HermesWriteGuard {
 	private healthService(): HermesWriteGuardHealthService {
 		return this.deps.availabilityService ?? new HermesAvailabilityService();
 	}
+
+	private checkOptions(board: string): HermesAvailabilityCheckOptions {
+		return this.deps.transport ? { board, transport: this.deps.transport } : { board };
+	}
 }
 
 export function isHermesWriteHealthLive(health: HermesAvailabilityHealth): boolean {
@@ -105,6 +113,12 @@ export function isHermesWriteHealthLive(health: HermesAvailabilityHealth): boole
 }
 
 export function formatHermesWriteBlockedMessage(health: HermesAvailabilityHealth): string {
+	if (health.writeStatus === "cli-unavailable" || health.writeStatus === "board-unavailable") {
+		return health.message ?? "Hermes Kanban CLI is unavailable for writes.";
+	}
+	if (health.writeStatus === "dashboard-unavailable") {
+		return health.message ?? HERMES_WRITE_BLOCKED_MESSAGE;
+	}
 	if (health.status === "degraded") {
 		return "Hermes is partially available; writes are disabled until recheck succeeds.";
 	}
@@ -116,6 +130,40 @@ export function formatHermesWriteBlockedMessage(health: HermesAvailabilityHealth
 
 export function isHermesManagedTask(task: TaskInfo): boolean {
 	return getHermesTaskIdentity(task) !== null;
+}
+
+export function getUnsupportedHermesBoardMove(
+	originalTask: TaskInfo,
+	updatedTask: TaskInfo
+): { taskId: string; fromBoard: string; toBoard: string } | null {
+	const originalIdentity = getHermesTaskIdentity(originalTask);
+	const updatedIdentity = getHermesTaskIdentity(updatedTask);
+	if (!originalIdentity || !updatedIdentity) {
+		return null;
+	}
+	if (originalIdentity.id !== updatedIdentity.id) {
+		return null;
+	}
+	const policy = evaluateHermesBoardMovePolicy(originalIdentity.board, updatedIdentity.board);
+	if (policy.action === "allow") {
+		return null;
+	}
+	return {
+		taskId: originalIdentity.id,
+		fromBoard: policy.sourceBoard,
+		toBoard: policy.desiredBoard,
+	};
+}
+
+export function getUnsupportedHermesBoardMoveExplanation(
+	originalTask: TaskInfo,
+	updatedTask: TaskInfo
+): string | null {
+	const move = getUnsupportedHermesBoardMove(originalTask, updatedTask);
+	if (!move) {
+		return null;
+	}
+	return `Hermes task ${move.taskId} cannot be moved from board ${move.fromBoard} to ${move.toBoard} from TaskNotes; Hermes Kanban does not expose a board-move endpoint. Revert hermesBoard or move the card in Hermes first.`;
 }
 
 export function getHermesManagedCreationBoard(input: {

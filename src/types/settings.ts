@@ -114,7 +114,9 @@ export interface TaskNotesSettings {
 	taskOrgFiltersCollapsed: boolean; // Save collapse state of task organization filters
 	// Hermes integration settings
 	hermesStartCommand: string;
+	hermesKanbanTransport: "dashboard-api" | "kanban-cli";
 	hermesAutoStartOnTaskChange: boolean;
+	hermesTaskNotesWebhookSecret: string;
 	// Task filename settings
 	taskFilenameFormat: "title" | "zettel" | "timestamp" | "uuid" | "custom";
 	storeTitleInFilename: boolean;

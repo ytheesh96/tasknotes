@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 
-import { constants } from "fs";
+import { accessSync, constants, existsSync } from "fs";
 import { access, copyFile, mkdir } from "fs/promises";
 import { homedir } from "os";
-import { join, resolve } from "path";
+import { delimiter, join, resolve } from "path";
 import { spawnSync } from "child_process";
 
 const PLUGIN_ID = "tasknotes";
 const PLUGIN_FILES = ["main.js", "styles.css", "manifest.json"];
 const DEFAULT_VAULT_NAME = "Obsidian";
+const MACOS_OBSIDIAN_APP_CLI = "/Applications/Obsidian.app/Contents/MacOS/Obsidian";
 const DEFAULT_PLUGIN_PATH = process.env.OBSIDIAN_VAULT_PATH
 	? join(process.env.OBSIDIAN_VAULT_PATH, ".obsidian", "plugins", PLUGIN_ID)
 	: "~/Documents/Obsidian/.obsidian/plugins/tasknotes";
@@ -26,7 +27,7 @@ const pluginPath = resolve(
 		)
 	)
 );
-const obsidianCli = firstEnvValue(["TASKNOTES_OBSIDIAN_CLI"], "obsidian");
+const obsidianCli = resolveObsidianCli(firstEnvValue(["TASKNOTES_OBSIDIAN_CLI"], "obsidian"));
 const obsidianCliHome = firstEnvValue(
 	["TASKNOTES_OBSIDIAN_CLI_HOME"],
 	inferUserHomeFromVaultPath(process.env.OBSIDIAN_VAULT_PATH) ?? homedir()
@@ -124,6 +125,29 @@ function runObsidianRaw(args) {
 			...process.env,
 			HOME: obsidianCliHome,
 		},
+	});
+}
+
+function resolveObsidianCli(configuredCommand) {
+	if (configuredCommand.includes("/") || findExecutableOnPath(configuredCommand)) {
+		return configuredCommand;
+	}
+	if (process.platform === "darwin" && existsSync(MACOS_OBSIDIAN_APP_CLI)) {
+		return MACOS_OBSIDIAN_APP_CLI;
+	}
+	return configuredCommand;
+}
+
+function findExecutableOnPath(commandName) {
+	const pathEntries = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+	return pathEntries.some((entry) => {
+		const candidate = join(entry, commandName);
+		try {
+			accessSync(candidate, constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
 	});
 }
 

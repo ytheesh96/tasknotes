@@ -1,10 +1,15 @@
 import { TFile } from "obsidian";
-import type TaskNotesPlugin from "../main";
 import type { JsonValue, TaskInfo } from "../types";
 import { getCurrentTimestamp } from "../utils/dateUtils";
+import type TaskNotesPlugin from "../main";
+
 import type { HermesTaskDetailResponse } from "./hermesApiClient";
 import { HERMES_ACTIVITY_FIELD_KEYS } from "./hermesActivityFields";
 import { parseHermesComment } from "./hermesCommentParser";
+import {
+	canonicalHermesActivityPath,
+	canonicalHermesTaskPath,
+} from "./hermesCanonicalTaskNotes";
 
 export { HERMES_ACTIVITY_FIELD_KEYS, HERMES_ACTIVITY_USER_FIELDS } from "./hermesActivityFields";
 
@@ -14,7 +19,7 @@ const HERMES_ACTIVITY_SUMMARY_LIMIT = 8;
 const HERMES_ACTIVITY_LIST_LIMIT = 12;
 const HERMES_TASK_ID_REGEX = /(?:TaskNotes\/([^/\]\s]+)\/)?(t_[a-z0-9]{8})(?:\.md)?/gi;
 const ITEM_DETAIL_PROPERTY_REGEX =
-	/^(?:(?:hermesActivityRun|hermesRun|run)[A-Za-z0-9]+(?:Artifacts|ChangedFiles|EndedAt|Outcome|Profile|StartedAt|Status|Summary)|comment[A-Za-z0-9]+(?:Artifacts|Author|CreatedAt|Kind|Summary|Tasks)|event[A-Za-z0-9]+(?:Artifacts|CreatedAt|Kind|Run|Summary|Tasks))$/;
+	/^(?:hermes(?:Run|Comment|Event)[A-Za-z0-9]*|(?:(?:hermesActivityRun|hermesRun|run)[A-Za-z0-9]+(?:Artifacts|ChangedFiles|EndedAt|Outcome|Profile|StartedAt|Status|Summary)|comment[A-Za-z0-9]+(?:Artifacts|Author|CreatedAt|Kind|Summary|Tasks)|event[A-Za-z0-9]+(?:Artifacts|CreatedAt|Kind|Run|Summary|Tasks)))$/;
 const ARTIFACT_PATH_KEYS = [
 	"artifact",
 	"artifacts",
@@ -25,27 +30,35 @@ const ARTIFACT_PATH_KEYS = [
 	"paths",
 ] as const;
 
-const INTERMEDIATE_HERMES_ACTIVITY_FIELD_KEYS = {
-	comments: "hermesComments",
-	runs: "hermesRuns",
-	events: "hermesEvents",
-	artifacts: "hermesArtifacts",
-	changedFiles: "hermesChangedFiles",
-} as const;
-
-const LEGACY_HERMES_ACTIVITY_FIELD_KEYS = {
-	comments: "hermesActivityComments",
-	runs: "hermesActivityRuns",
-	events: "hermesActivityEvents",
-	artifacts: "hermesActivityArtifacts",
-	changedFiles: "hermesActivityChangedFiles",
-} as const;
-
 const HERMES_ACTIVITY_FRONTMATTER_KEYS = Object.values(HERMES_ACTIVITY_FIELD_KEYS);
-const INTERMEDIATE_HERMES_ACTIVITY_FRONTMATTER_KEYS = Object.values(
-	INTERMEDIATE_HERMES_ACTIVITY_FIELD_KEYS
-);
-const LEGACY_HERMES_ACTIVITY_FRONTMATTER_KEYS = Object.values(LEGACY_HERMES_ACTIVITY_FIELD_KEYS);
+const HERMES_ACTIVITY_INDEX_KEY_ALIASES = {
+	comments: [
+		HERMES_ACTIVITY_FIELD_KEYS.comments,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredComments,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredActivityComments,
+	],
+	runs: [
+		HERMES_ACTIVITY_FIELD_KEYS.runs,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredRuns,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredActivityRuns,
+	],
+	events: [
+		HERMES_ACTIVITY_FIELD_KEYS.events,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredEvents,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredActivityEvents,
+	],
+	artifacts: [
+		HERMES_ACTIVITY_FIELD_KEYS.artifacts,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredArtifacts,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredHermesArtifacts,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredActivityArtifacts,
+	],
+	changedFiles: [
+		HERMES_ACTIVITY_FIELD_KEYS.changedFiles,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredChangedFiles,
+		HERMES_ACTIVITY_FIELD_KEYS.retiredActivityChangedFiles,
+	],
+} as const;
 
 type JsonRecord = Record<string, JsonValue>;
 
@@ -88,6 +101,15 @@ interface HermesActivityItem {
 	path?: string;
 	frontmatter?: Record<string, unknown>;
 	body?: string;
+	sortTimestampMs?: number | null;
+}
+
+interface HermesArtifactReference {
+	value: string;
+	label: string;
+	sourceType: "comment" | "run" | "event";
+	sourceId: string;
+	sourceLabel: string;
 }
 
 export function buildHermesActivityFrontmatterProperties(
@@ -95,18 +117,25 @@ export function buildHermesActivityFrontmatterProperties(
 	options: HermesActivityFrontmatterOptions = {}
 ): Record<string, unknown> {
 	const items = buildHermesActivityItems(snapshot, options);
-	const artifacts = uniqueStrings(collectActivityArtifacts(snapshot).map(formatArtifactLink)).slice(
-		0,
-		HERMES_ACTIVITY_LIST_LIMIT
-	);
+	const artifacts = buildActivityArtifactLinks(snapshot, options).slice(0, HERMES_ACTIVITY_LIST_LIMIT);
 	const changedFiles = collectActivityChangedFiles(snapshot).slice(0, HERMES_ACTIVITY_LIST_LIMIT);
+	const hasActivityContent = Boolean(
+		items.comments.length ||
+			items.runs.length ||
+			items.events.length ||
+			artifacts.length ||
+			changedFiles.length
+	);
 
 	return removeEmptyFrontmatterValues({
+		[HERMES_ACTIVITY_FIELD_KEYS.feed]: buildHermesActivityFeedItems(items).map(activityIndexValue),
 		[HERMES_ACTIVITY_FIELD_KEYS.comments]: items.comments.map(activityIndexValue),
 		[HERMES_ACTIVITY_FIELD_KEYS.runs]: items.runs.map(activityIndexValue),
 		[HERMES_ACTIVITY_FIELD_KEYS.events]: items.events.map(activityIndexValue),
 		[HERMES_ACTIVITY_FIELD_KEYS.artifacts]: artifacts,
 		[HERMES_ACTIVITY_FIELD_KEYS.changedFiles]: changedFiles,
+		[HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt]: hasActivityContent ? snapshot.syncedAt : undefined,
+		[HERMES_ACTIVITY_FIELD_KEYS.version]: hasActivityContent ? 2 : undefined,
 	});
 }
 
@@ -115,7 +144,7 @@ export function buildHermesActivityNoteSpecs(
 	options: HermesActivityFrontmatterOptions
 ): HermesActivityNoteSpec[] {
 	const items = buildHermesActivityItems(snapshot, options);
-	return [...items.comments, ...items.runs, ...items.events].flatMap((item) => {
+	const activityNoteSpecs = [...items.comments, ...items.runs, ...items.events].flatMap((item) => {
 		if (!item.path || !item.link || !item.frontmatter || item.body === undefined) {
 			return [];
 		}
@@ -127,6 +156,11 @@ export function buildHermesActivityNoteSpecs(
 			body: item.body,
 		}];
 	});
+	return uniqueActivityNoteSpecs([
+		...activityNoteSpecs,
+		...buildArtifactActivityNoteSpecs(snapshot, options),
+		...buildRawActivityNoteSpecs(snapshot, options),
+	]);
 }
 
 export function hasHermesActivityNotesChanged(
@@ -136,7 +170,11 @@ export function hasHermesActivityNotesChanged(
 ): boolean {
 	for (const spec of buildHermesActivityNoteSpecs(snapshot, options)) {
 		const frontmatter = getTaskFrontmatter(plugin, spec.path);
-		if (!frontmatter || frontmatter.sourceDigest !== spec.frontmatter.sourceDigest) {
+		if (
+			!frontmatter ||
+			(frontmatter.hermesSourceDigest ?? frontmatter.sourceDigest) !==
+				spec.frontmatter.hermesSourceDigest
+		) {
 			return true;
 		}
 	}
@@ -165,7 +203,28 @@ export function hasHermesActivityFrontmatterPropertiesChanged(
 	if (!existing || existing.hasLegacyRawActivity) {
 		return Object.keys(nextProperties).length > 0 || Boolean(existing?.hasLegacyRawActivity);
 	}
-	return stableStringify(existing.properties) !== stableStringify(nextProperties);
+	if (stableStringify(existing.properties) === stableStringify(nextProperties)) {
+		return false;
+	}
+	return !sameActivityFrontmatterExceptLastSyncedAt(existing.properties, nextProperties);
+}
+
+function sameActivityFrontmatterExceptLastSyncedAt(
+	existing: Record<string, unknown>,
+	next: Record<string, unknown>
+): boolean {
+	const lastSyncedAtKey = HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt;
+	if (
+		!Object.prototype.hasOwnProperty.call(existing, lastSyncedAtKey) ||
+		!Object.prototype.hasOwnProperty.call(next, lastSyncedAtKey)
+	) {
+		return false;
+	}
+	const existingComparable = { ...existing };
+	const nextComparable = { ...next };
+	delete existingComparable[lastSyncedAtKey];
+	delete nextComparable[lastSyncedAtKey];
+	return stableStringify(existingComparable) === stableStringify(nextComparable);
 }
 
 export function buildHermesActivitySnapshot(
@@ -273,36 +332,22 @@ function normalizeHermesActivitySnapshotFromProperties(
 	}
 	const hasCuratedShape = [
 		...HERMES_ACTIVITY_FRONTMATTER_KEYS,
-		...INTERMEDIATE_HERMES_ACTIVITY_FRONTMATTER_KEYS,
-		...LEGACY_HERMES_ACTIVITY_FRONTMATTER_KEYS,
 	].some((key) => Object.prototype.hasOwnProperty.call(value, key));
 	if (!hasCuratedShape) {
 		return null;
 	}
-	const commentSummaries = stringListValue(
-		value[HERMES_ACTIVITY_FIELD_KEYS.comments] ??
-			value[INTERMEDIATE_HERMES_ACTIVITY_FIELD_KEYS.comments] ??
-			value[LEGACY_HERMES_ACTIVITY_FIELD_KEYS.comments]
-	);
-	const runSummaries = stringListValue(
-		value[HERMES_ACTIVITY_FIELD_KEYS.runs] ??
-			value[INTERMEDIATE_HERMES_ACTIVITY_FIELD_KEYS.runs] ??
-			value[LEGACY_HERMES_ACTIVITY_FIELD_KEYS.runs]
-	);
-	const eventSummaries = stringListValue(
-		value[HERMES_ACTIVITY_FIELD_KEYS.events] ??
-			value[INTERMEDIATE_HERMES_ACTIVITY_FIELD_KEYS.events] ??
-			value[LEGACY_HERMES_ACTIVITY_FIELD_KEYS.events]
-	);
+	const commentSummaries = firstStringListValue(value, HERMES_ACTIVITY_INDEX_KEY_ALIASES.comments);
+	const runSummaries = firstStringListValue(value, HERMES_ACTIVITY_INDEX_KEY_ALIASES.runs);
+	const eventSummaries = firstStringListValue(value, HERMES_ACTIVITY_INDEX_KEY_ALIASES.events);
 
 	return {
-		syncedAt: getCurrentTimestamp(),
+		syncedAt: stringValue(value[HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt]) ?? getCurrentTimestamp(),
 		commentCount: commentSummaries.length,
 		runCount: runSummaries.length,
 		eventCount: eventSummaries.length,
 		comments: commentSummaries.map((body) => ({ body })),
 		runs: runSummaries.map((summary) => ({ summary })),
-		events: eventSummaries.map((summary) => ({ kind: "summary", payload: { summary } })),
+		events: eventSummaries.map((summary) => ({ kind: "summary", summary, payload: { summary } })),
 	};
 }
 
@@ -332,11 +377,7 @@ function pickHermesActivityFrontmatterProperties(
 	value: Record<string, JsonValue>
 ): Record<string, unknown> {
 	const properties: Record<string, unknown> = {};
-	for (const key of [
-		...HERMES_ACTIVITY_FRONTMATTER_KEYS,
-		...INTERMEDIATE_HERMES_ACTIVITY_FRONTMATTER_KEYS,
-		...LEGACY_HERMES_ACTIVITY_FRONTMATTER_KEYS,
-	]) {
+	for (const key of HERMES_ACTIVITY_FRONTMATTER_KEYS) {
 		if (value[key] !== undefined) {
 			properties[key] = value[key];
 		}
@@ -427,10 +468,11 @@ function buildHermesActivityItems(
 		),
 		runs: buildRunActivityItems(
 			snapshot.runs.slice(-HERMES_ACTIVITY_SUMMARY_LIMIT),
-			noteOptions
+			noteOptions,
+			snapshot.events
 		),
 		events: buildEventActivityItems(
-			getSignalEvents(snapshot.events, snapshot.runs).slice(-HERMES_ACTIVITY_SUMMARY_LIMIT),
+			getSignalEvents(snapshot.events).slice(-HERMES_ACTIVITY_SUMMARY_LIMIT),
 			options,
 			noteOptions
 		),
@@ -447,14 +489,17 @@ function buildCommentActivityItems(
 		const commentId = stringValue(comment.id) ?? stringValue(comment.comment_id) ?? String(commentIndex + 1);
 		const body = stringValue(comment.body) ?? stringValue(comment.comment) ?? "";
 		const author = stringValue(comment.author);
-		const createdAt = stringValue(comment.created_at) ?? stringValue(comment.createdAt);
+		const createdAt = timestampValue(comment.created_at) ?? timestampValue(comment.createdAt);
+		const runId = stringValue(comment.run_id) ?? stringValue(comment.runId);
 		const model = parseHermesComment(body, { author, createdAt });
 		const summary = compactText(model.summary || body, 360);
 		const label = `Comment ${commentId}`;
-		const artifacts = uniqueStrings(collectCommentArtifacts(comment).map(formatArtifactLink)).slice(
-			0,
-			HERMES_ACTIVITY_LIST_LIMIT
-		);
+		const artifacts = buildArtifactLinksForValues(
+			collectCommentArtifacts(comment),
+			noteOptions,
+			"comment",
+			commentId
+		).slice(0, HERMES_ACTIVITY_LIST_LIMIT);
 		const tasks = collectHermesTaskReferenceLinksFromValue([body, model.payload], options.board);
 		items.push(
 			buildActivityItem(
@@ -465,19 +510,26 @@ function buildCommentActivityItems(
 				label,
 				removeEmptyFrontmatterValues({
 					type: "hermes-comment",
-					task: noteOptions ? buildHermesTaskLink(noteOptions) : undefined,
-					commentId,
-					author,
-					kind: model.kind,
-					severity: model.severity,
-					summary,
-					createdAt,
-					tasks,
-					artifacts,
-					sourceDigest: activityDigest(comment),
+					hermesTask: noteOptions ? buildHermesTaskLink(noteOptions) : undefined,
+					hermesTaskId: noteOptions?.taskId,
+					hermesCommentId: commentId,
+					hermesCommentAuthor: author,
+					hermesCommentKind: model.kind,
+					hermesCommentSeverity: model.severity,
+					hermesCommentSummary: summary,
+					hermesCommentCreatedAt: createdAt,
+					hermesLinkedRun:
+						noteOptions && runId
+							? buildActivityLink(noteOptions, "runs", "run", runId, `Run ${runId}`)
+							: undefined,
+					hermesRunId: runId,
+					hermesCommentTasks: tasks,
+					hermesCommentArtifacts: artifacts,
+					hermesSourceDigest: activityDigest(comment),
 				}),
 				body.trim() ? `${body.trim()}\n` : buildRawRecordBody("Raw comment", comment),
-				noteOptions
+				noteOptions,
+				createdAt
 			)
 		);
 	}
@@ -486,7 +538,8 @@ function buildCommentActivityItems(
 
 function buildRunActivityItems(
 	runs: JsonRecord[],
-	noteOptions: HermesActivityNoteOptions | null
+	noteOptions: HermesActivityNoteOptions | null,
+	events: JsonRecord[]
 ): HermesActivityItem[] {
 	const items: HermesActivityItem[] = [];
 	for (const [runIndex, run] of runs.entries()) {
@@ -499,8 +552,17 @@ function buildRunActivityItems(
 			stringValue(run.result) ??
 			stringValue(run.error) ??
 			summarizePayload(run.metadata);
-		const startedAt = stringValue(run.started_at) ?? stringValue(run.startedAt);
-		const endedAt = stringValue(run.ended_at) ?? stringValue(run.endedAt);
+		const startedAt = timestampValue(run.started_at) ?? timestampValue(run.startedAt);
+		const endedAt = timestampValue(run.ended_at) ?? timestampValue(run.endedAt);
+		const lastHeartbeatAt =
+			timestampValue(run.last_heartbeat_at) ??
+			timestampValue(run.lastHeartbeatAt) ??
+			timestampValue(run.heartbeat_at) ??
+			timestampValue(run.heartbeatAt);
+		const durationMs = numberValue(run.duration_ms) ?? numberValue(run.durationMs);
+		const verification =
+			stringValue(run.verification) ??
+			(isRecord(run.metadata) ? stringValue(run.metadata.verification) : undefined);
 		const label = `Run ${runId}`;
 		items.push(
 			buildActivityItem(
@@ -511,30 +573,259 @@ function buildRunActivityItems(
 				label,
 				removeEmptyFrontmatterValues({
 					type: "hermes-run",
-					task: noteOptions ? buildHermesTaskLink(noteOptions) : undefined,
-					runId,
-					profile,
-					status,
-					outcome,
-					summary: summary ? compactText(summary, 360) : undefined,
-					startedAt,
-					endedAt,
-					artifacts: uniqueStrings(collectRunArtifacts(run).map(formatArtifactLink)).slice(
+					hermesTask: noteOptions ? buildHermesTaskLink(noteOptions) : undefined,
+					hermesTaskId: noteOptions?.taskId,
+					hermesRunId: runId,
+					hermesRunProfile: profile,
+					hermesRunStatus: status,
+					hermesRunOutcome: outcome,
+					hermesRunSummary: summary ? compactText(summary, 360) : undefined,
+					hermesRunStartedAt: startedAt,
+					hermesRunEndedAt: endedAt,
+					hermesRunLastHeartbeatAt: lastHeartbeatAt,
+					hermesRunDurationMs: durationMs,
+					hermesRunSignals: buildRunSignalLinks(events, runId, noteOptions).slice(
 						0,
 						HERMES_ACTIVITY_LIST_LIMIT
 					),
-					changedFiles: uniqueStrings(collectRunChangedFiles(run)).slice(
+					hermesRunArtifacts: buildArtifactLinksForValues(
+						collectRunArtifacts(run),
+						noteOptions,
+						"run",
+						runId
+					).slice(0, HERMES_ACTIVITY_LIST_LIMIT),
+					hermesRunChangedFiles: uniqueStrings(collectRunChangedFiles(run)).slice(
 						0,
 						HERMES_ACTIVITY_LIST_LIMIT
 					),
-					sourceDigest: activityDigest(run),
+					hermesRunVerification: verification,
+					hermesRunRawMetadata:
+						noteOptions && run.metadata !== undefined && run.metadata !== null
+							? buildRawActivityLink(noteOptions, "run", runId, "metadata", "Run metadata")
+							: undefined,
+					hermesSourceDigest: activityDigest(run),
 				}),
 				buildRawRecordBody("Raw run", run),
-				noteOptions
+				noteOptions,
+				endedAt ?? startedAt
 			)
 		);
 	}
 	return uniqueActivityItems(items);
+}
+
+function buildRunSignalLinks(
+	events: JsonRecord[],
+	runId: string,
+	noteOptions: HermesActivityNoteOptions | null
+): string[] {
+	if (!noteOptions || !runId) {
+		return [];
+	}
+	return getSignalEvents(events)
+		.map((event, eventIndex) => ({ event, eventIndex }))
+		.filter(({ event }) => {
+			const eventRunId = stringValue(event.run_id) ?? stringValue(event.runId);
+			return eventRunId === runId;
+		})
+		.map(({ event, eventIndex }) => {
+			const eventId = stringValue(event.id) ?? String(eventIndex + 1);
+			return buildActivityLink(noteOptions, "events", "event", eventId, `Event ${eventId}`);
+		});
+}
+
+function buildRawActivityNoteSpecs(
+	snapshot: HermesActivitySnapshot,
+	options: HermesActivityFrontmatterOptions
+): HermesActivityNoteSpec[] {
+	const noteOptions = normalizeActivityNoteOptions(options);
+	if (!noteOptions) {
+		return [];
+	}
+
+	const specs: HermesActivityNoteSpec[] = [];
+	const recentRuns = snapshot.runs.slice(-HERMES_ACTIVITY_SUMMARY_LIMIT);
+	for (const [runIndex, run] of recentRuns.entries()) {
+		if (run.metadata === undefined || run.metadata === null) {
+			continue;
+		}
+		const runId = stringValue(run.id) ?? stringValue(run.run_id) ?? String(runIndex + 1);
+		specs.push(
+			buildRawActivityNoteSpec(noteOptions, "run", runId, "metadata", "Run metadata", run.metadata)
+		);
+	}
+
+	const recentEvents = getSignalEvents(snapshot.events).slice(
+		-HERMES_ACTIVITY_SUMMARY_LIMIT
+	);
+	for (const [eventIndex, event] of recentEvents.entries()) {
+		if (event.payload === undefined || event.payload === null) {
+			continue;
+		}
+		const eventId = stringValue(event.id) ?? String(eventIndex + 1);
+		specs.push(
+			buildRawActivityNoteSpec(noteOptions, "event", eventId, "payload", "Event payload", event.payload)
+		);
+	}
+
+	return specs;
+}
+
+function buildRawActivityNoteSpec(
+	options: HermesActivityNoteOptions,
+	source: "run" | "event" | "comment",
+	rawId: string,
+	kind: string,
+	label: string,
+	value: unknown
+): HermesActivityNoteSpec {
+	const path = buildRawActivityPath(options, source, rawId, kind);
+	return {
+		path,
+		label,
+		link: `[[${path.replace(/\.md$/i, "")}|${label}]]`,
+		frontmatter: removeEmptyFrontmatterValues({
+			type: "hermes-raw",
+			hermesTask: buildHermesTaskLink(options),
+			hermesTaskId: options.taskId,
+			hermesRawSourceType: source,
+			hermesRawSourceId: rawId,
+			hermesRawKind: kind,
+			hermesSourceDigest: activityDigest(value),
+		}),
+		body: buildRawRecordBody(label, value),
+	};
+}
+
+function buildArtifactActivityNoteSpecs(
+	snapshot: HermesActivitySnapshot,
+	options: HermesActivityFrontmatterOptions
+): HermesActivityNoteSpec[] {
+	const noteOptions = normalizeActivityNoteOptions(options);
+	if (!noteOptions) {
+		return [];
+	}
+	return buildArtifactReferences(snapshot).map((reference) =>
+		buildArtifactActivityNoteSpec(noteOptions, reference)
+	);
+}
+
+function buildActivityArtifactLinks(
+	snapshot: HermesActivitySnapshot,
+	options: HermesActivityFrontmatterOptions
+): string[] {
+	const noteOptions = normalizeActivityNoteOptions(options);
+	if (!noteOptions) {
+		return uniqueStrings(collectActivityArtifacts(snapshot).map(formatArtifactLink));
+	}
+	return uniqueStrings(
+		buildArtifactReferences(snapshot).map((reference) =>
+			buildArtifactActivityLink(noteOptions, reference)
+		)
+	);
+}
+
+function buildArtifactLinksForValues(
+	values: string[],
+	noteOptions: HermesActivityNoteOptions | null,
+	sourceType: HermesArtifactReference["sourceType"],
+	sourceId: string
+): string[] {
+	const uniqueValues = uniqueStrings(values);
+	if (!noteOptions) {
+		return uniqueValues.map(formatArtifactLink);
+	}
+	return uniqueValues.map((value) =>
+		buildArtifactActivityLink(noteOptions, buildArtifactReference(value, sourceType, sourceId))
+	);
+}
+
+function buildArtifactReferences(
+	snapshot: HermesActivitySnapshot
+): HermesArtifactReference[] {
+	const references: HermesArtifactReference[] = [];
+	for (const [commentIndex, comment] of snapshot.comments.slice(-HERMES_ACTIVITY_SUMMARY_LIMIT).entries()) {
+		const commentId = stringValue(comment.id) ?? stringValue(comment.comment_id) ?? String(commentIndex + 1);
+		for (const value of collectCommentArtifacts(comment)) {
+			references.push(buildArtifactReference(value, "comment", commentId));
+		}
+	}
+	for (const [runIndex, run] of snapshot.runs.slice(-HERMES_ACTIVITY_SUMMARY_LIMIT).entries()) {
+		const runId = stringValue(run.id) ?? stringValue(run.run_id) ?? String(runIndex + 1);
+		for (const value of collectRunArtifacts(run)) {
+			references.push(buildArtifactReference(value, "run", runId));
+		}
+	}
+	for (const [eventIndex, event] of getSignalEvents(snapshot.events)
+		.slice(-HERMES_ACTIVITY_SUMMARY_LIMIT)
+		.entries()) {
+		const eventId = stringValue(event.id) ?? String(eventIndex + 1);
+		for (const value of collectEventArtifacts(event)) {
+			references.push(buildArtifactReference(value, "event", eventId));
+		}
+	}
+	return uniqueArtifactReferences(references);
+}
+
+function buildArtifactReference(
+	value: string,
+	sourceType: HermesArtifactReference["sourceType"],
+	sourceId: string
+): HermesArtifactReference {
+	return {
+		value,
+		label: artifactLabel(value),
+		sourceType,
+		sourceId,
+		sourceLabel: `${capitalizeWord(sourceType)} ${sourceId}`,
+	};
+}
+
+function buildArtifactActivityNoteSpec(
+	options: HermesActivityNoteOptions,
+	reference: HermesArtifactReference
+): HermesActivityNoteSpec {
+	const path = buildArtifactActivityPath(options, reference);
+	return {
+		path,
+		label: reference.label,
+		link: buildArtifactActivityLink(options, reference),
+		frontmatter: removeEmptyFrontmatterValues({
+			type: "hermes-artifact",
+			hermesTask: buildHermesTaskLink(options),
+			hermesTaskId: options.taskId,
+			hermesArtifactKind: artifactKind(reference.value),
+			hermesArtifactLabel: reference.label,
+			hermesArtifactFilename: artifactFilename(reference.value),
+			hermesArtifactStoredPath: reference.value,
+			hermesArtifactSourceType: reference.sourceType,
+			hermesArtifactSourceId: reference.sourceId,
+			hermesArtifactSource:
+				reference.sourceType === "run"
+					? buildActivityLink(options, "runs", "run", reference.sourceId, `Run ${reference.sourceId}`)
+					: reference.sourceType === "event"
+						? buildActivityLink(options, "events", "event", reference.sourceId, `Event ${reference.sourceId}`)
+						: buildActivityLink(
+								options,
+								"comments",
+								"comment",
+								reference.sourceId,
+								`Comment ${reference.sourceId}`
+							),
+			hermesSourceDigest: activityDigest({
+				sourceType: reference.sourceType,
+				sourceId: reference.sourceId,
+				value: reference.value,
+			}),
+		}),
+		body: [
+			`## ${reference.label}`,
+			"",
+			`- Source: ${reference.sourceLabel}`,
+			`- Target: ${reference.value}`,
+			"",
+		].join("\n"),
+	};
 }
 
 function collectCommentArtifacts(comment: JsonRecord): string[] {
@@ -576,10 +867,13 @@ function buildEventActivityItems(
 	for (const [eventIndex, event] of events.entries()) {
 		const eventId = stringValue(event.id) ?? String(eventIndex + 1);
 		const kind = stringValue(event.kind) ?? "event";
-		const createdAt = stringValue(event.created_at) ?? stringValue(event.createdAt);
+		const createdAt = timestampValue(event.created_at) ?? timestampValue(event.createdAt);
 		const runId = stringValue(event.run_id) ?? stringValue(event.runId);
 		const summary = summarizePayload(event.payload) || summarizePayload(event);
 		const label = `Event ${eventId}`;
+		const status =
+			stringValue(event.status) ??
+			(isRecord(event.payload) ? stringValue(event.payload.status) : undefined);
 		items.push(
 			buildActivityItem(
 				"events",
@@ -589,21 +883,35 @@ function buildEventActivityItems(
 				label,
 				removeEmptyFrontmatterValues({
 					type: "hermes-event",
-					task: noteOptions ? buildHermesTaskLink(noteOptions) : undefined,
-					eventId,
-					kind,
-					summary: summary ? compactText(summary, 360) : undefined,
-					createdAt,
-					run: noteOptions && runId ? buildActivityLink(noteOptions, "runs", "run", runId, `Run ${runId}`) : undefined,
-					tasks: collectHermesTaskReferenceLinksFromValue(event.payload, options.board),
-					artifacts: uniqueStrings(collectEventArtifacts(event).map(formatArtifactLink)).slice(
-						0,
-						HERMES_ACTIVITY_LIST_LIMIT
-					),
-					sourceDigest: activityDigest(event),
+					hermesTask: noteOptions ? buildHermesTaskLink(noteOptions) : undefined,
+					hermesTaskId: noteOptions?.taskId,
+					hermesRun:
+						noteOptions && runId
+							? buildActivityLink(noteOptions, "runs", "run", runId, `Run ${runId}`)
+							: undefined,
+					hermesRunId: runId,
+					hermesEventId: eventId,
+					hermesEventKind: kind,
+					hermesEventStatus: status,
+					hermesEventLabel: kind.replace(/[_-]+/g, " "),
+					hermesEventSummary: summary ? compactText(summary, 360) : undefined,
+					hermesEventCreatedAt: createdAt,
+					hermesEventTasks: collectHermesTaskReferenceLinksFromValue(event.payload, options.board),
+					hermesEventArtifacts: buildArtifactLinksForValues(
+						collectEventArtifacts(event),
+						noteOptions,
+						"event",
+						eventId
+					).slice(0, HERMES_ACTIVITY_LIST_LIMIT),
+					hermesEventRawPayload:
+						noteOptions && event.payload !== undefined && event.payload !== null
+							? buildRawActivityLink(noteOptions, "event", eventId, "payload", "Event payload")
+							: undefined,
+					hermesSourceDigest: activityDigest(event),
 				}),
 				buildRawRecordBody("Raw event", event),
-				noteOptions
+				noteOptions,
+				createdAt
 			)
 		);
 	}
@@ -626,19 +934,22 @@ function buildActivityItem(
 	label: string,
 	frontmatter: Record<string, unknown>,
 	body: string,
-	options: HermesActivityNoteOptions | null
+	options: HermesActivityNoteOptions | null,
+	sortTimestamp?: string
 ): HermesActivityItem {
+	const sortTimestampMs = hermesActivityTimestampMs(sortTimestamp);
 	if (!options) {
-		return { label };
+		return { label, sortTimestampMs };
 	}
 	const basename = activityNoteBasename(prefix, rawId, index, options.taskId);
-	const path = `TaskNotes/${options.board}/activity/${folder}/${basename}.md`;
+	const path = canonicalHermesActivityPath(options.taskId, folder, basename);
 	return {
 		label,
 		path,
 		link: `[[${path.replace(/\.md$/i, "")}|${label}]]`,
 		frontmatter,
 		body,
+		sortTimestampMs,
 	};
 }
 
@@ -650,11 +961,11 @@ function buildActivityLink(
 	label: string
 ): string {
 	const basename = activityNoteBasename(prefix, rawId, 0, options.taskId);
-	return `[[TaskNotes/${options.board}/activity/${folder}/${basename}|${label}]]`;
+	return `[[${canonicalHermesActivityPath(options.taskId, folder, basename).replace(/\.md$/i, "")}|${label}]]`;
 }
 
 function buildHermesTaskLink(options: HermesActivityNoteOptions): string {
-	return `[[TaskNotes/${options.board}/${options.taskId}|${options.taskId}]]`;
+	return `[[${canonicalHermesTaskPath(options.taskId).replace(/\.md$/i, "")}|${options.taskId}]]`;
 }
 
 function activityNoteBasename(
@@ -667,11 +978,31 @@ function activityNoteBasename(
 	const normalized = (rawId || fallback)
 		.replace(new RegExp(`^${prefix}[-_\\s]*`, "i"), "")
 		.replace(/[^A-Za-z0-9]/g, "");
-	return `${prefix}${normalized || index + 1}`;
+	const normalizedTaskId = taskId.replace(/[^A-Za-z0-9_-]/g, "");
+	const suffix = `${prefix}${normalized || index + 1}`;
+	return normalizedTaskId ? `${normalizedTaskId}-${suffix}` : suffix;
 }
 
 function activityIndexValue(item: HermesActivityItem): string {
 	return item.link ?? item.label;
+}
+
+function buildHermesActivityFeedItems(items: {
+	comments: HermesActivityItem[];
+	runs: HermesActivityItem[];
+	events: HermesActivityItem[];
+}): HermesActivityItem[] {
+	return [...items.comments, ...items.runs, ...items.events]
+		.map((item, sequence) => ({ item, sequence }))
+		.sort((left, right) => {
+			const leftTime = left.item.sortTimestampMs;
+			const rightTime = right.item.sortTimestampMs;
+			if (leftTime !== null && leftTime !== undefined && rightTime !== null && rightTime !== undefined) {
+				return leftTime - rightTime || left.sequence - right.sequence;
+			}
+			return left.sequence - right.sequence;
+		})
+		.map(({ item }) => item);
 }
 
 function uniqueActivityItems(items: HermesActivityItem[]): HermesActivityItem[] {
@@ -688,6 +1019,38 @@ function uniqueActivityItems(items: HermesActivityItem[]): HermesActivityItem[] 
 	return result;
 }
 
+function uniqueActivityNoteSpecs(specs: HermesActivityNoteSpec[]): HermesActivityNoteSpec[] {
+	const seen = new Set<string>();
+	const result: HermesActivityNoteSpec[] = [];
+	for (const spec of specs) {
+		const key = spec.path.toLowerCase();
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		result.push(spec);
+	}
+	return result;
+}
+
+function uniqueArtifactReferences(references: HermesArtifactReference[]): HermesArtifactReference[] {
+	const seen = new Set<string>();
+	const result: HermesArtifactReference[] = [];
+	for (const reference of references) {
+		const key = [
+			reference.sourceType,
+			reference.sourceId,
+			reference.value.toLowerCase(),
+		].join(":");
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		result.push(reference);
+	}
+	return result;
+}
+
 function activityDigest(value: unknown): string {
 	const text = stableStringify(value);
 	let hash = 0x811c9dc5;
@@ -700,6 +1063,54 @@ function activityDigest(value: unknown): string {
 
 function buildRawRecordBody(title: string, value: unknown): string {
 	return `## ${title}\n\n\`\`\`json\n${JSON.stringify(sortJson(value), null, 2)}\n\`\`\`\n`;
+}
+
+function buildRawActivityLink(
+	options: HermesActivityNoteOptions,
+	source: "run" | "event" | "comment",
+	rawId: string,
+	kind: string,
+	label: string
+): string {
+	const path = buildRawActivityPath(options, source, rawId, kind);
+	return `[[${path.replace(/\.md$/i, "")}|${label}]]`;
+}
+
+function buildRawActivityPath(
+	options: HermesActivityNoteOptions,
+	source: "run" | "event" | "comment",
+	rawId: string,
+	kind: string
+): string {
+	const normalizedTaskId = options.taskId.replace(/[^A-Za-z0-9_-]/g, "");
+	const normalizedId = rawId.replace(/[^A-Za-z0-9]/g, "") || "1";
+	const basename = `${normalizedTaskId}-${source}${normalizedId}-${kind}`;
+	return canonicalHermesActivityPath(options.taskId, "raw", basename);
+}
+
+function buildArtifactActivityLink(
+	options: HermesActivityNoteOptions,
+	reference: HermesArtifactReference
+): string {
+	const path = buildArtifactActivityPath(options, reference);
+	return `[[${path.replace(/\.md$/i, "")}|${reference.label}]]`;
+}
+
+function buildArtifactActivityPath(
+	options: HermesActivityNoteOptions,
+	reference: HermesArtifactReference
+): string {
+	const normalizedTaskId = options.taskId.replace(/[^A-Za-z0-9_-]/g, "");
+	const normalizedSourceId = reference.sourceId.replace(/[^A-Za-z0-9]/g, "") || "1";
+	const digest = activityDigest(reference.value).split("-")[0]?.slice(0, 8) || "artifact";
+	const slug = artifactSlug(reference.value);
+	const basename = [
+		normalizedTaskId,
+		`${reference.sourceType}${normalizedSourceId}`,
+		slug,
+		digest,
+	].filter(Boolean).join("-");
+	return canonicalHermesActivityPath(options.taskId, "artifacts", basename);
 }
 
 function collectEventArtifacts(event: JsonRecord): string[] {
@@ -737,20 +1148,13 @@ function summarizePayload(value: unknown): string {
 	return "";
 }
 
-function getSignalEvents(events: JsonRecord[], runs: JsonRecord[]): JsonRecord[] {
-	const runIds = new Set(
-		runs
-			.flatMap((run) => [run.id, run.run_id])
-			.map(stringValue)
-			.filter((runId): runId is string => Boolean(runId))
-	);
+function getSignalEvents(events: JsonRecord[]): JsonRecord[] {
 	return events.filter((event) => {
 		const kind = stringValue(event.kind)?.toLowerCase();
-		if (kind === "heartbeat" || kind === "commented") {
+		if (!kind || kind === "heartbeat" || kind === "commented" || kind.includes("spawn")) {
 			return false;
 		}
-		const runId = stringValue(event.run_id);
-		return !runId || !runIds.has(runId);
+		return true;
 	});
 }
 
@@ -839,13 +1243,12 @@ function collectHermesTaskReferenceLinks(text: string, board: string | undefined
 		return [];
 	}
 	const links: string[] = [];
-	text.replace(HERMES_TASK_ID_REGEX, (match, explicitBoard: string | undefined, taskId: string, offset: number) => {
+	text.replace(HERMES_TASK_ID_REGEX, (match, _explicitBoard: string | undefined, taskId: string, offset: number) => {
 		if (isInsideExistingWikilink(text, offset)) {
 			return match;
 		}
-		const targetBoard = explicitBoard?.trim() || normalizedBoard;
 		const normalizedTaskId = taskId.toLowerCase();
-		links.push(`[[TaskNotes/${targetBoard}/${normalizedTaskId}|${normalizedTaskId}]]`);
+		links.push(`[[${canonicalHermesTaskPath(normalizedTaskId).replace(/\.md$/i, "")}|${normalizedTaskId}]]`);
 		return match;
 	});
 	return uniqueStrings(links);
@@ -895,6 +1298,51 @@ function formatArtifactLink(value: string): string {
 	}
 	const alias = target.split("/").filter(Boolean).pop();
 	return alias && alias !== target ? `[[${target}|${alias}]]` : `[[${target}]]`;
+}
+
+function artifactLabel(value: string): string {
+	return artifactFilename(value) || "Artifact";
+}
+
+function artifactFilename(value: string): string {
+	const normalized = value
+		.trim()
+		.replace(/^file:\/\//i, "")
+		.split(/[?#]/)[0]
+		.replace(/\\/g, "/")
+		.replace(/^\[\[/, "")
+		.replace(/\]\]$/, "")
+		.split("|")[0];
+	const filename = normalized.split("/").filter(Boolean).pop() ?? "";
+	try {
+		return decodeURIComponent(filename);
+	} catch {
+		return filename;
+	}
+}
+
+function artifactKind(value: string): string {
+	const filename = artifactFilename(value).toLowerCase();
+	if (/\.(md|markdown|txt)$/i.test(filename)) return "report";
+	if (/\.html?$/i.test(filename)) return "html";
+	if (/\.pdf$/i.test(filename)) return "pdf";
+	if (/\.(png|jpe?g|gif|webp|svg)$/i.test(filename)) return "image";
+	if (/\.(json|ya?ml|csv|tsv)$/i.test(filename)) return "data";
+	return "artifact";
+}
+
+function artifactSlug(value: string): string {
+	const base = artifactFilename(value).replace(/\.[^.]+$/, "") || "artifact";
+	const slug = base
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 48);
+	return slug || "artifact";
+}
+
+function capitalizeWord(value: string): string {
+	return value ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
 }
 
 function normalizeArtifactWikilinkTarget(value: string): string | null {
@@ -959,6 +1407,19 @@ function stringListValue(value: unknown): string[] {
 	});
 }
 
+function firstStringListValue(
+	value: Record<string, JsonValue>,
+	keys: readonly string[]
+): string[] {
+	for (const key of keys) {
+		const list = stringListValue(value[key]);
+		if (list.length > 0) {
+			return list;
+		}
+	}
+	return [];
+}
+
 function uniqueStrings(values: string[]): string[] {
 	const seen = new Set<string>();
 	const result: string[] = [];
@@ -993,6 +1454,37 @@ function stringValue(value: unknown): string | undefined {
 		return String(value);
 	}
 	return undefined;
+}
+
+function timestampValue(value: unknown): string | undefined {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return formatHermesEpochTimestamp(value);
+	}
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return undefined;
+	}
+	const numeric = Number(trimmed);
+	if (Number.isFinite(numeric) && /^\d+(?:\.\d+)?$/.test(trimmed)) {
+		return formatHermesEpochTimestamp(numeric);
+	}
+	return trimmed;
+}
+
+function formatHermesEpochTimestamp(value: number): string {
+	const milliseconds = Math.abs(value) < 100000000000 ? value * 1000 : value;
+	return new Date(milliseconds).toISOString().replace(".000Z", "Z");
+}
+
+function hermesActivityTimestampMs(value: string | undefined): number | null {
+	if (!value) {
+		return null;
+	}
+	const timestamp = Date.parse(value);
+	return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function sortJson(value: unknown): unknown {

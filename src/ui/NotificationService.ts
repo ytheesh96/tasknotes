@@ -2,6 +2,7 @@ import { TFile, EventRef } from "obsidian";
 import TaskNotesPlugin from "../main";
 import { TaskInfo, Reminder, EVENT_TASK_UPDATED } from "../types";
 import { parseDateToLocal } from "../utils/dateUtils";
+import { getAllTasksFromNoteFirst, getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import { showNotice } from "../ui/notifications";
 
@@ -128,7 +129,7 @@ export class NotificationService {
 		this.notificationQueue = [];
 
 		// Get all tasks from the cache
-		const tasks = await this.plugin.cacheManager.getAllTasks();
+		const tasks = await getAllTasksFromNoteFirst(this.plugin);
 		const now = Date.now();
 		const windowEnd = now + this.QUEUE_WINDOW;
 
@@ -513,7 +514,7 @@ export class NotificationService {
 
 		const task =
 			updatedTask === undefined
-				? await this.plugin.cacheManager.getTaskInfo(taskPath)
+				? await getTaskInfoFromNoteFirst(this.plugin, taskPath)
 				: updatedTask;
 
 		if (!task) {
@@ -579,7 +580,7 @@ export class NotificationService {
 
 			// Try to get the task and check if the reminder time has passed
 			try {
-				const task = await this.plugin.cacheManager.getTaskInfo(taskPath);
+				const task = await getTaskInfoFromNoteFirst(this.plugin, taskPath);
 				if (task && task.reminders) {
 					const reminder = task.reminders.find((r) => r.id === reminderId);
 					if (reminder) {

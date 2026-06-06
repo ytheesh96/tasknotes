@@ -13,6 +13,9 @@ function createPlugin(): TaskNotesPlugin {
 	plugin.settings = {
 		hermesStartCommand: HERMES_DASHBOARD_START_COMMAND,
 	} as never;
+	Object.assign(plugin as unknown as Record<string, unknown>, {
+		startHermesManagedTaskSync: jest.fn(),
+	});
 	return plugin;
 }
 

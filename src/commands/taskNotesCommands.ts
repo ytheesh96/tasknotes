@@ -1,6 +1,7 @@
 import { Notice, type Editor } from "obsidian";
 import type TaskNotesPlugin from "../main";
 import type { TranslatedCommandDefinition } from "./types";
+import { getAllTasksFromNoteFirst, getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Commands/TaskNotesCommands" });
@@ -241,7 +242,7 @@ export function createTaskNotesCommandDefinitions(
 			nameKey: "commands.exportAllTasksIcs",
 			callback: async (ctx) => {
 				try {
-					const allTasks = await ctx.cacheManager.getAllTasks();
+					const allTasks = await getAllTasksFromNoteFirst(ctx);
 					const { downloadAllTasksICSFile } = await import(
 						"../ui/calendarExportActions"
 					);
@@ -313,7 +314,7 @@ export function createTaskNotesCommandDefinitions(
 					return;
 				}
 
-				const task = await ctx.cacheManager.getTaskInfo(activeFile.path);
+				const task = await getTaskInfoFromNoteFirst(ctx, activeFile.path);
 				if (!task) {
 					new Notice(
 						ctx.i18n.translate(

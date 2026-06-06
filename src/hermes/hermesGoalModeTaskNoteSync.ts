@@ -8,6 +8,7 @@ import {
 	type HermesCreateTaskPayload,
 	type HermesTaskRecord,
 } from "./hermesApiClient";
+import { createHermesKanbanClient } from "./hermesKanbanTransport";
 import { normalizeHermesBoardValue, splitHermesList } from "./hermesRouting";
 import { HermesWriteGuard } from "./hermesWriteGuard";
 
@@ -25,6 +26,7 @@ export type SyncedHermesGoalMetadata = {
 };
 
 type HermesGoalModeTaskNoteSyncApi = Pick<HermesKanbanApiClient, "createTask" | "addComment">;
+type HermesGoalModeTaskCreator = Pick<HermesKanbanApiClient, "createTask">;
 type HermesGoalModeWriteGuard = Pick<HermesWriteGuard, "assertCanCreateHermesTask">;
 
 type HermesFrontmatterWriter = (
@@ -67,6 +69,7 @@ export function buildGoalModeCreatePayloadFromTaskNote(task: TaskInfo): HermesCr
 		status,
 		assignee: getGoalModeTaskNoteAssignee(task) ?? undefined,
 		priority: taskNotesPriorityToHermesPriority(task.priority),
+		created_by: "tasknotes",
 		triage: true,
 		idempotency_key: buildGoalModeTaskNoteIdempotencyKey(task),
 	};
@@ -77,6 +80,7 @@ export async function syncGoalModeTaskNoteToHermes(
 	task: TaskInfo,
 	options: {
 		api?: HermesGoalModeTaskNoteSyncApi;
+		taskCreator?: HermesGoalModeTaskCreator;
 		now?: string;
 		frontmatterWriter?: HermesFrontmatterWriter;
 		writeGuard?: HermesGoalModeWriteGuard;
@@ -96,10 +100,12 @@ export async function syncGoalModeTaskNoteToHermes(
 	}
 
 	const board = getGoalModeTaskNoteBoard(task);
-	await (options.writeGuard ?? new HermesWriteGuard()).assertCanCreateHermesTask(board);
+	const transportMode = plugin.settings?.hermesKanbanTransport ?? "dashboard-api";
+	await (options.writeGuard ?? new HermesWriteGuard({ transport: transportMode })).assertCanCreateHermesTask(board);
 	const api = options.api ?? new HermesKanbanApiClient();
+	const taskCreator = options.taskCreator ?? options.api ?? createHermesKanbanClient(transportMode);
 	const payload = buildGoalModeCreatePayloadFromTaskNote(task);
-	const created = await api.createTask(board, payload);
+	const created = await taskCreator.createTask(board, payload);
 	await addGoalModeTaskNoteSyncComment(api, { board, id: created.id }, task);
 	const now = options.now ?? getCurrentTimestamp();
 	const frontmatterWriter = options.frontmatterWriter ?? writeHermesGoalModeSyncMetadata;

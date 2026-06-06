@@ -12,6 +12,7 @@ import { HERMES_DEFAULT_BOARDS, normalizeHermesBoardValue, splitHermesList } fro
 import { HERMES_TASKNOTES_LOCAL_CREATION_TARGET } from "./hermesTaskNotesApiSync";
 
 const TASKNOTES_ROOT = "TaskNotes";
+const HERMES_CREATION_TARGET_PREFIX = "hermes:";
 
 function asStringArray(value: unknown): string[] {
 	if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -99,6 +100,13 @@ function boardFromProjectsValue(
 	return null;
 }
 
+function hasNonHermesProjectValue(value: unknown, knownBoards: readonly string[]): boolean {
+	return splitHermesList(value).some((project) => {
+		const board = normalizeHermesBoardValue(project);
+		return !board || !knownBoards.includes(board);
+	});
+}
+
 export function buildHermesTaskCreationOptions(
 	app: App,
 	userFields: readonly UserMappedField[] = [],
@@ -108,6 +116,16 @@ export function buildHermesTaskCreationOptions(
 ): TaskCreationOptions {
 	void userFields;
 	const boards = getHermesBoards(app);
+	if (hasNonHermesProjectValue(prePopulatedValues?.projects, boards)) {
+		return {
+			prePopulatedValues,
+			onTaskCreated,
+			creationTargetPicker: {
+				boards,
+				selectedTarget: HERMES_TASKNOTES_LOCAL_CREATION_TARGET,
+			},
+		};
+	}
 	const explicitBoard = boardFromPrepopulated(prePopulatedValues, boards);
 	const defaultBoard = boardFromProjectsValue(defaultProjects, boards);
 	const board = explicitBoard ?? defaultBoard ?? getActiveHermesBoard(app) ?? preferredBoard(app);
@@ -123,6 +141,13 @@ export function buildHermesTaskCreationOptions(
 			? prePopulatedValues.status
 			: "triage";
 
+	const tags = uniqueStrings(
+		asStringArray(prePopulatedValues?.tags).filter((tag) => {
+			const key = tag.trim().replace(/^#/, "");
+			return key !== "task" && key !== "hermes-kanban";
+		})
+	);
+
 	return {
 		prePopulatedValues: {
 			...prePopulatedValues,
@@ -134,15 +159,13 @@ export function buildHermesTaskCreationOptions(
 					(context) => !boards.includes(context) && context !== "hermes-kanban"
 				),
 			]),
-			tags: uniqueStrings([...asStringArray(prePopulatedValues?.tags), "hermes-kanban"]),
+			...(tags.length > 0 ? { tags } : {}),
 			customFrontmatter: custom,
 		},
 		onTaskCreated,
-		modalTitle: "Create task",
-		saveButtonText: "Create task",
 		creationTargetPicker: {
 			boards: boardOptions,
-			selectedTarget: HERMES_TASKNOTES_LOCAL_CREATION_TARGET,
+			selectedTarget: `${HERMES_CREATION_TARGET_PREFIX}${board}`,
 		},
 		hermesBoardPicker: {
 			boards: boardOptions,

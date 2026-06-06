@@ -1,5 +1,6 @@
 import type { TaskDependency, TaskInfo, WebhookConfig, WebhookEvent } from "../types";
 import { getHermesTaskIdentity, type HermesTaskIdentity } from "./hermesApiClient";
+import { HERMES_BOARD_FRONTMATTER } from "./hermesCanonicalTaskNotes";
 
 export const HERMES_TASKNOTES_WEBHOOK_ID = "hermes-tasknotes-sync";
 export const HERMES_TASKNOTES_LOCAL_CREATION_TARGET = "tasknotes";
@@ -177,7 +178,16 @@ export function buildHermesTaskNotesBoardQuery(
 			operator: "is-not-checked",
 		});
 	}
-	const project = input.project ?? (input.board ? `Hermes/${input.board}` : undefined);
+	if (input.board) {
+		children.push({
+			type: "condition",
+			id: "board",
+			property: HERMES_BOARD_FRONTMATTER,
+			operator: "is",
+			value: input.board,
+		});
+	}
+	const project = input.project;
 	if (project) {
 		children.push({
 			type: "condition",

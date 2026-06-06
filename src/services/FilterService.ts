@@ -40,6 +40,7 @@ import {
 	type QuickFilterToggle,
 } from "./filter-service/filterQueryState";
 import type { TaskNotesSettings } from "../types/settings";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/FilterService" });
@@ -321,7 +322,9 @@ export class FilterService extends EventEmitter {
 		for (let i = 0; i < paths.length; i += batchSize) {
 			const batch = paths.slice(i, i + batchSize);
 			const batchTasks = await Promise.all(
-				batch.map((path) => this.cacheManager.getCachedTaskInfo(path))
+				batch.map((path) =>
+					getTaskInfoFromNoteFirst({ cacheManager: this.cacheManager }, path)
+				)
 			);
 
 			for (const task of batchTasks) {

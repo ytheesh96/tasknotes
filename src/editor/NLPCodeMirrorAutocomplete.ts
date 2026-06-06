@@ -230,7 +230,10 @@ async function getSuggestionsForProperty(
 	triggerConfig: TriggerConfigService
 ): Promise<Completion[] | null> {
 	if (propertyId === "projects") {
-		return getHermesBoardSuggestions(query, plugin);
+		const boardSuggestions = await getHermesBoardSuggestions(query, plugin);
+		if (boardSuggestions.length > 0) {
+			return boardSuggestions;
+		}
 	}
 
 	const suggesterType = triggerConfig.getSuggesterType(propertyId);

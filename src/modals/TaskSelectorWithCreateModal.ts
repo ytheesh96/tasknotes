@@ -7,6 +7,7 @@ import { NaturalLanguageParser, ParsedTaskData } from "../services/NaturalLangua
 import { createTaskCard } from "../ui/TaskCard";
 import { buildTaskCreationDataFromParsed } from "../services/buildTaskCreationDataFromParsed";
 import { getTaskWithInstanceStatus, isTaskInstanceCompleted } from "../utils/taskInstanceStatus";
+import { getAllTasksFromNoteFirst } from "../utils/taskInfoRead";
 import { NLPSuggest } from "./taskCreationSuggest";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
@@ -670,7 +671,7 @@ export async function openTaskSelectorWithCreate(
 	plugin: TaskNotesPlugin,
 	options?: Partial<TaskSelectorWithCreateOptions>
 ): Promise<TaskSelectorWithCreateResult> {
-	const tasks = await plugin.cacheManager.getAllTasks();
+	const tasks = await getAllTasksFromNoteFirst(plugin);
 
 	return new Promise((resolve) => {
 		const modal = new TaskSelectorWithCreateModal(plugin.app, plugin, tasks, {

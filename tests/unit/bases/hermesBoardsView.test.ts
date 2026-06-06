@@ -5,6 +5,7 @@ import {
 	type HermesBoardSummary,
 	type HermesBoardsViewOptions,
 } from "../../../src/bases/HermesBoardsView";
+import { TFile } from "obsidian";
 import type { TaskInfo } from "../../../src/types";
 
 const options: HermesBoardsViewOptions = {
@@ -72,9 +73,9 @@ describe("HermesBoardsView", () => {
 		);
 
 		expect(summaries.map((summary) => summary.slug)).toEqual([
-			"default",
 			"job-hunt",
 			"local-only",
+			"default",
 			"empty-live",
 		]);
 
@@ -104,15 +105,109 @@ describe("HermesBoardsView", () => {
 
 	it("opens the board Kanban target path for a board slug", () => {
 		expect(getHermesBoardKanbanOpenPath("job-hunt")).toBe(
-			"TaskNotes/Views/kanban-board-job-hunt.base"
+			"TaskNotes/Views/kanban-default.base"
 		);
 		expect(getHermesBoardKanbanOpenPath("Job Hunt")).toBe(
-			"TaskNotes/Views/kanban-board-job-hunt.base"
+			"TaskNotes/Views/kanban-default.base"
 		);
 		expect(getHermesBoardKanbanOpenPath("not valid!")).toBeNull();
 	});
 
-	it("opens a board card while keeping the delete button separate", () => {
+	it("opens the shared Kanban base with the requested board view selected", async () => {
+		const file = new TFile("TaskNotes/Views/kanban-default.base");
+		const openFile = jest.fn(async () => undefined);
+		const view = new HermesBoardsView({}, document.createElement("div"), {
+			app: {
+				vault: {
+					adapter: { exists: jest.fn(async () => true) },
+					createFolder: jest.fn(async () => undefined),
+					getAbstractFileByPath: jest.fn(() => file),
+					getFiles: jest.fn(() => []),
+					read: jest.fn(async () => ""),
+					modify: jest.fn(async () => undefined),
+				},
+				workspace: {
+					getLeaf: jest.fn(() => ({ openFile })),
+					trigger: jest.fn(),
+				},
+			},
+			settings: { enableDebugLogging: false },
+			fieldMapper: {},
+		} as any);
+
+		await (view as any).openBoardKanban("job-hunt");
+
+		expect(openFile).toHaveBeenCalledWith(file, {
+			active: true,
+			state: {
+				file: "TaskNotes/Views/kanban-default.base",
+				viewName: "Job Hunt",
+			},
+		});
+	});
+
+	it("clarifies board, TaskNotes, and local mirror counts in summary copy", () => {
+		const view = new HermesBoardsView({}, document.createElement("div"), {
+			app: {},
+			settings: { enableDebugLogging: false },
+			fieldMapper: {},
+		} as any);
+		const container = document.createElement("div");
+		(view as any).contentEl = container;
+
+		(view as any).renderSummary([
+			{
+				slug: "default",
+				source: "both",
+				taskCount: 126,
+				activeCount: 3,
+				doneCount: 100,
+				runningCount: 1,
+				reviewCount: 1,
+				blockedCount: 1,
+				mirrorCount: 121,
+				agents: [],
+			},
+			{
+				slug: "job-hunt",
+				source: "live",
+				taskCount: 2,
+				activeCount: 2,
+				doneCount: 0,
+				runningCount: 0,
+				reviewCount: 0,
+				blockedCount: 0,
+				mirrorCount: 2,
+				agents: [],
+			},
+		], 128);
+
+		expect(container.textContent).toContain("2 boards from 128 TaskNotes");
+		expect(container.textContent).toContain("123 local mirrors");
+	});
+
+	it("does not replace missing Bases rows with a broad TaskNotes cache scan", async () => {
+		const getAllTasks = jest.fn(async () => [
+			task({
+				title: "Should not be read",
+				path: "TaskNotes/default/t_cache.md",
+				projects: ["Hermes/default"],
+			}),
+		]);
+		const view = new HermesBoardsView({}, document.createElement("div"), {
+			app: {},
+			settings: { enableDebugLogging: false },
+			fieldMapper: {},
+			cacheManager: { getAllTasks },
+		} as any);
+
+		const tasks = await (view as any).resolveTasks();
+
+		expect(tasks).toEqual([]);
+		expect(getAllTasks).not.toHaveBeenCalled();
+	});
+
+	it("renders visible open and secondary delete affordances without nested card buttons", () => {
 		const view = new HermesBoardsView({}, document.createElement("div"), {
 			app: {},
 			settings: { enableDebugLogging: false },
@@ -141,20 +236,26 @@ describe("HermesBoardsView", () => {
 		(view as any).renderBoardCard(container, summary);
 
 		const card = container.querySelector<HTMLElement>(".hermes-boards-view__board");
-		expect(card?.getAttribute("role")).toBe("button");
-		expect(card?.tabIndex).toBe(0);
+		expect(card?.hasAttribute("role")).toBe(false);
+		expect(card?.tabIndex).toBe(-1);
 
-		card?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+		const openButton = container.querySelector<HTMLButtonElement>(
+			".hermes-boards-view__open-button"
+		);
+		expect(openButton?.textContent).toContain("Open kanban");
+		expect(openButton?.getAttribute("aria-label")).toBe("Open Hermes/job-hunt kanban");
+		openButton?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 		expect(openBoardKanban).toHaveBeenCalledWith("job-hunt");
 
+		const actions = container.querySelector<HTMLDetailsElement>(
+			".hermes-boards-view__board-actions"
+		);
+		expect(actions?.textContent).toContain("Actions");
 		const deleteButton = container.querySelector<HTMLButtonElement>(
 			".hermes-boards-view__delete-button"
 		);
 		deleteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 		expect(deleteBoard).toHaveBeenCalledWith("job-hunt");
 		expect(openBoardKanban).toHaveBeenCalledTimes(1);
-
-		card?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-		expect(openBoardKanban).toHaveBeenCalledTimes(2);
 	});
 });

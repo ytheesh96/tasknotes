@@ -888,6 +888,24 @@ describe("TaskService", () => {
 			expect(result.status).toBe("done"); // from update
 		});
 
+		it("should prefer note frontmatter over pending cache data when preventing overwrites", async () => {
+			const stalePendingTask = { ...task, priority: "low" };
+			const frontmatterTask = { ...task, priority: "high" };
+			mockPlugin.cacheManager.getTaskInfoFromFrontmatter = jest
+				.fn()
+				.mockResolvedValue(frontmatterTask);
+			mockPlugin.cacheManager.getTaskInfo.mockResolvedValue(stalePendingTask);
+
+			const result = await taskService.updateProperty(task, "status", "done");
+
+			expect(mockPlugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+				task.path
+			);
+			expect(mockPlugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+			expect(result.priority).toBe("high");
+			expect(result.status).toBe("done");
+		});
+
 		it("should handle file not found error", async () => {
 			mockPlugin.app.vault.getAbstractFileByPath.mockReturnValue(null);
 
@@ -914,6 +932,106 @@ describe("TaskService", () => {
 			// Should not throw, just log error
 			const result = await taskService.updateProperty(task, "priority", "high");
 			expect(result.priority).toBe("high");
+		});
+	});
+
+	describe("updateBlockingRelationships", () => {
+		it("should update related tasks from note frontmatter before pending cache data", async () => {
+			const currentTask = TaskFactory.createTask({
+				path: "Tasks/blocker.md",
+				title: "Blocker",
+			});
+			const blockedTask = TaskFactory.createTask({
+				path: "Tasks/blocked.md",
+				title: "Blocked",
+				blockedBy: undefined,
+			});
+			const stalePendingTask = {
+				...blockedTask,
+				blockedBy: [{ uid: "Tasks/stale-blocker.md", reltype: "FINISHTOSTART" as const }],
+			};
+			mockPlugin.app.metadataCache.fileToLinktext = jest.fn(
+				(file: TFile) => file.basename
+			);
+			mockPlugin.cacheManager.getTaskInfoFromFrontmatter = jest
+				.fn()
+				.mockResolvedValue(blockedTask);
+			mockPlugin.cacheManager.getTaskInfo.mockResolvedValue(stalePendingTask);
+			const updateTaskSpy = jest
+				.spyOn(taskService, "updateTask")
+				.mockResolvedValue(blockedTask);
+
+			await taskService.updateBlockingRelationships(currentTask, [blockedTask.path], []);
+
+			expect(mockPlugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+				blockedTask.path
+			);
+			expect(mockPlugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+			expect(updateTaskSpy).toHaveBeenCalledWith(blockedTask, {
+				blockedBy: [{ uid: "[[blocker]]", reltype: "FINISHTOSTART" }],
+			});
+		});
+	});
+
+	describe("recurring task actions", () => {
+		it("should complete the frontmatter scheduled instance before pending cache data", async () => {
+			const stalePendingTask = TaskFactory.createTask({
+				path: "Tasks/recurring.md",
+				recurrence: "FREQ=DAILY",
+				scheduled: "2025-01-01",
+				complete_instances: [],
+			});
+			const frontmatterTask = {
+				...stalePendingTask,
+				scheduled: "2025-01-15",
+			};
+			mockPlugin.cacheManager.getTaskInfoFromFrontmatter = jest
+				.fn()
+				.mockResolvedValue(frontmatterTask);
+			mockPlugin.cacheManager.getTaskInfo.mockResolvedValue(stalePendingTask);
+
+			const result = await taskService.toggleRecurringTaskComplete(stalePendingTask);
+
+			expect(mockPlugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+				stalePendingTask.path
+			);
+			expect(mockPlugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+			expect(result.complete_instances).toContain("2025-01-15");
+			expect(result.complete_instances).not.toContain("2025-01-01");
+			expect(mockPlugin.cacheManager.updateTaskInfoInCache).toHaveBeenCalledWith(
+				frontmatterTask.path,
+				expect.objectContaining({ complete_instances: expect.arrayContaining(["2025-01-15"]) })
+			);
+		});
+
+		it("should skip the frontmatter scheduled instance before pending cache data", async () => {
+			const stalePendingTask = TaskFactory.createTask({
+				path: "Tasks/recurring.md",
+				recurrence: "FREQ=DAILY",
+				scheduled: "2025-01-01",
+				skipped_instances: [],
+			});
+			const frontmatterTask = {
+				...stalePendingTask,
+				scheduled: "2025-01-15",
+			};
+			mockPlugin.cacheManager.getTaskInfoFromFrontmatter = jest
+				.fn()
+				.mockResolvedValue(frontmatterTask);
+			mockPlugin.cacheManager.getTaskInfo.mockResolvedValue(stalePendingTask);
+
+			const result = await taskService.toggleRecurringTaskSkipped(stalePendingTask);
+
+			expect(mockPlugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+				stalePendingTask.path
+			);
+			expect(mockPlugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+			expect(result.skipped_instances).toContain("2025-01-15");
+			expect(result.skipped_instances).not.toContain("2025-01-01");
+			expect(mockPlugin.cacheManager.updateTaskInfoInCache).toHaveBeenCalledWith(
+				frontmatterTask.path,
+				expect.objectContaining({ skipped_instances: expect.arrayContaining(["2025-01-15"]) })
+			);
 		});
 	});
 
@@ -1233,6 +1351,57 @@ describe("TaskService", () => {
 			);
 
 			expect(mockPlugin.app.fileManager.processFrontMatter).not.toHaveBeenCalled();
+			recheckHealth.mockRestore();
+		});
+
+		it("should block local Hermes board moves through the centralized update path", async () => {
+			const recheckHealth = jest.spyOn(HermesAvailabilityService.prototype, "recheckHealth").mockResolvedValue({
+				status: "connected",
+				mode: "live",
+				rootUrl: "http://127.0.0.1:9119/",
+				apiUrl: "http://127.0.0.1:9119/api/plugins/kanban",
+				canStart: true,
+			});
+			const hermesTask = TaskFactory.createTask({
+				path: "TaskNotes/default/t_move.md",
+				tags: ["task", "hermes-kanban"],
+				customProperties: { hermesTaskId: "t_move", hermesBoard: "default" },
+			});
+			mockPlugin.app.vault.getAbstractFileByPath.mockReturnValue(new TFile(hermesTask.path));
+
+			await expect(
+				taskService.updateTask(hermesTask, {
+					customFrontmatter: { hermesBoard: "developer" },
+				})
+			).rejects.toThrow("cannot be moved from board default to developer");
+
+			expect(mockPlugin.app.fileManager.processFrontMatter).not.toHaveBeenCalled();
+			recheckHealth.mockRestore();
+		});
+
+		it("should allow same-board Hermes updates through the centralized update path", async () => {
+			const recheckHealth = jest.spyOn(HermesAvailabilityService.prototype, "recheckHealth").mockResolvedValue({
+				status: "connected",
+				mode: "live",
+				rootUrl: "http://127.0.0.1:9119/",
+				apiUrl: "http://127.0.0.1:9119/api/plugins/kanban",
+				canStart: true,
+			});
+			const hermesTask = TaskFactory.createTask({
+				path: "TaskNotes/default/t_same.md",
+				tags: ["task", "hermes-kanban"],
+				customProperties: { hermesTaskId: "t_same", hermesBoard: "default" },
+			});
+			mockPlugin.app.vault.getAbstractFileByPath.mockReturnValue(new TFile(hermesTask.path));
+
+			await expect(
+				taskService.updateTask(hermesTask, {
+					priority: "high",
+					customFrontmatter: { hermesBoard: "default" },
+				})
+			).resolves.toMatchObject({ priority: "high" });
+
+			expect(mockPlugin.app.fileManager.processFrontMatter).toHaveBeenCalled();
 			recheckHealth.mockRestore();
 		});
 

@@ -61,6 +61,7 @@ import {
 	type TaskModalActionIconSpec,
 } from "./taskModalActionBar";
 import { updateTaskModalActionIconStates } from "./taskModalActionIconStates";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import {
 	buildTaskModalActionIconState,
 	createTaskModalActionMenuContext,
@@ -1203,7 +1204,7 @@ export abstract class TaskModal extends Modal {
 			listEl: this.subtasksList,
 			files: this.selectedSubtaskFiles,
 			sourcePath: this.getCurrentTaskPath() || "",
-			getCachedTaskInfo: (path) => this.plugin.cacheManager.getCachedTaskInfo(path),
+			getTaskInfo: (path) => getTaskInfoFromNoteFirst(this.plugin, path),
 			createTaskCard: (taskInfo) =>
 				createTaskCard(taskInfo, this.plugin, undefined, {
 					layout: "default",

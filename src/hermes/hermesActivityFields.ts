@@ -1,14 +1,34 @@
 import type { UserMappedField } from "../types/settings";
 
 export const HERMES_ACTIVITY_FIELD_KEYS = {
-	comments: "comments",
-	runs: "runs",
-	events: "events",
-	artifacts: "artifacts",
-	changedFiles: "changedFiles",
+	feed: "hermesActivityFeed",
+	comments: "hermesComments",
+	runs: "hermesRuns",
+	events: "hermesEvents",
+	artifacts: "hermesAttachments",
+	changedFiles: "hermesChangedFiles",
+	lastSyncedAt: "hermesLastSyncedAt",
+	version: "hermesActivityVersion",
+	retiredComments: "comments",
+	retiredRuns: "runs",
+	retiredEvents: "events",
+	retiredArtifacts: "artifacts",
+	retiredChangedFiles: "changedFiles",
+	retiredHermesArtifacts: "hermesArtifacts",
+	retiredActivityComments: "hermesActivityComments",
+	retiredActivityRuns: "hermesActivityRuns",
+	retiredActivityEvents: "hermesActivityEvents",
+	retiredActivityArtifacts: "hermesActivityArtifacts",
+	retiredActivityChangedFiles: "hermesActivityChangedFiles",
 } as const;
 
 export const HERMES_ACTIVITY_USER_FIELDS: readonly UserMappedField[] = [
+	{
+		id: HERMES_ACTIVITY_FIELD_KEYS.feed,
+		displayName: "Activity feed",
+		key: HERMES_ACTIVITY_FIELD_KEYS.feed,
+		type: "list",
+	},
 	{
 		id: HERMES_ACTIVITY_FIELD_KEYS.comments,
 		displayName: "Comments",

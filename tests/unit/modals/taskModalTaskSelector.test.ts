@@ -14,10 +14,19 @@ function task(path: string): TaskInfo {
 	};
 }
 
-function pluginWithTasks(tasks: TaskInfo[]): any {
+function pluginWithTasks(
+	tasks: TaskInfo[],
+	frontmatterTasks: Record<string, TaskInfo | null> = {}
+): any {
 	return {
 		cacheManager: {
 			getAllTasks: jest.fn(async () => tasks),
+			getTaskInfoFromFrontmatter: jest.fn(
+				async (path: string) => frontmatterTasks[path] ?? null
+			),
+			getTaskInfo: jest.fn(
+				async (path: string) => tasks.find((task) => task.path === path) ?? null
+			),
 		},
 	};
 }
@@ -25,8 +34,11 @@ function pluginWithTasks(tasks: TaskInfo[]): any {
 describe("openTaskModalTaskSelector", () => {
 	it("opens the task selector with filtered candidates and ignores cancellation", async () => {
 		const tasks = [task("Tasks/one.md"), task("Tasks/two.md")];
-		const plugin = pluginWithTasks(tasks);
-		const selectedTask = tasks[1];
+		const frontmatterSelectedTask = { ...tasks[1], title: "Fresh selected task" };
+		const plugin = pluginWithTasks(tasks, {
+			[frontmatterSelectedTask.path]: frontmatterSelectedTask,
+		});
+		const selectedTask = frontmatterSelectedTask;
 		const onSelect = jest.fn();
 		const openSelector: TaskModalTaskSelectorOpener = jest.fn(
 			(_plugin, candidates, chooseTask) => {
@@ -51,6 +63,9 @@ describe("openTaskModalTaskSelector", () => {
 
 		expect(result).toBe("opened");
 		expect(plugin.cacheManager.getAllTasks).toHaveBeenCalledTimes(1);
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			selectedTask.path
+		);
 		expect(openSelector).toHaveBeenCalledWith(plugin, [selectedTask], expect.any(Function));
 		expect(onSelect).toHaveBeenCalledTimes(1);
 		expect(onSelect).toHaveBeenCalledWith(selectedTask);

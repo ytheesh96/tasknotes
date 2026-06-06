@@ -48,6 +48,7 @@ import {
 	createTimeEntryTaskEvents,
 	type CalendarTaskEventContext,
 } from "./calendarTaskEvents";
+import { getAllTasksFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Bases/CalendarCore" });
@@ -1395,7 +1396,7 @@ export async function handleTimeEntryCreation(
 
 	try {
 		// Get all tasks
-		const allTasks = await plugin.cacheManager.getAllTasks();
+		const allTasks = await getAllTasksFromNoteFirst(plugin);
 		const unarchivedTasks = allTasks.filter((task) => !task.archived);
 
 		if (unarchivedTasks.length === 0) {

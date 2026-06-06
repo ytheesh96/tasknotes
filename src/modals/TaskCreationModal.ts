@@ -32,6 +32,7 @@ import {
 	getHermesTaskIdentity,
 	type HermesCreateTaskPayload,
 } from "../hermes/hermesApiClient";
+import { createHermesKanbanClient } from "../hermes/hermesKanbanTransport";
 import { createOrUpdateHermesMirrorNote } from "../hermes/hermesMirror";
 import { normalizeHermesAssignee } from "../hermes/hermesAssignee";
 import {
@@ -53,6 +54,7 @@ import {
 	getHermesManagedCreationBoard,
 	HermesWriteGuard,
 } from "../hermes/hermesWriteGuard";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationModal" });
 export type { StatusSuggestion } from "./taskCreationSuggest";
@@ -164,7 +166,10 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	getModalTitle(): string {
-		return this.options.modalTitle ?? this.t("modals.taskCreation.title");
+		return (
+			this.options.modalTitle ??
+			(this.isHermesCreationTarget() ? "Submit to Hermes" : this.t("modals.taskCreation.title"))
+		);
 	}
 
 	protected isCreationMode(): boolean {
@@ -176,7 +181,7 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	protected getPrimaryActionText(): string | undefined {
-		return this.options.saveButtonText;
+		return this.options.saveButtonText ?? (this.isHermesCreationTarget() ? "Submit to Hermes" : undefined);
 	}
 
 	/**
@@ -665,10 +670,26 @@ export class TaskCreationModal extends TaskModal {
 			this.initializeProjectsFromStrings(formState.projectStrings);
 		}
 
+		this.defaultHermesCreationTargetFromPrefill();
 		this.syncHermesBoardSelection();
 
 		this.details = this.normalizeDetails(this.details);
 		this.originalDetails = this.details;
+	}
+
+	private defaultHermesCreationTargetFromPrefill(): void {
+		if (this.options.creationTargetPicker?.selectedTarget || this.isHermesCreationTarget()) {
+			return;
+		}
+		const board = getHermesManagedCreationBoard({
+			projects: this.projects,
+			tags: this.tags,
+		});
+		if (!board) {
+			return;
+		}
+		this.selectedHermesBoard = board;
+		this.selectedCreationTarget = this.getHermesTargetId(board);
 	}
 
 	protected async handleSubmitShortcut(shift: boolean): Promise<void> {
@@ -706,6 +727,18 @@ export class TaskCreationModal extends TaskModal {
 				}
 
 				const taskData = this.buildTaskData();
+				const hermesManagedBoard = getHermesManagedCreationBoard({
+					projects: taskData.projects ?? this.projects,
+					tags: taskData.tags ?? this.tags,
+				});
+				if (hermesManagedBoard) {
+					await this.handleHermesApiCreate(options, {
+						board: hermesManagedBoard,
+						taskData,
+					});
+					return;
+				}
+
 				await this.assertHermesManagedCreationAllowed(taskData);
 				// Disable defaults since they were already applied to form fields in initializeFormData()
 				const result = await this.plugin.taskService.createTask(taskData, {
@@ -741,7 +774,8 @@ export class TaskCreationModal extends TaskModal {
 							[],
 							blockingUpdates.raw
 						);
-						const refreshed = await this.plugin.cacheManager.getTaskInfo(
+						const refreshed = await getTaskInfoFromNoteFirst(
+							this.plugin,
 							createdTask.path
 						);
 						if (refreshed) {
@@ -793,34 +827,45 @@ export class TaskCreationModal extends TaskModal {
 		}
 	}
 
-	private async handleHermesApiCreate(options: { createAnother?: boolean } = {}): Promise<void> {
-		const board = this.getSelectedHermesBoard();
+	private async handleHermesApiCreate(
+		options: { createAnother?: boolean } = {},
+		input: { board?: string; taskData?: HermesCreationTaskData } = {}
+	): Promise<void> {
+		const board = input.board ?? this.getSelectedHermesBoard();
 		if (!board) {
 			throw new Error("Choose a board before submitting.");
 		}
 
-		await new HermesWriteGuard().assertCanCreateHermesTask(board);
+		await new HermesWriteGuard({
+			transport: this.plugin.settings.hermesKanbanTransport,
+		}).assertCanCreateHermesTask(board);
 
 		const routing = await this.validateHermesCreationRouting(board);
 		if (routing.error) {
 			throw new Error(routing.error);
 		}
 
-		const taskData = this.buildTaskData();
+		const taskData = input.taskData ?? this.buildTaskData();
 		const api = new HermesKanbanApiClient();
+		const taskCreator = createHermesKanbanClient(this.plugin.settings.hermesKanbanTransport);
 		const parentResolution = await this.resolveHermesDependencyIds(this.blockedByItems, board);
 		const childResolution = await this.resolveHermesDependencyIds(this.blockingItems, board);
 		const assignee = routing.assignee ?? this.hermesAssigneeFromTaskData(taskData);
-		const status =
+		const taskStatus =
 			typeof taskData.status === "string" && taskData.status.trim()
 				? taskData.status.trim()
 				: "triage";
+		const status =
+			this.isHermesCreationTarget() && taskStatus === this.plugin.settings.defaultTaskStatus
+				? "triage"
+				: taskStatus;
 		const createPayload: HermesCreateTaskPayload = {
 			title: String(taskData.title || this.title).trim(),
 			body: typeof taskData.details === "string" ? taskData.details : undefined,
 			status,
 			assignee: assignee ?? undefined,
 			priority: this.hermesPriorityFromTaskData(),
+			created_by: "tasknotes",
 			parents: parentResolution.ids,
 			triage: status === "triage",
 		};
@@ -830,7 +875,7 @@ export class TaskCreationModal extends TaskModal {
 				createPayload
 			);
 		}
-		const created = await api.createTask(board, createPayload);
+		const created = await taskCreator.createTask(board, createPayload);
 		const identity = { board, id: created.id };
 		try {
 			const postCreateSyncErrors: string[] = [];
@@ -1042,7 +1087,7 @@ export class TaskCreationModal extends TaskModal {
 		for (const item of items) {
 			const directId = item.dependency.uid.match(/\b(t_[A-Za-z0-9]+)\b/)?.[1];
 			if (item.path) {
-				const task = await this.plugin.cacheManager.getTaskInfo(item.path);
+				const task = await getTaskInfoFromNoteFirst(this.plugin, item.path);
 				const identity = task ? getHermesTaskIdentity(task) : null;
 				if (identity && identity.board === board) {
 					ids.push(identity.id);
@@ -1124,7 +1169,10 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	public async recheckHermesAvailability(): Promise<HermesAvailabilityHealth> {
-		return this.getHermesAvailabilityService().recheckHealth();
+		return this.getHermesAvailabilityService().recheckHealth({
+			...this.getHermesTransportCheckOptions(),
+			board: this.getSelectedHermesBoard(),
+		});
 	}
 
 	public async startHermesDashboardAndRefreshOptions(): Promise<HermesDashboardStartResult> {
@@ -1137,7 +1185,10 @@ export class TaskCreationModal extends TaskModal {
 
 	private async refreshHermesLiveOptions(): Promise<void> {
 		const selectedBoard = this.getSelectedHermesBoard();
-		const options = await this.getHermesAvailabilityService().getOptions(selectedBoard);
+		const transportOptions = this.getHermesTransportCheckOptions();
+		const options = transportOptions.transport
+			? await this.getHermesAvailabilityService().getOptions(selectedBoard, transportOptions)
+			: await this.getHermesAvailabilityService().getOptions(selectedBoard);
 		if (options.boards.length > 0) {
 			this.hermesBoardOptions = uniqueNonEmpty(options.boards);
 			this.renderHermesBoardSelectOptions(this.hermesBoardOptions);
@@ -1148,7 +1199,13 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	private getHermesAvailabilityService(): HermesAvailabilityService {
-		return new HermesAvailabilityService();
+		return new HermesAvailabilityService({ transport: this.plugin.settings.hermesKanbanTransport });
+	}
+
+	private getHermesTransportCheckOptions(): { transport?: "dashboard-api" | "kanban-cli" } {
+		return this.plugin.settings.hermesKanbanTransport
+			? { transport: this.plugin.settings.hermesKanbanTransport }
+			: {};
 	}
 
 	private async assertHermesManagedCreationAllowed(
@@ -1165,7 +1222,9 @@ export class TaskCreationModal extends TaskModal {
 		if (!board) {
 			return;
 		}
-		await new HermesWriteGuard().assertCanCreateHermesTask(board);
+		await new HermesWriteGuard({
+			transport: this.plugin.settings.hermesKanbanTransport,
+		}).assertCanCreateHermesTask(board);
 	}
 
 	private renderHermesBoardSelectOptions(boards: readonly string[]): void {
@@ -1372,7 +1431,6 @@ export class TaskCreationModal extends TaskModal {
 
 		this.projects = withHermesBoardProject(this.projects, this.getHermesBoardOptions(), board);
 		this.initializeProjectsFromStrings(splitCommaList(this.projects));
-		this.tags = addCommaListValue(this.tags, "hermes-kanban");
 		this.syncVisibleHermesFields();
 	}
 
@@ -1470,7 +1528,7 @@ export class TaskCreationModal extends TaskModal {
 		await applyTaskCreationSubtaskAssignments({
 			currentTaskFile,
 			subtaskFiles: this.selectedSubtaskFiles,
-			getTaskInfo: (path) => this.plugin.cacheManager.getTaskInfo(path),
+			getTaskInfo: (path) => getTaskInfoFromNoteFirst(this.plugin, path),
 			buildProjectReference: (targetFile, sourcePath) =>
 				this.buildProjectReference(targetFile, sourcePath),
 			updateTaskProjects: (subtaskInfo, projects) =>

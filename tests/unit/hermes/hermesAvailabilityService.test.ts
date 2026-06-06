@@ -1,4 +1,5 @@
 jest.mock("child_process", () => ({
+	execFile: jest.fn(),
 	spawn: jest.fn(),
 }));
 
@@ -8,7 +9,104 @@ import {
 	parseHermesDashboardStartCommand,
 } from "../../../src/hermes/hermesAvailabilityService";
 
+const childProcess = jest.requireMock("child_process") as {
+	execFile: jest.Mock;
+	spawn: jest.Mock;
+};
+
 describe("HermesAvailabilityService", () => {
+	beforeEach(() => {
+		childProcess.execFile.mockReset();
+		childProcess.spawn.mockReset();
+	});
+
+	it("reports writable CLI health when dashboard is down but the Hermes CLI validates the board", async () => {
+		const request = jest.fn(async () => {
+			throw new Error("ECONNREFUSED");
+		});
+		const validateBoard = jest.fn(async () => ({ available: true }));
+		const service = new HermesAvailabilityService({
+			transport: "kanban-cli",
+			request,
+			checkHermesExecutable: jest.fn(async () => ({ available: true, command: "hermes" })),
+			validateKanbanBoard: validateBoard,
+		});
+
+		await expect(service.checkHealth({ board: "default" })).resolves.toMatchObject({
+			status: "connected",
+			mode: "live",
+			transport: "kanban-cli",
+			writeStatus: "writable-via-cli",
+			message: "Hermes Kanban CLI is available for board default.",
+		});
+		expect(request).not.toHaveBeenCalled();
+		expect(validateBoard).toHaveBeenCalledWith("default", "hermes");
+	});
+
+	it("reports CLI unavailable distinctly in kanban-cli mode", async () => {
+		const service = new HermesAvailabilityService({
+			transport: "kanban-cli",
+			checkHermesExecutable: jest.fn(async () => ({
+				available: false,
+				message: "Hermes CLI is not available on PATH.",
+			})),
+		});
+
+		await expect(service.checkHealth({ board: "default" })).resolves.toMatchObject({
+			status: "disconnected",
+			mode: "read-only",
+			transport: "kanban-cli",
+			writeStatus: "cli-unavailable",
+			message: "Hermes CLI is not available on PATH.",
+		});
+	});
+
+	it("reports board unavailable distinctly in kanban-cli mode", async () => {
+		const service = new HermesAvailabilityService({
+			transport: "kanban-cli",
+			checkHermesExecutable: jest.fn(async () => ({ available: true, command: "hermes" })),
+			validateKanbanBoard: jest.fn(async () => ({
+				available: false,
+				message: "Hermes board missing-board is not available through the CLI.",
+			})),
+		});
+
+		await expect(service.checkHealth({ board: "missing-board" })).resolves.toMatchObject({
+			status: "degraded",
+			mode: "read-only",
+			transport: "kanban-cli",
+			writeStatus: "board-unavailable",
+			message: "Hermes board missing-board is not available through the CLI.",
+		});
+	});
+
+	it("validates CLI boards with kanban-level --board before list", async () => {
+		childProcess.execFile.mockImplementation((_command, _args, _options, callback) => {
+			callback(null, "{}", "");
+		});
+		const service = new HermesAvailabilityService({ transport: "kanban-cli" });
+
+		await expect(service.checkHealth({ board: "developer" })).resolves.toMatchObject({
+			status: "connected",
+			writeStatus: "writable-via-cli",
+		});
+
+		expect(childProcess.execFile).toHaveBeenNthCalledWith(
+			1,
+			"hermes",
+			["--version"],
+			expect.objectContaining({ encoding: "utf8" }),
+			expect.any(Function)
+		);
+		expect(childProcess.execFile).toHaveBeenNthCalledWith(
+			2,
+			"hermes",
+			["kanban", "--board", "developer", "list", "--json"],
+			expect.objectContaining({ encoding: "utf8" }),
+			expect.any(Function)
+		);
+	});
+
 	it("reports connected when the localhost root and kanban API are reachable", async () => {
 		const service = new HermesAvailabilityService({
 			request: jest.fn(async (url: string) => ({ ok: true, status: 200, text: "ok" })),
@@ -100,6 +198,31 @@ describe("HermesAvailabilityService", () => {
 		expect(listAssignees).not.toHaveBeenCalled();
 	});
 
+	it("returns selected-board fallback options for writable CLI transport without dashboard API", async () => {
+		const listBoards = jest.fn(async () => [{ slug: "default" }]);
+		const listAssignees = jest.fn(async () => [{ name: "peacock" }]);
+		const service = new HermesAvailabilityService({
+			transport: "kanban-cli",
+			checkHermesExecutable: jest.fn(async () => ({ available: true, command: "hermes" })),
+			validateKanbanBoard: jest.fn(async () => ({ available: true })),
+			kanbanClient: { listBoards, listAssignees },
+		});
+
+		await expect(service.getOptions("developer", { transport: "kanban-cli" })).resolves.toMatchObject({
+			boards: ["developer"],
+			assignees: [],
+			statuses: ["triage", "todo", "running", "blocked", "done"],
+			health: {
+				status: "connected",
+				mode: "live",
+				transport: "kanban-cli",
+				writeStatus: "writable-via-cli",
+			},
+		});
+		expect(listBoards).not.toHaveBeenCalled();
+		expect(listAssignees).not.toHaveBeenCalled();
+	});
+
 	it("does not start a duplicate dashboard when localhost is already healthy", async () => {
 		const spawn = jest.fn();
 		const service = new HermesAvailabilityService({
@@ -156,7 +279,7 @@ describe("HermesAvailabilityService", () => {
 		const result = await service.startDashboard();
 
 		expect(HERMES_DASHBOARD_START_COMMAND).toBe(
-			"hermes dashboard --host 127.0.0.1 --port 9119 --no-open --skip-build --tui"
+			"hermes dashboard --host 127.0.0.1 --port 9119 --no-open --skip-build"
 		);
 		expect(spawn).toHaveBeenCalledWith("hermes", [
 			"dashboard",
@@ -166,7 +289,6 @@ describe("HermesAvailabilityService", () => {
 			"9119",
 			"--no-open",
 			"--skip-build",
-			"--tui",
 		]);
 		expect(result).toMatchObject({
 			started: true,
@@ -203,6 +325,44 @@ describe("HermesAvailabilityService", () => {
 			command: commandLine,
 			health: { status: "starting" },
 		});
+	});
+
+	it("passes optional TaskNotes sync environment to the spawned dashboard", async () => {
+		const spawn = jest.fn(async () => ({ pid: 4321 }));
+		const request = jest
+			.fn()
+			.mockRejectedValueOnce(new Error("ECONNREFUSED"))
+			.mockRejectedValueOnce(new Error("still starting"));
+		const service = new HermesAvailabilityService({
+			request,
+			spawnDashboard: spawn,
+		});
+
+		await service.startDashboard(HERMES_DASHBOARD_START_COMMAND, {
+			env: {
+				HERMES_TASKNOTES_BASE_URL: "http://127.0.0.1:18080",
+				HERMES_TASKNOTES_API_TOKEN: "token",
+			},
+		});
+
+		expect(spawn).toHaveBeenCalledWith(
+			"hermes",
+			[
+				"dashboard",
+				"--host",
+				"127.0.0.1",
+				"--port",
+				"9119",
+				"--no-open",
+				"--skip-build",
+			],
+			{
+				env: {
+					HERMES_TASKNOTES_BASE_URL: "http://127.0.0.1:18080",
+					HERMES_TASKNOTES_API_TOKEN: "token",
+				},
+			}
+		);
 	});
 
 	it("parses quoted configured helper commands", () => {
@@ -276,7 +436,7 @@ describe("HermesAvailabilityService", () => {
 	});
 
 	it("returns actionable startup error data when startup is unavailable", async () => {
-		const spawn = jest.fn();
+		const spawn: jest.Mock = jest.fn();
 		const service = new HermesAvailabilityService({
 			isStartupAvailable: () => false,
 			request: jest.fn(async () => {
@@ -294,7 +454,8 @@ describe("HermesAvailabilityService", () => {
 			code: "startup-unavailable",
 			message:
 				"Starting Hermes is only available in Obsidian desktop with Node child_process access.",
-			action: "Run hermes dashboard --host 127.0.0.1 --port 9119 --no-open --skip-build --tui from a local terminal, then recheck health.",
+			action:
+				"Run hermes dashboard --host 127.0.0.1 --port 9119 --no-open --skip-build from a local terminal, then recheck health.",
 		});
 		expect(spawn).not.toHaveBeenCalled();
 	});

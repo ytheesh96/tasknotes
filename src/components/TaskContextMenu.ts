@@ -39,6 +39,7 @@ import {
 } from "../utils/taskTagList";
 import { downloadTaskICSFile, openCalendarURL } from "../ui/calendarExportActions";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getAllTasksFromNoteFirst, getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { getHermesTaskIdentity } from "../hermes/hermesApiClient";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Components/TaskContextMenu" });
@@ -986,7 +987,7 @@ export class TaskContextMenu {
 									[path],
 									{}
 								);
-								const refreshed = await plugin.cacheManager.getTaskInfo(task.path);
+								const refreshed = await getTaskInfoFromNoteFirst(plugin, task.path);
 								if (refreshed) {
 									Object.assign(task, refreshed);
 								}
@@ -1070,7 +1071,7 @@ export class TaskContextMenu {
 		onSelect: (selected: TaskInfo) => Promise<void>
 	): Promise<void> {
 		try {
-			const allTasks = await plugin.cacheManager.getAllTasks();
+			const allTasks = await getAllTasksFromNoteFirst(plugin);
 			const candidates = allTasks.filter(filter);
 
 			if (candidates.length === 0) {
@@ -1161,7 +1162,7 @@ export class TaskContextMenu {
 				[blockedPath]: rawEntry,
 			});
 
-			const refreshed = await plugin.cacheManager.getTaskInfo(task.path);
+			const refreshed = await getTaskInfoFromNoteFirst(plugin, task.path);
 			if (refreshed) {
 				Object.assign(task, refreshed);
 			} else if (Array.isArray(task.blocking)) {
@@ -1416,7 +1417,7 @@ export class TaskContextMenu {
 		plugin: TaskNotesPlugin
 	): Promise<void> {
 		try {
-			const allTasks = await plugin.cacheManager.getAllTasks();
+			const allTasks = await getAllTasksFromNoteFirst(plugin);
 
 			// Filter out the current task
 			const candidates = allTasks.filter((candidate) => candidate.path !== task.path);

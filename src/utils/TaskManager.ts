@@ -256,6 +256,26 @@ export class TaskManager extends Events {
 		return metadataTaskInfo;
 	}
 
+	/**
+	 * Read task info directly from the note frontmatter, bypassing pending write-through state.
+	 * Use this when the note is the source of truth and a just-written fallback must not win.
+	 */
+	async getTaskInfoFromFrontmatter(path: string): Promise<TaskInfo | null> {
+		if (!this.isValidFile(path)) return null;
+
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return null;
+
+		const frontmatter = await this.readFrontmatterFromFile(file);
+		if (!frontmatter || !this.isTaskFile(frontmatter)) return null;
+
+		const taskInfo = this.extractTaskInfoFromNative(path, frontmatter);
+		if (taskInfo) {
+			this.pendingTaskInfoByPath.delete(path);
+		}
+		return taskInfo;
+	}
+
 	private getPendingTaskInfo(path: string): TaskInfo | null {
 		const taskInfo = this.pendingTaskInfoByPath.get(path);
 		if (!taskInfo) return null;

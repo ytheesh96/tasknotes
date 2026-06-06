@@ -5,8 +5,14 @@ import {
 	shouldHandleHermesTaskEvent,
 	syncHermesManagedTaskFromHermes,
 	syncHermesManagedTasksFromHermes,
+	syncHermesTaskNotesActivityFromHermes,
 } from "../../../src/hermes/hermesTaskSync";
 import { HermesApiError, type HermesTaskRecord } from "../../../src/hermes/hermesApiClient";
+import {
+	HERMES_ACTIVITY_FIELD_KEYS,
+	buildHermesActivityNoteSpecs,
+	buildHermesActivitySnapshot,
+} from "../../../src/hermes/hermesActivityFrontmatter";
 
 describe("Hermes managed task sync", () => {
 	it("updates the native TaskNotes note when Hermes status changes", async () => {
@@ -99,6 +105,53 @@ describe("Hermes managed task sync", () => {
 		expect(localTaskDeleter).toHaveBeenCalledWith(plugin, knownLocalTask);
 	});
 
+	it("bootstraps remote tasks for active Hermes boards with no local TaskNotes notes yet", async () => {
+		const remoteTask = createRemoteTask({
+			id: "t_developer",
+			title: "Developer board task",
+			status: "todo",
+		});
+		const mirroredTask = createTask({
+			path: "TaskNotes/developer/t_developer.md",
+			title: "Developer board task",
+			status: "todo",
+			projects: ["Hermes/developer"],
+		});
+		const api = createApi({
+			boards: [{ slug: "developer", archived: false }],
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+		});
+		const mirrorWriter = jest.fn().mockResolvedValue({ taskInfo: mirroredTask });
+		const plugin = createPlugin([]);
+
+		const result = await syncHermesManagedTasksFromHermes(plugin, { api, mirrorWriter });
+
+		expect(result).toMatchObject({
+			boardsChecked: 1,
+			tasksSeen: 0,
+			tasksChecked: 1,
+			updated: 1,
+			deleted: 0,
+		});
+		expect(api.listBoards).toHaveBeenCalled();
+		expect(api.getBoard).toHaveBeenCalledWith("developer", { includeArchived: true });
+		expect(api.getTask).toHaveBeenCalledWith({ board: "developer", id: "t_developer" });
+		expect(mirrorWriter).toHaveBeenCalledWith(
+			plugin,
+			"developer",
+			remoteTask,
+			expect.objectContaining({
+				parents: [],
+				children: [],
+			})
+		);
+		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
+			path: mirroredTask.path,
+			updatedTask: mirroredTask,
+		});
+	});
+
 	it("refreshes one native note from a Hermes task event", async () => {
 		const localTask = createTask({ status: "running" });
 		const remoteTask = createRemoteTask({ status: "done" });
@@ -117,7 +170,10 @@ describe("Hermes managed task sync", () => {
 		);
 
 		expect(changed).toBe(true);
-		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith("TaskNotes/default/t_sync.md");
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			"TaskNotes/Tasks/t_sync.md"
+		);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
 		expect(api.getBoard).not.toHaveBeenCalled();
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
 		expect(mirrorWriter).toHaveBeenCalledWith(
@@ -159,7 +215,7 @@ describe("Hermes managed task sync", () => {
 		);
 
 		expect(changed).toBe(true);
-		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith("TaskNotes/default/t_sync.md");
+		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith("TaskNotes/Tasks/t_sync.md");
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
 		expect(mirrorWriter).toHaveBeenCalledWith(
 			plugin,
@@ -197,8 +253,52 @@ describe("Hermes managed task sync", () => {
 		expect(localTaskDeleter).toHaveBeenCalledWith(plugin, localTask);
 	});
 
-	it("ignores one-task event refreshes for local tasks outside Hermes management", async () => {
-		const localTask = createTask({ tags: ["task"] });
+	it("refreshes one native note when the cache has stale tags for a board-path mirror", async () => {
+		const localTask = createTask({
+			status: "triage",
+			tags: ["task"],
+			projects: [],
+		});
+		const remoteTask = createRemoteTask({ status: "running", assignee: "ops-steward" });
+		const updatedTask = { ...localTask, status: "in-progress", contexts: ["ops-steward"] };
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+		});
+		const mirrorWriter = jest.fn().mockResolvedValue({ taskInfo: updatedTask });
+		const plugin = createPlugin([localTask]);
+
+		const changed = await syncHermesManagedTaskFromHermes(
+			plugin,
+			{ board: "default", id: "t_sync" },
+			{ api, mirrorWriter }
+		);
+
+		expect(changed).toBe(true);
+		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
+		expect(mirrorWriter).toHaveBeenCalledWith(
+			plugin,
+			"default",
+			remoteTask,
+			expect.objectContaining({
+				parents: [],
+				children: [],
+			})
+		);
+		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
+			path: updatedTask.path,
+			originalTask: localTask,
+			updatedTask,
+		});
+	});
+
+	it("ignores explicit one-task refreshes for local tasks outside Hermes management", async () => {
+		const localTask = createTask({
+			path: "TaskNotes/Tasks/t_sync.md",
+			tags: ["task"],
+			projects: [],
+			customProperties: { hermesBoard: undefined },
+		});
 		const api = createApi({
 			boardTasks: [createRemoteTask()],
 			detailTask: createRemoteTask({ status: "done" }),
@@ -209,7 +309,7 @@ describe("Hermes managed task sync", () => {
 		const changed = await syncHermesManagedTaskFromHermes(
 			plugin,
 			{ board: "default", id: "t_sync" },
-			{ api, mirrorWriter }
+			{ api, localTask, mirrorWriter }
 		);
 
 		expect(changed).toBe(false);
@@ -243,6 +343,112 @@ describe("Hermes managed task sync", () => {
 		expect(result.tasksChecked).toBe(1);
 		expect(result.updated).toBe(0);
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
+		expect(mirrorWriter).not.toHaveBeenCalled();
+		expect(plugin.emitter.trigger).not.toHaveBeenCalled();
+	});
+
+	it("preserves stored curated activity sync timestamps when deciding a managed task is unchanged", async () => {
+		const storedSyncedAt = "2026-06-02T01:00:00Z";
+		const localTask = createTask({
+			status: "done",
+			priority: "normal",
+			contexts: ["codex"],
+			customProperties: {
+				[HERMES_ACTIVITY_FIELD_KEYS.feed]: [
+					"[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]",
+				],
+				[HERMES_ACTIVITY_FIELD_KEYS.comments]: [
+					"[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]",
+				],
+				[HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt]: storedSyncedAt,
+				[HERMES_ACTIVITY_FIELD_KEYS.version]: 2,
+			},
+		});
+		const remoteTask = createRemoteTask({
+			status: "done",
+			priority: 5,
+			assignee: "codex",
+		});
+		const activityDetail = {
+			comments: [{ id: 1, author: "reviewer", body: "Comment 1", created_at: 1770000000 }],
+			runs: [],
+			events: [],
+		};
+		const existingActivityNoteFrontmatter = buildActivityNoteFrontmatterByPath(
+			activityDetail,
+			storedSyncedAt
+		);
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+			...activityDetail,
+		});
+		const mirrorWriter = jest.fn();
+		const plugin = createPlugin([localTask], null, existingActivityNoteFrontmatter);
+
+		const result = await syncHermesManagedTasksFromHermes(plugin, { api, mirrorWriter });
+
+		expect(result.tasksChecked).toBe(1);
+		expect(result.updated).toBe(0);
+		expect(result.skipped).toBe(1);
+		expect(mirrorWriter).not.toHaveBeenCalled();
+		expect(plugin.emitter.trigger).not.toHaveBeenCalled();
+	});
+
+	it("does not run activity-only writes when curated activity indexes are unchanged", async () => {
+		const storedSyncedAt = "2026-06-02T01:00:00Z";
+		const localTask = createTask({
+			status: "done",
+			priority: "normal",
+			contexts: ["codex"],
+			customProperties: {
+				[HERMES_ACTIVITY_FIELD_KEYS.feed]: [
+					"[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]",
+				],
+				[HERMES_ACTIVITY_FIELD_KEYS.comments]: [
+					"[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]",
+				],
+				[HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt]: storedSyncedAt,
+				[HERMES_ACTIVITY_FIELD_KEYS.version]: 2,
+			},
+		});
+		const remoteTask = createRemoteTask({
+			status: "done",
+			priority: 5,
+			assignee: "codex",
+		});
+		const activityDetail = {
+			comments: [{ id: 1, author: "reviewer", body: "Comment 1", created_at: 1770000000 }],
+			runs: [],
+			events: [],
+		};
+		const existingActivityNoteFrontmatter = buildActivityNoteFrontmatterByPath(
+			activityDetail,
+			storedSyncedAt
+		);
+		const api = createApi({
+			detailTask: remoteTask,
+			boardTasks: [remoteTask],
+			...activityDetail,
+		});
+		const activityWriter = jest.fn();
+		const mirrorWriter = jest.fn();
+		const plugin = createPlugin([localTask], null, existingActivityNoteFrontmatter);
+
+		const result = await syncHermesTaskNotesActivityFromHermes(plugin, {
+			api,
+			activityWriter,
+			mirrorWriter,
+		});
+
+		expect(result).toMatchObject({
+			tasksSeen: 1,
+			tasksChecked: 1,
+			updated: 0,
+			skipped: 1,
+			failed: 0,
+		});
+		expect(activityWriter).not.toHaveBeenCalled();
 		expect(mirrorWriter).not.toHaveBeenCalled();
 		expect(plugin.emitter.trigger).not.toHaveBeenCalled();
 	});
@@ -341,15 +547,59 @@ describe("Hermes managed task sync", () => {
 		expect(mirrorWriter).not.toHaveBeenCalled();
 	});
 
-	it("ignores direct TaskNotes task ids that are not tagged as Hermes managed", async () => {
-		const localTask = createTask({ tags: ["task"] });
-		const api = createApi({ boardTasks: [createRemoteTask()], detailTask: createRemoteTask() });
+	it("does not emit TaskNotes update events when Hermes-managed fields are unchanged", async () => {
+		const localTask = createTask({
+			status: "done",
+			priority: "normal",
+		});
+		const remoteTask = createRemoteTask({
+			status: "done",
+			priority: 5,
+		});
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+			comments: [],
+			runs: [],
+			events: [],
+		});
+		const mirrorWriter = jest.fn();
 		const plugin = createPlugin([localTask]);
 
-		const result = await syncHermesManagedTasksFromHermes(plugin, { api });
+		const result = await syncHermesManagedTasksFromHermes(plugin, { api, mirrorWriter });
 
-		expect(result.tasksSeen).toBe(0);
-		expect(api.getBoard).not.toHaveBeenCalled();
+		expect(result.tasksChecked).toBe(1);
+		expect(result.updated).toBe(0);
+		expect(mirrorWriter).not.toHaveBeenCalled();
+		expect(plugin.emitter.trigger).not.toHaveBeenCalled();
+	});
+
+	it("recognizes canonical TaskNotes board paths when tags are stale", async () => {
+		const localTask = createTask({ tags: ["task"], projects: [] });
+		const remoteTask = createRemoteTask({ status: "done" });
+		const updatedTask = { ...localTask, status: "done" };
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+			comments: [],
+			runs: [],
+			events: [],
+		});
+		const mirrorWriter = jest.fn().mockResolvedValue({ taskInfo: updatedTask });
+		const plugin = createPlugin([localTask]);
+
+		const result = await syncHermesManagedTasksFromHermes(plugin, { api, mirrorWriter });
+
+		expect(result.tasksSeen).toBe(1);
+		expect(result.boardsChecked).toBe(1);
+		expect(result.updated).toBe(1);
+		expect(api.getBoard).toHaveBeenCalledWith("default", { includeArchived: true });
+		expect(mirrorWriter).toHaveBeenCalledWith(
+			plugin,
+			"default",
+			remoteTask,
+			expect.any(Object)
+		);
 	});
 
 	it("deletes local Hermes mirrors that are missing from a loaded board", async () => {
@@ -394,7 +644,7 @@ describe("Hermes managed task sync", () => {
 	it("detects Hermes boards from TaskNotes update events for immediate stream subscription", () => {
 		expect(
 			getHermesManagedBoardFromTaskEvent({
-				updatedTask: createTask({ path: "TaskNotes/default/t_sync.md" }),
+				updatedTask: createTask({ path: "TaskNotes/Tasks/t_sync.md" }),
 			})
 		).toBe("default");
 		expect(
@@ -405,8 +655,9 @@ describe("Hermes managed task sync", () => {
 		expect(
 			getHermesManagedBoardFromTaskEvent({
 				updatedTask: createTask({
-					path: "TaskNotes/default/t_plain.md",
+					path: "TaskNotes/Tasks/t_plain.md",
 					tags: ["task"],
+					customProperties: { hermesBoard: undefined },
 				}),
 			})
 		).toBeNull();
@@ -462,19 +713,194 @@ describe("Hermes managed task sync", () => {
 		expect(shouldHandleHermesTaskEvent("completed")).toBe(true);
 		expect(shouldHandleHermesTaskEvent("claimed")).toBe(true);
 	});
+
+	it("refreshes Hermes activity indexes without running the legacy mirror import", async () => {
+		const localTask = createTask({
+			status: "done",
+			priority: "normal",
+			contexts: ["codex"],
+		});
+		const remoteTask = createRemoteTask({
+			status: "done",
+			priority: 5,
+			assignee: "codex",
+		});
+		const updatedTask = {
+			...localTask,
+			customProperties: {
+				comments: ["[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]"],
+			},
+		};
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+			comments: [{ id: 1, author: "reviewer", body: "Ready", created_at: 1770000000 }],
+			runs: [],
+			events: [],
+		});
+		const activityWriter = jest.fn().mockResolvedValue(updatedTask);
+		const plugin = createPlugin([localTask]);
+
+		const result = await syncHermesTaskNotesActivityFromHermes(plugin, {
+			api,
+			activityWriter,
+		});
+
+		expect(result).toMatchObject({
+			tasksSeen: 1,
+			tasksChecked: 1,
+			updated: 1,
+			missing: 0,
+			failed: 0,
+		});
+		expect(api.getBoard).not.toHaveBeenCalled();
+		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
+		expect(activityWriter).toHaveBeenCalledWith(
+			plugin,
+			"default",
+			"t_sync",
+			localTask,
+			expect.objectContaining({
+				commentCount: 1,
+				comments: [expect.objectContaining({ body: "Ready" })],
+			})
+		);
+		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
+			path: updatedTask.path,
+			originalTask: localTask,
+			updatedTask,
+		});
+	});
+
+	it("refreshes TaskNotes kanban fields from the activity detail pull when Hermes changed them", async () => {
+		const localTask = createTask({
+			status: "triage",
+			priority: "normal",
+			contexts: [],
+		});
+		const remoteTask = createRemoteTask({
+			status: "todo",
+			priority: 5,
+			assignee: "orchestrator",
+		});
+		const updatedTask = {
+			...localTask,
+			status: "todo",
+			contexts: ["orchestrator"],
+			blockedBy: [
+				{ uid: "[[TaskNotes/default/t_parent]]", reltype: "FINISHTOSTART" as const },
+			],
+		};
+		const api = createApi({
+			boardTasks: [remoteTask],
+			detailTask: remoteTask,
+			parents: ["t_parent"],
+			children: ["t_child"],
+			comments: [{ id: 1, author: "auto-decomposer", body: "Decomposed", created_at: 1770000000 }],
+			runs: [],
+			events: [{ id: 7, kind: "decomposed", payload: { root_assignee: "orchestrator" } }],
+		});
+		const activityWriter = jest.fn();
+		const mirrorWriter = jest.fn().mockResolvedValue({ taskInfo: updatedTask });
+		const plugin = createPlugin([localTask]);
+
+		const result = await syncHermesTaskNotesActivityFromHermes(plugin, {
+			api,
+			activityWriter,
+			mirrorWriter,
+		});
+
+		expect(result).toMatchObject({
+			tasksSeen: 1,
+			tasksChecked: 1,
+			updated: 1,
+			missing: 0,
+			failed: 0,
+		});
+		expect(api.getBoard).not.toHaveBeenCalled();
+		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
+		expect(activityWriter).not.toHaveBeenCalled();
+		expect(mirrorWriter).toHaveBeenCalledWith(
+			plugin,
+			"default",
+			remoteTask,
+			expect.objectContaining({
+				parents: ["t_parent"],
+				children: ["t_child"],
+				activity: expect.objectContaining({
+					commentCount: 1,
+					eventCount: 1,
+				}),
+			})
+		);
+		expect(plugin.emitter.trigger).toHaveBeenCalledWith(EVENT_TASK_UPDATED, {
+			path: updatedTask.path,
+			originalTask: localTask,
+			updatedTask,
+		});
+	});
+
+	it("does not delete local TaskNotes notes when activity sync cannot find the Hermes task", async () => {
+		const localTask = createTask();
+		const api = {
+			getTask: jest
+				.fn()
+				.mockRejectedValue(new HermesApiError("task t_sync not found", 404, "Not Found")),
+		};
+		const activityWriter = jest.fn();
+		const plugin = createPlugin([localTask]);
+
+		const result = await syncHermesTaskNotesActivityFromHermes(plugin, {
+			api,
+			activityWriter,
+		});
+
+		expect(result).toMatchObject({
+			tasksSeen: 1,
+			tasksChecked: 1,
+			updated: 0,
+			missing: 1,
+			failed: 0,
+		});
+		expect(activityWriter).not.toHaveBeenCalled();
+		expect(plugin.emitter.trigger).not.toHaveBeenCalled();
+		expect(plugin.app.fileManager.trashFile).not.toHaveBeenCalled();
+	});
 });
 
-function createPlugin(tasks: TaskInfo[], file: unknown = null): any {
-	const frontmatterByPath = new Map(
-		tasks.map((task) => [
-			task.path,
-			{
-				frontmatter: {
-					...(task.customProperties ?? {}),
-				},
-			},
-		])
+function buildActivityNoteFrontmatterByPath(
+	detail: { comments: unknown[]; runs: unknown[]; events: unknown[] },
+	now: string
+): Record<string, Record<string, unknown>> {
+	return Object.fromEntries(
+		buildHermesActivityNoteSpecs(buildHermesActivitySnapshot(detail, { now }), {
+			board: "default",
+			taskId: "t_sync",
+		}).map((spec) => [spec.path, spec.frontmatter])
 	);
+}
+
+function createPlugin(
+	tasks: TaskInfo[],
+	file: unknown = null,
+	extraFrontmatterByPath: Record<string, Record<string, unknown>> = {}
+): any {
+	const frontmatterByPath = new Map([
+		...tasks.map(
+			(task) =>
+				[
+					task.path,
+					{
+						frontmatter: {
+							...(task.customProperties ?? {}),
+						},
+					},
+				] as const
+		),
+		...Object.entries(extraFrontmatterByPath).map(
+			([path, frontmatter]) => [path, { frontmatter }] as const
+		),
+	]);
 	return {
 		app: {
 			metadataCache: {
@@ -490,6 +916,9 @@ function createPlugin(tasks: TaskInfo[], file: unknown = null): any {
 		},
 			cacheManager: {
 				getAllTasks: jest.fn().mockResolvedValue(tasks),
+				getTaskInfoFromFrontmatter: jest.fn().mockImplementation((path: string) => {
+					return Promise.resolve(tasks.find((task) => task.path === path) ?? null);
+				}),
 				getTaskInfo: jest.fn().mockImplementation((path: string) => {
 					return Promise.resolve(tasks.find((task) => task.path === path) ?? null);
 				}),
@@ -502,6 +931,7 @@ function createPlugin(tasks: TaskInfo[], file: unknown = null): any {
 }
 
 function createApi(options: {
+	boards?: { slug: string; archived?: boolean | null }[];
 	boardTasks: HermesTaskRecord[];
 	detailTask: HermesTaskRecord;
 	detailTasks?: Record<string, HermesTaskRecord>;
@@ -512,6 +942,7 @@ function createApi(options: {
 	events?: unknown[];
 }) {
 	return {
+		listBoards: jest.fn().mockResolvedValue(options.boards ?? [{ slug: "default" }]),
 		getBoard: jest.fn().mockResolvedValue({
 			columns: [{ name: "all", tasks: options.boardTasks }],
 		}),
@@ -529,16 +960,37 @@ function createApi(options: {
 }
 
 function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
+	const path = overrides.path ?? "TaskNotes/Tasks/t_sync.md";
+	const canonicalMatch = path.match(/^TaskNotes\/Tasks\/(t_[^/]+)\.md$/);
+	const legacyMatch = path.match(/^TaskNotes\/([^/]+)\/(t_[^/]+)\.md$/);
+	const board = canonicalMatch ? "default" : legacyMatch ? legacyMatch[1] : null;
+	const taskId = canonicalMatch?.[1] ?? legacyMatch?.[2] ?? null;
+	const assignee = overrides.contexts?.find((value) => value && value !== "hermes-kanban");
+	const baseCustomProperties = taskId && board
+		? {
+			hermesTaskId: taskId,
+			hermesBoard: board,
+			hermesArchived: (overrides.archived ?? overrides.status === "archived") === true,
+			hermesList: overrides.archived ? "archived" : overrides.status ?? "triage",
+			hermesPriority: 5,
+			...(assignee ? { hermesAssignee: assignee } : {}),
+		}
+		: {};
+	const customProperties = {
+		...baseCustomProperties,
+		...(overrides.customProperties ?? {}),
+	};
 	return {
 		title: "Sync me",
 		status: "triage",
 		priority: "normal",
-		path: "TaskNotes/default/t_sync.md",
 		archived: false,
-		tags: ["task", "hermes-kanban"],
+		tags: ["task"],
 		contexts: [],
-		projects: ["Hermes/default"],
+		projects: [],
 		...overrides,
+		path,
+		customProperties,
 	};
 }
 

@@ -17,6 +17,7 @@ import {
 	parseTaskTagInput,
 	removeTagsFromList,
 } from "../utils/taskTagList";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Components/BatchContextMenu" });
@@ -349,7 +350,7 @@ export class BatchContextMenu {
 		const tasks: ClipboardTask[] = [];
 
 		for (const path of selectedPaths) {
-			const task = await plugin.cacheManager.getTaskInfo(path);
+			const task = await getTaskInfoFromNoteFirst(plugin, path);
 			tasks.push({
 				path,
 				title: task?.title,
@@ -385,7 +386,7 @@ export class BatchContextMenu {
 
 			for (const path of selectedPaths) {
 				try {
-					const task = await plugin.cacheManager.getTaskInfo(path);
+					const task = await getTaskInfoFromNoteFirst(plugin, path);
 					if (task) {
 						await plugin.taskService.updateProperty(task, "tags", getNextTags(task));
 						successCount++;
@@ -434,7 +435,7 @@ export class BatchContextMenu {
 
 			for (const path of selectedPaths) {
 				try {
-					const task = await plugin.cacheManager.getTaskInfo(path);
+					const task = await getTaskInfoFromNoteFirst(plugin, path);
 					if (task) {
 						await plugin.taskService.updateProperty(task, property, value);
 						successCount++;
@@ -484,7 +485,7 @@ export class BatchContextMenu {
 
 			for (const path of selectedPaths) {
 				try {
-					const task = await plugin.cacheManager.getTaskInfo(path);
+					const task = await getTaskInfoFromNoteFirst(plugin, path);
 					if (task && task.archived !== archive) {
 						await plugin.toggleTaskArchive(task);
 						successCount++;
@@ -550,7 +551,7 @@ export class BatchContextMenu {
 
 			for (const path of selectedPaths) {
 				try {
-					const task = await plugin.cacheManager.getTaskInfo(path);
+					const task = await getTaskInfoFromNoteFirst(plugin, path);
 					if (task) {
 						await plugin.taskService.deleteTask(task);
 						successCount++;

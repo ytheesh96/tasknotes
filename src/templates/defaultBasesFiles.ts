@@ -20,6 +20,11 @@ function escapeBasesStringLiteral(value: string): string {
 	return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function getTaskFolderFilterCondition(settings: TaskNotesSettings): string {
+	const tasksFolder = settings.tasksFolder?.trim() || "TaskNotes/Tasks";
+	return `file.inFolder("${escapeBasesStringLiteral(tasksFolder)}")`;
+}
+
 function formatNotePropertyReference(propertyName: string): string {
 	return `note["${escapeBasesStringLiteral(propertyName)}"]`;
 }
@@ -42,23 +47,23 @@ function formatProjectEntryLinkExpression(entryExpression: string): string {
  */
 function generateTaskFilterCondition(settings: TaskNotesSettings): string {
 	if (settings.taskIdentificationMethod === "tag") {
-		// Filter by tag using hasTag method
-		const taskTag = settings.taskTag || "task";
-		return `file.hasTag("${taskTag}")`;
+		// The generated Bases views should discover TaskNotes by their storage
+		// location.  The default #task tag is intentionally generic and can be
+		// used by unrelated notes as a label/routing signal.
+		return getTaskFolderFilterCondition(settings);
 	} else {
 		// Filter by property
 		const propertyName = settings.taskPropertyName;
 		const propertyValue = settings.taskPropertyValue;
 
 		if (!propertyName) {
-			// No property name specified, fall back to tag-based filtering
-			const taskTag = settings.taskTag || "task";
-			return `file.hasTag("${taskTag}")`;
+			// No property name specified, fall back to folder-based task discovery.
+			return getTaskFolderFilterCondition(settings);
 		}
 
 		if (propertyValue) {
 			if (isTagsTaskIdentifierProperty(propertyName)) {
-				return `file.hasTag("${escapeBasesStringLiteral(propertyValue)}")`;
+				return getTaskFolderFilterCondition(settings);
 			}
 			// Check property has specific value
 			// Boolean values must not be quoted — Obsidian stores checkbox/boolean
@@ -704,6 +709,7 @@ views:
       readyStatuses: triage,todo,scheduled,ready
       busyStatuses: running
       reviewStatuses: review
+      doneStatuses: done,completed
       ignoredAgentValues: hermes-kanban
 `;
 		}

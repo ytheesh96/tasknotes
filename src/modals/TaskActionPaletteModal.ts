@@ -11,6 +11,7 @@ import { TaskInfo } from "../types";
 import TaskNotesPlugin from "../main";
 import { getDatePart } from "../utils/dateUtils";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskActionPaletteModal" });
 
@@ -489,7 +490,7 @@ export class TaskActionPaletteModal extends FuzzySuggestModal<TaskAction> {
 	): Promise<void> {
 		try {
 			// Refresh task data to ensure we have the latest information
-			const freshTask = await this.plugin.cacheManager.getTaskInfo(this.task.path);
+			const freshTask = await getTaskInfoFromNoteFirst(this.plugin, this.task.path);
 			if (!freshTask) {
 				new Notice("Task not found");
 				return;

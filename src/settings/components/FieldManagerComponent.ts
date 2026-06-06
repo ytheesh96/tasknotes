@@ -34,6 +34,10 @@ export function createFieldManager(
 		return;
 	}
 
+	if (deduplicateConfigFieldsById(config)) {
+		onUpdate(config);
+	}
+
 	// Create tabs for different field groups
 	const tabsContainer = container.createDiv({ cls: "field-manager__tabs" });
 	const contentContainer = container.createDiv({ cls: "field-manager__content" });
@@ -64,6 +68,24 @@ export function createFieldManager(
 	if (sortedGroups.length > 0) {
 		renderFieldGroup(contentContainer, sortedGroups[0].id, config, plugin, onUpdate, app);
 	}
+}
+
+function deduplicateConfigFieldsById(config: TaskModalFieldsConfig): boolean {
+	const seen = new Set<string>();
+	const fields = config.fields.filter((field) => {
+		if (seen.has(field.id)) {
+			return false;
+		}
+		seen.add(field.id);
+		return true;
+	});
+
+	if (fields.length === config.fields.length) {
+		return false;
+	}
+
+	config.fields = fields;
+	return true;
 }
 
 /**

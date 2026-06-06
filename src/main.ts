@@ -73,6 +73,7 @@ import { cleanupPluginRuntime, initializePluginRuntime } from "./bootstrap/plugi
 import { ensureDefaultBasesViewFiles } from "./bootstrap/defaultBasesFiles";
 import { buildCurrentNoteConversionTaskInfo } from "./services/task-service/currentNoteConversion";
 import { applyParentNoteProjectDefault } from "./utils/taskCreationPrepopulation";
+import { getAllTasksFromNoteFirst, getTaskInfoFromNoteFirst } from "./utils/taskInfoRead";
 import { applySearchQueryToView } from "./utils/obsidianSearchView";
 import { TaskContextMenu } from "./components/TaskContextMenu";
 import {
@@ -89,22 +90,31 @@ import {
 	normalizeHermesUserFields,
 } from "./hermes/hermesTaskNotesIntegration";
 import { HermesKanbanApiClient, getHermesTaskIdentity } from "./hermes/hermesApiClient";
+import { provisionHermesBoardSurfaces } from "./hermes/hermesBoardProvisioning";
 import {
 	HERMES_DASHBOARD_START_COMMAND,
+	HERMES_KANBAN_API_URL,
 	HermesAvailabilityService,
 	type HermesAvailabilityHealth,
+	type HermesDashboardStartOptions,
 	type HermesDashboardStartResult,
 	normalizeHermesDashboardStartCommand,
 } from "./hermes/hermesAvailabilityService";
 import {
 	HERMES_MANAGED_TASK_RECONCILE_INTERVAL_MS,
+	HERMES_TASKNOTES_ACTIVITY_RECONCILE_INTERVAL_MS,
 	getHermesManagedBoardFromTaskEvent,
 	getHermesManagedBoards,
 	shouldHandleHermesTaskEvent,
 	syncHermesManagedTaskFromHermes,
 	syncHermesManagedTasksFromHermes,
+	syncHermesTaskNotesActivityFromHermes,
 } from "./hermes/hermesTaskSync";
-import { getHermesTaskNotesBoardFromTaskEvent } from "./hermes/hermesTaskNotesApiSync";
+import {
+	HERMES_TASKNOTES_WEBHOOK_ID,
+	buildHermesTaskNotesWebhookConfig,
+	getHermesTaskNotesBoardFromTaskEvent,
+} from "./hermes/hermesTaskNotesApiSync";
 import { createTaskNotesLogger } from "./utils/tasknotesLogger";
 import {
 	createTaskNotesPerformanceProfiler,
@@ -116,6 +126,7 @@ const HERMES_AUTO_START_COOLDOWN_MS = 5 * 60 * 1000;
 const HERMES_DASHBOARD_ENSURE_COOLDOWN_MS = 60 * 1000;
 const HERMES_DASHBOARD_ENSURE_POLL_ATTEMPTS = 8;
 const HERMES_DASHBOARD_ENSURE_POLL_INTERVAL_MS = 1000;
+const HERMES_TASKNOTES_RECONCILE_INTERVAL_SECONDS = "300";
 
 type DailyNoteMoment = Parameters<typeof getDailyNote>[0];
 type TaskLinkDetectionServiceInstance =
@@ -161,6 +172,8 @@ export default class TaskNotesPlugin extends Plugin {
 	private settingsDataSaveRequested = false;
 	private hermesManagedTaskSyncStarted = false;
 	private hermesManagedTaskSyncInFlight = false;
+	private hermesTaskNotesActivitySyncStarted = false;
+	private hermesTaskNotesActivitySyncInFlight = false;
 	private hermesEventStreamsActive = false;
 	private hermesEventSockets = new Map<string, WebSocket>();
 	private hermesEventReconnectTimers = new Map<string, number>();
@@ -170,6 +183,7 @@ export default class TaskNotesPlugin extends Plugin {
 	private hermesAutoStartLastAttemptAt = 0;
 	private hermesDashboardEnsureInFlight: Promise<HermesDashboardStartResult> | null = null;
 	private hermesDashboardEnsureLastFailedAt = 0;
+	private hermesDashboardStartupRestartNoticeShown = false;
 
 	// Ready promise to signal when initialization is complete
 	private readyPromise: Promise<void>;
@@ -423,10 +437,35 @@ export default class TaskNotesPlugin extends Plugin {
 	 */
 	async initializeAfterLayoutReady(): Promise<void> {
 		await initializeAfterLayoutReady(this);
-		tasknotesLogger.debug("Hermes mirror import sync is legacy and is not started", {
+		this.startHermesTaskNotesActivitySync();
+		tasknotesLogger.debug("Hermes mirror import sync is legacy; activity sync is started", {
 			category: "provider",
 			operation: "hermes-tasknotes-api-sync",
 		});
+	}
+
+	async configureHermesTaskNotesSyncForLiveDashboard(): Promise<void> {
+		try {
+			const health = await new HermesAvailabilityService().checkHealth();
+			const currentResult: HermesDashboardStartResult = {
+				started: false,
+				command: this.getHermesDashboardStartCommand(),
+				health,
+			};
+			if (this.isHermesDashboardUsable(health)) {
+				await this.configureHermesTaskNotesSyncIfLive(currentResult);
+				return;
+			}
+
+			const result = await this.ensureHermesDashboardRunning({ showNotice: false });
+			this.showHermesDashboardRestartNoticeAfterStartupAttempt(result);
+		} catch (error) {
+			tasknotesLogger.debug("Could not configure Hermes TaskNotes webhook:", {
+				category: "provider",
+				operation: "hermes-tasknotes-webhook-configure",
+				error,
+			});
+		}
 	}
 
 	private registerHermesAutoStartOnTaskChanges(): void {
@@ -483,13 +522,155 @@ export default class TaskNotesPlugin extends Plugin {
 	async startHermesDashboard(
 		options: { showNotice?: boolean } = {}
 	): Promise<HermesDashboardStartResult> {
-		const result = await new HermesAvailabilityService().startDashboard(
-			this.getHermesDashboardStartCommand()
-		);
+		const result = await this.startHermesDashboardWithOptions(new HermesAvailabilityService());
+		await this.configureHermesTaskNotesSyncIfLive(result);
 		if (options.showNotice ?? true) {
 			this.showHermesDashboardStartNotice(result);
 		}
 		return result;
+	}
+
+	private async startHermesDashboardWithOptions(
+		service: HermesAvailabilityService
+	): Promise<HermesDashboardStartResult> {
+		const command = this.getHermesDashboardStartCommand();
+		const startOptions = await this.getHermesDashboardStartOptions();
+		if (this.hasHermesDashboardStartEnv(startOptions)) {
+			return service.startDashboard(command, startOptions);
+		}
+		return service.startDashboard(command);
+	}
+
+	private async getHermesDashboardStartOptions(): Promise<HermesDashboardStartOptions> {
+		if (!this.settings.enableAPI) {
+			return {};
+		}
+		const env: Record<string, string | undefined> = {
+			HERMES_TASKNOTES_BASE_URL: this.getTaskNotesApiBaseUrl(),
+			HERMES_TASKNOTES_API_TOKEN: this.settings.apiAuthToken || undefined,
+			HERMES_TASKNOTES_WEBHOOK_SECRET: await this.ensureHermesTaskNotesWebhookSecret(),
+			HERMES_TASKNOTES_RECONCILE_INTERVAL_SECONDS:
+				HERMES_TASKNOTES_RECONCILE_INTERVAL_SECONDS,
+		};
+		return { env };
+	}
+
+	private getTaskNotesApiBaseUrl(): string {
+		const port = Number.isFinite(this.settings.apiPort) ? this.settings.apiPort : 8080;
+		return `http://127.0.0.1:${port}`;
+	}
+
+	private hasHermesDashboardStartEnv(options: HermesDashboardStartOptions): boolean {
+		return Object.values(options.env ?? {}).some(
+			(value) => typeof value === "string" && value.length > 0
+		);
+	}
+
+	private async ensureHermesTaskNotesWebhookSecret(): Promise<string> {
+		const existing = this.settings.hermesTaskNotesWebhookSecret?.trim();
+		if (existing) {
+			return existing;
+		}
+		const secret = this.generateHermesTaskNotesWebhookSecret();
+		this.settings.hermesTaskNotesWebhookSecret = secret;
+		await this.saveSettings();
+		return secret;
+	}
+
+	private generateHermesTaskNotesWebhookSecret(): string {
+		const bytes = crypto.getRandomValues(new Uint8Array(32));
+		return Array.from(bytes)
+			.map((byte) => byte.toString(16).padStart(2, "0"))
+			.join("");
+	}
+
+	private async configureHermesTaskNotesSyncIfLive(
+		result: HermesDashboardStartResult
+	): Promise<void> {
+		if (result.health.status !== "connected" || result.health.mode !== "live") {
+			return;
+		}
+		await this.ensureHermesTaskNotesWebhookRegistered();
+		await this.provisionHermesBoardSurfacesForLiveDashboard();
+		this.startHermesManagedTaskSync();
+	}
+
+	private async provisionHermesBoardSurfacesForLiveDashboard(): Promise<void> {
+		try {
+			const boards = (await new HermesKanbanApiClient().listBoards())
+				.filter((board) => !board.archived)
+				.map((board) => board.slug);
+			if (boards.length === 0) {
+				return;
+			}
+			const result = await provisionHermesBoardSurfaces(this, boards);
+			if (
+				result.viewsCreated.length > 0 ||
+				result.viewsUpdated.length > 0 ||
+				result.foldersCreated.length > 0 ||
+				result.legacyViewsRemoved.length > 0
+			) {
+				this.app.workspace.trigger("tasknotes:refresh-views");
+			}
+		} catch (error) {
+			tasknotesLogger.debug("Could not provision Hermes board surfaces:", {
+				category: "provider",
+				operation: "hermes-board-surface-provision",
+				error,
+			});
+		}
+	}
+
+	private async ensureHermesTaskNotesWebhookRegistered(): Promise<void> {
+		if (!this.settings.enableAPI) {
+			return;
+		}
+		const secret = await this.ensureHermesTaskNotesWebhookSecret();
+		const next = buildHermesTaskNotesWebhookConfig({
+			url: `${HERMES_KANBAN_API_URL}/tasknotes/webhook`,
+			secret,
+		});
+		const existingIndex = (this.settings.webhooks ?? []).findIndex(
+			(webhook) => webhook.id === HERMES_TASKNOTES_WEBHOOK_ID
+		);
+		const existing =
+			existingIndex >= 0 ? (this.settings.webhooks ?? [])[existingIndex] : undefined;
+		if (existing && this.isHermesTaskNotesWebhookCurrent(existing, next)) {
+			return;
+		}
+
+		const webhooks = [...(this.settings.webhooks ?? [])];
+		const webhook = existing
+			? {
+					...existing,
+					...next,
+					createdAt: existing.createdAt || next.createdAt,
+					failureCount: existing.failureCount ?? 0,
+					successCount: existing.successCount ?? 0,
+				}
+			: next;
+		if (existingIndex >= 0) {
+			webhooks[existingIndex] = webhook;
+		} else {
+			webhooks.push(webhook);
+		}
+		this.settings.webhooks = webhooks;
+		await this.saveSettings();
+		this.apiService?.syncWebhookSettings?.();
+	}
+
+	private isHermesTaskNotesWebhookCurrent(
+		current: ReturnType<typeof buildHermesTaskNotesWebhookConfig>,
+		next: ReturnType<typeof buildHermesTaskNotesWebhookConfig>
+	): boolean {
+		return (
+			current.url === next.url &&
+			current.secret === next.secret &&
+			current.active === next.active &&
+			current.corsHeaders === next.corsHeaders &&
+			current.events.length === next.events.length &&
+			current.events.every((event, index) => event === next.events[index])
+		);
 	}
 
 	private showHermesDashboardStartNotice(result: HermesDashboardStartResult): void {
@@ -504,6 +685,26 @@ export default class TaskNotesPlugin extends Plugin {
 		if (result.started) {
 			new Notice("Starting hermes dashboard.");
 		}
+	}
+
+	private showHermesDashboardRestartNoticeAfterStartupAttempt(
+		result: HermesDashboardStartResult
+	): void {
+		if (
+			this.hermesDashboardStartupRestartNoticeShown ||
+			this.isHermesDashboardUsable(result.health)
+		) {
+			return;
+		}
+
+		let reason = "TaskNotes could not start Hermes automatically.";
+		if (result.health.status === "degraded") {
+			reason = "Hermes is reachable, but the Kanban API is not live.";
+		} else if (result.started) {
+			reason = "TaskNotes tried to start Hermes, but Hermes is still not live.";
+		}
+		new Notice(`${reason} Restart Hermes, then TaskNotes will reconnect.`, 10000);
+		this.hermesDashboardStartupRestartNoticeShown = true;
 	}
 
 	async ensureHermesDashboardRunning(
@@ -543,8 +744,9 @@ export default class TaskNotesPlugin extends Plugin {
 		options: HermesDashboardEnsureOptions
 	): Promise<HermesDashboardStartResult> {
 		const service = new HermesAvailabilityService();
-		const result = await service.startDashboard(this.getHermesDashboardStartCommand());
+		const result = await this.startHermesDashboardWithOptions(service);
 		const finalResult = await this.pollHermesDashboardAfterStart(service, result, options);
+		await this.configureHermesTaskNotesSyncIfLive(finalResult);
 
 		if (finalResult.error || !this.isHermesDashboardUsable(finalResult.health)) {
 			this.hermesDashboardEnsureLastFailedAt = Date.now();
@@ -626,6 +828,49 @@ export default class TaskNotesPlugin extends Plugin {
 			});
 		} finally {
 			this.hermesManagedTaskSyncInFlight = false;
+		}
+	}
+
+	private startHermesTaskNotesActivitySync(): void {
+		if (this.hermesTaskNotesActivitySyncStarted) {
+			return;
+		}
+		this.hermesTaskNotesActivitySyncStarted = true;
+		this.registerInterval(
+			window.setInterval(() => {
+				void this.syncHermesTaskNotesActivityFromHermes();
+			}, HERMES_TASKNOTES_ACTIVITY_RECONCILE_INTERVAL_MS)
+		);
+		void this.syncHermesTaskNotesActivityFromHermes();
+	}
+
+	private async syncHermesTaskNotesActivityFromHermes(): Promise<void> {
+		if (this.hermesTaskNotesActivitySyncInFlight) {
+			return;
+		}
+		this.hermesTaskNotesActivitySyncInFlight = true;
+		try {
+			const health = await new HermesAvailabilityService().checkHealth();
+			if (!this.isHermesDashboardUsable(health)) {
+				return;
+			}
+			const tasks = await this.cacheManager.getAllTasks();
+			const result = await syncHermesTaskNotesActivityFromHermes(this, { tasks });
+			if (result.updated > 0 || result.missing > 0 || result.failed > 0) {
+				tasknotesLogger.debug("Hermes TaskNotes activity sync completed", {
+					category: "provider",
+					operation: "hermes-tasknotes-activity-sync",
+					details: { ...result },
+				});
+			}
+		} catch (error) {
+			tasknotesLogger.debug("Hermes TaskNotes activity sync skipped", {
+				category: "provider",
+				operation: "hermes-tasknotes-activity-sync",
+				error,
+			});
+		} finally {
+			this.hermesTaskNotesActivitySyncInFlight = false;
 		}
 	}
 
@@ -1584,7 +1829,7 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		// Check if this note is already a task
-		const existingTask = await this.cacheManager.getTaskInfo(activeFile.path);
+		const existingTask = await getTaskInfoFromNoteFirst(this, activeFile.path);
 		if (existingTask) {
 			new Notice(this.i18n.translate("commands.convertCurrentNoteToTask.alreadyTask"));
 			return;
@@ -1715,12 +1960,14 @@ export default class TaskNotesPlugin extends Plugin {
 		const directPath = normalizedBoard
 			? `TaskNotes/${normalizedBoard}/${normalizedTaskId}.md`
 			: "";
-		const directTask = directPath ? await this.cacheManager.getTaskInfo(directPath) : null;
+		const directTask = directPath
+			? await getTaskInfoFromNoteFirst(this, directPath)
+			: null;
 		if (directTask) {
 			await this.openTaskEditModal(directTask);
 			return;
 		}
-		const tasks = await this.cacheManager.getAllTasks();
+		const tasks = await getAllTasksFromNoteFirst(this);
 		const matchesTaskId = (task: TaskInfo) => {
 			const identity = getHermesTaskIdentity(task);
 			return Boolean(
@@ -1742,7 +1989,9 @@ export default class TaskNotesPlugin extends Plugin {
 			return;
 		}
 
-		await this.openTaskEditModal(matchingTask);
+		const freshMatchingTask =
+			(await this.cacheManager.getTaskInfoFromFrontmatter(matchingTask.path)) ?? matchingTask;
+		await this.openTaskEditModal(freshMatchingTask);
 	}
 
 	async openHermesArtifactPath(rawPath: string): Promise<void> {
@@ -1934,7 +2183,7 @@ export default class TaskNotesPlugin extends Plugin {
 	async insertTaskNoteLink(editor: Editor): Promise<void> {
 		try {
 			// Get all tasks
-			const allTasks = await this.cacheManager.getAllTasks();
+			const allTasks = await getAllTasksFromNoteFirst(this);
 			const unarchivedTasks = allTasks.filter((task) => !task.archived);
 
 			// Open task selector modal
@@ -2171,7 +2420,7 @@ export default class TaskNotesPlugin extends Plugin {
 			return null;
 		}
 
-		const taskInfo = await this.cacheManager.getTaskInfo(activeFile.path);
+		const taskInfo = await getTaskInfoFromNoteFirst(this, activeFile.path);
 		if (!taskInfo) {
 			new Notice(notTaskNotice);
 			return null;
@@ -2211,7 +2460,7 @@ export default class TaskNotesPlugin extends Plugin {
 
 	private async openTaskEditModalForFile(file: TFile, notTaskNotice?: string): Promise<void> {
 		try {
-			const taskInfo = await this.cacheManager.getTaskInfo(file.path);
+			const taskInfo = await getTaskInfoFromNoteFirst(this, file.path);
 			if (!taskInfo) {
 				new Notice(
 					notTaskNotice ??
@@ -2237,7 +2486,7 @@ export default class TaskNotesPlugin extends Plugin {
 		file: TFile,
 		notTaskNotice = "Selected file is not a tasknote"
 	): Promise<void> {
-		const taskInfo = await this.cacheManager.getTaskInfo(file.path);
+		const taskInfo = await getTaskInfoFromNoteFirst(this, file.path);
 		if (!taskInfo) {
 			new Notice(notTaskNotice);
 			return;
@@ -2263,7 +2512,7 @@ export default class TaskNotesPlugin extends Plugin {
 				return;
 			}
 
-			const taskInfo = await this.cacheManager.getTaskInfo(activeFile.path);
+			const taskInfo = await getTaskInfoFromNoteFirst(this, activeFile.path);
 			if (!taskInfo) {
 				new Notice("Current file is not a task");
 				return;
@@ -2301,7 +2550,7 @@ export default class TaskNotesPlugin extends Plugin {
 				return;
 			}
 
-			const allTasks = await this.cacheManager.getAllTasks();
+			const allTasks = await getAllTasksFromNoteFirst(this);
 			const candidates = allTasks.filter((candidate) => candidate.path !== activeFile.path);
 			if (candidates.length === 0) {
 				new Notice(

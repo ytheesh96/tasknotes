@@ -1,6 +1,5 @@
 import type { App } from "obsidian";
 import { buildHermesTaskCreationOptions } from "../../../src/hermes/hermesTaskNotesIntegration";
-import { HERMES_TASKNOTES_LOCAL_CREATION_TARGET } from "../../../src/hermes/hermesTaskNotesApiSync";
 
 describe("Hermes TaskNotes integration", () => {
 	const app = {} as App;
@@ -17,21 +16,17 @@ describe("Hermes TaskNotes integration", () => {
 			},
 		});
 
-		expect(options.modalTitle).toBe("Create task");
-		expect(options.saveButtonText).toBe("Create task");
+		expect(options.modalTitle).toBeUndefined();
+		expect(options.saveButtonText).toBeUndefined();
 		expect(options.hermesBoardPicker).toMatchObject({
 			selectedBoard: "hhmi",
 		});
 		expect(options.hermesBoardPicker?.boards).toContain("hhmi");
-		expect(options.creationTargetPicker?.selectedTarget).toBe(
-			HERMES_TASKNOTES_LOCAL_CREATION_TARGET
-		);
+		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:hhmi");
 		expect(options.prePopulatedValues?.status).toBe("ready");
 		expect(options.prePopulatedValues?.projects).toEqual(["Hermes/hhmi"]);
 		expect(options.prePopulatedValues?.contexts).toEqual(["yt"]);
-		expect(options.prePopulatedValues?.tags).toEqual(
-			expect.arrayContaining(["review", "hermes-kanban"])
-		);
+		expect(options.prePopulatedValues?.tags).toEqual(["review"]);
 		expect(options.prePopulatedValues?.customFrontmatter).toMatchObject({
 			lane: "drafting",
 		});
@@ -61,9 +56,7 @@ describe("Hermes TaskNotes integration", () => {
 		);
 
 		expect(options.hermesBoardPicker?.selectedBoard).toBe("default");
-		expect(options.creationTargetPicker?.selectedTarget).toBe(
-			HERMES_TASKNOTES_LOCAL_CREATION_TARGET
-		);
+		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:default");
 		expect(options.prePopulatedValues?.projects).toEqual(["Hermes/default"]);
 	});
 
@@ -83,6 +76,23 @@ describe("Hermes TaskNotes integration", () => {
 		expect(options.prePopulatedValues?.projects).toEqual(["Hermes/hhmi"]);
 	});
 
+	it("falls back to the local TaskNotes target for non-Hermes projects without forcing copy", () => {
+		const options = buildHermesTaskCreationOptions(app, [], {
+			title: "Local task",
+			projects: ["Personal"],
+		});
+
+		expect(options.modalTitle).toBeUndefined();
+		expect(options.saveButtonText).toBeUndefined();
+		expect(options.prePopulatedValues?.projects).toEqual(["Personal"]);
+		expect(options.creationTargetPicker).toMatchObject({
+			selectedTarget: "tasknotes",
+		});
+		expect(options.creationTargetPicker?.boards).toEqual(
+			expect.arrayContaining(["default", "hhmi", "obsidian-os"])
+		);
+	});
+
 	it("keeps Goal Mode as a normal goal tag on creation options", () => {
 		const options = buildHermesTaskCreationOptions(app, [], {
 			title: "Clarify research goal",
@@ -90,14 +100,13 @@ describe("Hermes TaskNotes integration", () => {
 			tags: ["planning", "goal"],
 		});
 
-		expect(options.modalTitle).toBe("Create task");
-		expect(options.saveButtonText).toBe("Create task");
-		expect(options.creationTargetPicker?.selectedTarget).toBe(
-			HERMES_TASKNOTES_LOCAL_CREATION_TARGET
-		);
+		expect(options.modalTitle).toBeUndefined();
+		expect(options.saveButtonText).toBeUndefined();
+		expect(options.creationTargetPicker?.selectedTarget).toBe("hermes:default");
 		expect(options.prePopulatedValues?.tags).toEqual(
-			expect.arrayContaining(["hermes-kanban", "goal", "planning"])
+			expect.arrayContaining(["goal", "planning"])
 		);
+		expect(options.prePopulatedValues?.tags).not.toContain("hermes-kanban");
 		expect(options.prePopulatedValues?.customFrontmatter).not.toMatchObject({
 			hermesCardMode: "goal",
 			hermesMode: "goal",

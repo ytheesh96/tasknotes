@@ -1,5 +1,5 @@
 import { Notice, TFile, setIcon, setTooltip } from "obsidian";
-import type { BasesView, BasesViewFactory } from "obsidian";
+import type { BasesView, BasesViewFactory, OpenViewState } from "obsidian";
 import { BasesViewBase } from "./BasesViewBase";
 import { identifyTaskNotesFromBasesData } from "./helpers";
 import type { TaskInfo } from "../types";
@@ -11,9 +11,16 @@ import {
 } from "../hermes/hermesApiClient";
 import {
 	getHermesBoardKanbanViewPath,
+	getHermesBoardKanbanViewName,
 	provisionHermesBoardSurfaces,
 	summarizeHermesBoardProvisionResult,
 } from "../hermes/hermesBoardProvisioning";
+import {
+	HERMES_ARCHIVED_FRONTMATTER,
+	HERMES_ASSIGNEE_FRONTMATTER,
+	HERMES_BOARD_FRONTMATTER,
+	canonicalHermesBoardValue,
+} from "../hermes/hermesCanonicalTaskNotes";
 import { showConfirmationModal } from "../modals/ConfirmationModal";
 import { showTextInputModal } from "../modals/TextInputModal";
 import {
@@ -123,6 +130,12 @@ function normalizeBoard(value: string): string | null {
 }
 
 function getTaskBoards(task: TaskInfo, options: HermesBoardsViewOptions): string[] {
+	const canonicalBoard = canonicalHermesBoardValue(
+		task.customProperties?.[HERMES_BOARD_FRONTMATTER]
+	);
+	if (canonicalBoard) {
+		return [canonicalBoard];
+	}
 	const boards = [
 		...getTaskPropertyValues(task, options.boardProperty),
 		...toStringValues(task.customProperties?.hermes_board),
@@ -134,12 +147,16 @@ function getTaskBoards(task: TaskInfo, options: HermesBoardsViewOptions): string
 }
 
 function getTaskAgents(task: TaskInfo, options: HermesBoardsViewOptions): string[] {
+	const canonicalAssignee = toStringValues(task.customProperties?.[HERMES_ASSIGNEE_FRONTMATTER])
+		.map(normalizeDisplayValue)
+		.filter((agent) => agent.length > 0 && agent !== "none");
 	const agents = [
+		...canonicalAssignee,
 		...getTaskPropertyValues(task, options.agentProperty),
 		...toStringValues(task.customProperties?.assignee),
 	]
 		.map(normalizeDisplayValue)
-		.filter((agent) => agent.length > 0 && agent !== "hermes-kanban");
+		.filter((agent) => agent.length > 0 && agent !== "hermes-kanban" && agent !== "none");
 	return [...new Set(agents)];
 }
 
@@ -193,7 +210,9 @@ export function buildHermesBoardSummaries(
 		const running = options.busyStatuses.has(status);
 		const review = options.reviewStatuses.has(status);
 		const blocked = status === "blocked" || task.isBlocked === true;
-		const active = !task.archived && !done;
+		const archived =
+			task.customProperties?.[HERMES_ARCHIVED_FRONTMATTER] === true || task.archived === true;
+		const active = !archived && !done;
 		const agents = getTaskAgents(task, options);
 
 		for (const board of getTaskBoards(task, options)) {
@@ -224,10 +243,14 @@ export function buildHermesBoardSummaries(
 	}
 
 	return [...summaries.values()].sort((left, right) => {
-		if (left.slug === options.defaultBoard) return -1;
-		if (right.slug === options.defaultBoard) return 1;
-		const activeDelta = right.activeCount - left.activeCount;
-		if (activeDelta !== 0) return activeDelta;
+		const score = (summary: HermesBoardSummary): number =>
+			summary.runningCount * 1000 +
+			summary.reviewCount * 800 +
+			summary.blockedCount * 700 +
+			summary.activeCount * 100 +
+			(summary.source === "local" ? 25 : 0);
+		const scoreDelta = score(right) - score(left);
+		if (scoreDelta !== 0) return scoreDelta;
 		return left.slug.localeCompare(right.slug);
 	});
 }
@@ -235,6 +258,17 @@ export function buildHermesBoardSummaries(
 export function getHermesBoardKanbanOpenPath(board: string): string | null {
 	const slug = normalizeBoardSlugInput(board);
 	return slug ? getHermesBoardKanbanViewPath(slug) : null;
+}
+
+function getHermesBoardKanbanOpenState(slug: string): OpenViewState {
+	const viewPath = getHermesBoardKanbanViewPath(slug);
+	return {
+		active: true,
+		state: {
+			file: viewPath,
+			viewName: getHermesBoardKanbanViewName(slug),
+		},
+	};
 }
 
 export class HermesBoardsView extends BasesViewBase {
@@ -287,7 +321,7 @@ export class HermesBoardsView extends BasesViewBase {
 		const summaries = buildHermesBoardSummaries(tasks, live.boards, this.options);
 
 		this.renderToolbar(live.error);
-		this.renderSummary(summaries);
+		this.renderSummary(summaries, tasks.length);
 		if (summaries.length === 0) {
 			this.renderEmptyState();
 			return;
@@ -311,7 +345,7 @@ export class HermesBoardsView extends BasesViewBase {
 			const dataItems = this.dataAdapter.extractDataItems();
 			return identifyTaskNotesFromBasesData(dataItems, this.plugin);
 		}
-		return this.plugin.cacheManager.getAllTasks();
+		return [];
 	}
 
 	private async loadLiveBoards(): Promise<{ boards: HermesBoardRecord[]; error: string | null }> {
@@ -364,10 +398,12 @@ export class HermesBoardsView extends BasesViewBase {
 		});
 	}
 
-	private renderSummary(summaries: HermesBoardSummary[]): void {
+	private renderSummary(summaries: HermesBoardSummary[], taskNoteCount: number): void {
 		if (!this.contentEl) return;
 		const summary = this.contentEl.createDiv({ cls: "hermes-boards-view__summary" });
-		this.renderSummaryMetric(summary, "Boards", summaries.length);
+		const boardCount = summaries.length;
+		const mirrorCount = summaries.reduce((total, board) => total + board.mirrorCount, 0);
+		this.renderSummaryMetric(summary, "Boards", boardCount);
 		this.renderSummaryMetric(
 			summary,
 			"Active",
@@ -378,11 +414,11 @@ export class HermesBoardsView extends BasesViewBase {
 			"Running",
 			summaries.reduce((total, board) => total + board.runningCount, 0)
 		);
-		this.renderSummaryMetric(
-			summary,
-			"Mirrors",
-			summaries.reduce((total, board) => total + board.mirrorCount, 0)
-		);
+		this.renderSummaryMetric(summary, "Mirrors", mirrorCount);
+		summary.createDiv({
+			cls: "hermes-boards-view__summary-copy",
+			text: `${boardCount} boards from ${taskNoteCount} TaskNotes · ${mirrorCount} local mirrors`,
+		});
 	}
 
 	private renderSummaryMetric(container: HTMLElement, label: string, value: number): void {
@@ -401,34 +437,33 @@ export class HermesBoardsView extends BasesViewBase {
 
 	private renderBoardCard(container: HTMLElement, summary: HermesBoardSummary): void {
 		const card = container.createDiv({ cls: "hermes-boards-view__board" });
-		card.tabIndex = 0;
-		card.setAttribute("role", "button");
-		card.setAttribute("aria-label", `Open Hermes/${summary.slug} Kanban`);
-		setTooltip(card, `Open Hermes/${summary.slug} Kanban`, { placement: "top" });
-		card.addEventListener("click", (event) => {
-			event.preventDefault();
-			void this.openBoardKanban(summary.slug);
-		});
-		card.addEventListener("keydown", (event) => {
-			if (event.target !== card) {
-				return;
-			}
-			if (event.key !== "Enter" && event.key !== " ") {
-				return;
-			}
-			event.preventDefault();
-			void this.openBoardKanban(summary.slug);
-		});
 
 		const header = card.createDiv({ cls: "hermes-boards-view__board-header" });
 		const title = header.createDiv({ cls: "hermes-boards-view__board-title" });
-		title.createDiv({ cls: "hermes-boards-view__board-name", text: summary.slug });
+		const titleButton = title.createEl("button", {
+			cls: "hermes-boards-view__board-name hermes-boards-view__title-link",
+			attr: { type: "button", "aria-label": `Open Hermes/${summary.slug} Kanban` },
+			text: summary.slug,
+		});
+		titleButton.addEventListener("click", (event) => {
+			event.preventDefault();
+			void this.openBoardKanban(summary.slug);
+		});
 		title.createDiv({
 			cls: "hermes-boards-view__board-source",
 			text: this.formatSource(summary.source),
 		});
-		const deleteButton = header.createEl("button", {
-			cls: "hermes-boards-view__delete-button",
+		const actions = header.createEl("details", {
+			cls: "hermes-boards-view__board-actions",
+		});
+		const actionsSummary = actions.createEl("summary", {
+			cls: "hermes-boards-view__actions-toggle",
+			attr: { "aria-label": `Board actions for Hermes/${summary.slug}` },
+			text: "Actions",
+		});
+		setTooltip(actionsSummary, `Board actions for Hermes/${summary.slug}`, { placement: "top" });
+		const deleteButton = actions.createEl("button", {
+			cls: "hermes-boards-view__delete-button hermes-boards-view__secondary-action",
 			attr: {
 				type: "button",
 				"aria-label": `Delete Hermes/${summary.slug}`,
@@ -437,6 +472,7 @@ export class HermesBoardsView extends BasesViewBase {
 		deleteButton.disabled = this.isProtectedBoard(summary.slug);
 		const deleteIcon = deleteButton.createSpan({ cls: "hermes-boards-view__button-icon" });
 		setIcon(deleteIcon, "trash-2");
+		deleteButton.createSpan({ text: "Delete board" });
 		setTooltip(
 			deleteButton,
 			this.isProtectedBoard(summary.slug)
@@ -455,8 +491,9 @@ export class HermesBoardsView extends BasesViewBase {
 		this.renderBoardMetric(metrics, "Running", summary.runningCount);
 		this.renderBoardMetric(metrics, "Review", summary.reviewCount);
 		this.renderBoardMetric(metrics, "Blocked", summary.blockedCount);
-		this.renderBoardMetric(metrics, "Done", summary.doneCount);
-		this.renderBoardMetric(metrics, "Mirrors", summary.mirrorCount);
+		this.renderBoardMetric(metrics, this.formatSource(summary.source), summary.source === "live" ? 0 : summary.mirrorCount);
+		this.renderBoardMetric(metrics, "Done", summary.doneCount, true);
+		this.renderBoardMetric(metrics, "Mirrors", summary.mirrorCount, true);
 
 		card.createDiv({
 			cls: "hermes-boards-view__agents",
@@ -465,10 +502,29 @@ export class HermesBoardsView extends BasesViewBase {
 					? `Agents: ${summary.agents.join(", ")}`
 					: "No assigned agents",
 		});
+
+		const openButton = card.createEl("button", {
+			cls: "hermes-boards-view__open-button",
+			attr: { type: "button", "aria-label": `Open Hermes/${summary.slug} kanban` },
+			text: "Open kanban",
+		});
+		openButton.addEventListener("click", (event) => {
+			event.preventDefault();
+			void this.openBoardKanban(summary.slug);
+		});
 	}
 
-	private renderBoardMetric(container: HTMLElement, label: string, value: number): void {
-		const metric = container.createDiv({ cls: "hermes-boards-view__metric" });
+	private renderBoardMetric(
+		container: HTMLElement,
+		label: string,
+		value: number,
+		secondary = false
+	): void {
+		const metric = container.createDiv({
+			cls: secondary
+				? "hermes-boards-view__metric hermes-boards-view__metric--secondary"
+				: "hermes-boards-view__metric",
+		});
 		metric.createSpan({ cls: "hermes-boards-view__metric-value", text: String(value) });
 		metric.createSpan({ cls: "hermes-boards-view__metric-label", text: label });
 	}
@@ -528,7 +584,7 @@ export class HermesBoardsView extends BasesViewBase {
 				new Notice(`Could not open Hermes/${board}: Kanban view was not created.`);
 				return;
 			}
-			await this.plugin.app.workspace.getLeaf("tab").openFile(file);
+			await this.plugin.app.workspace.getLeaf("tab").openFile(file, getHermesBoardKanbanOpenState(slug));
 		} catch (error) {
 			new Notice(`Could not open Hermes/${board}: ${getErrorMessage(error)}`);
 		}
