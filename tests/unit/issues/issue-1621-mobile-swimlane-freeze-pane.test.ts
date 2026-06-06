@@ -14,32 +14,26 @@ function extractCssBlock(css: string, selector: string): string {
 	return match?.[1] ?? "";
 }
 
-describe("Issue #1621: mobile Kanban swimlane label", () => {
-	it("disables the frozen swimlane label on mobile", () => {
+describe("Issue #1621: mobile Kanban swimlane sections", () => {
+	it("keeps swimlane sections compact on mobile", () => {
 		const css = readKanbanCss();
 		const block = extractCssBlock(
 			css,
-			"body.is-mobile .tasknotes-plugin .kanban-view__swimlane-label"
+			"body.is-mobile .tasknotes-plugin .kanban-view__swimlane-column"
 		);
 
-		expect(block).toContain("position: static;");
-		expect(block).toContain("z-index: auto;");
+		expect(block).toContain("padding: var(--tn-spacing-xs);");
+		expect(block).toContain("min-height: 56px;");
+		expect(block).toContain("max-height: none;");
 	});
 
-	it("forces the compact mobile swimlane label width", () => {
+	it("keeps swimlane boards column-oriented on mobile", () => {
 		const css = readKanbanCss();
 		const boardBlock = extractCssBlock(
 			css,
 			"body.is-mobile .tasknotes-plugin .kanban-view__board--swimlanes"
 		);
-		const labelBlock = extractCssBlock(
-			css,
-			"body.is-mobile .tasknotes-plugin .kanban-view__swimlane-row > .kanban-view__swimlane-label"
-		);
 
-		expect(boardBlock).toContain("--kanban-swimlane-label-width: 72px;");
-		expect(labelBlock).toContain("width: var(--kanban-swimlane-label-width);");
-		expect(labelBlock).toContain("min-width: var(--kanban-swimlane-label-width);");
-		expect(labelBlock).toContain("max-width: var(--kanban-swimlane-label-width);");
+		expect(boardBlock).toContain("--kanban-column-width: minmax(156px, 64vw);");
 	});
 });

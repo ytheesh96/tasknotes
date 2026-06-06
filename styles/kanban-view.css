@@ -342,6 +342,25 @@
     white-space: nowrap;
 }
 
+.tasknotes-plugin .kanban-view__scope-selection-checkbox {
+    accent-color: var(--interactive-accent);
+    cursor: pointer;
+    flex: 0 0 auto;
+    height: 14px;
+    margin: 0;
+    width: 14px;
+}
+
+.tasknotes-plugin .kanban-view__scope-selection-checkbox:disabled {
+    cursor: default;
+    opacity: 0.36;
+}
+
+.tasknotes-plugin .kanban-view__swimlane-section-header .kanban-view__scope-selection-checkbox {
+    height: 13px;
+    width: 13px;
+}
+
 .tasknotes-plugin .kanban-view__column-icon {
     display: inline-flex;
     align-items: center;
@@ -462,12 +481,6 @@
     position: relative;
 }
 
-/* Virtualized swimlane cells should fill their container. */
-.tasknotes-plugin .kanban-view__tasks-container--virtual {
-    height: 100%;
-    position: relative;
-}
-
 /* Dragging state for card wrappers */
 .tasknotes-plugin .kanban-view__card-wrapper[draggable="true"]:hover {
     cursor: grab;
@@ -549,26 +562,7 @@ body.is-mobile .tasknotes-plugin .kanban-view__column {
 }
 
 body.is-mobile .tasknotes-plugin .kanban-view__board--swimlanes {
-    --kanban-swimlane-label-width: 72px;
     --kanban-column-width: minmax(156px, 64vw);
-}
-
-body.is-mobile .tasknotes-plugin .kanban-view__swimlane-row {
-    grid-template-columns: var(--kanban-swimlane-label-width);
-    grid-auto-columns: var(--kanban-column-width);
-    align-items: start;
-}
-
-body.is-mobile .tasknotes-plugin .kanban-view__swimlane-row > .kanban-view__swimlane-label {
-    width: var(--kanban-swimlane-label-width);
-    min-width: var(--kanban-swimlane-label-width);
-    max-width: var(--kanban-swimlane-label-width);
-}
-
-body.is-mobile .tasknotes-plugin .kanban-view__swimlane-label {
-    position: static;
-    z-index: auto;
-    overflow: hidden;
 }
 
 body.is-mobile .tasknotes-plugin .kanban-view__swimlane-title {
@@ -578,13 +572,8 @@ body.is-mobile .tasknotes-plugin .kanban-view__swimlane-title {
     white-space: nowrap;
 }
 
-body.is-mobile .tasknotes-plugin .kanban-view__swimlane-label,
-body.is-mobile .tasknotes-plugin .kanban-view__column-header-cell,
 body.is-mobile .tasknotes-plugin .kanban-view__swimlane-column {
     padding: var(--tn-spacing-xs);
-}
-
-body.is-mobile .tasknotes-plugin .kanban-view__swimlane-column {
     min-height: 56px;
     max-height: none;
 }

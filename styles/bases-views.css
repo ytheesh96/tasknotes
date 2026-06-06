@@ -1090,76 +1090,55 @@ body.is-mobile .tn-bases-kanban-column {
    SWIMLANE KANBAN LAYOUT
    ================================================ */
 
-/* Board with swimlanes - use CSS Grid instead of flexbox */
+/* Board with swimlanes */
 .kanban-view__board--swimlanes {
     display: flex;
-    flex-direction: column;
-    gap: var(--tn-spacing-sm);
+    align-items: flex-start;
+    flex-wrap: nowrap;
+    gap: var(--tn-spacing-md);
     overflow: auto;
-    padding: var(--tn-spacing-sm);
+    padding: var(--tn-spacing-md);
     min-height: 400px;
 }
 
-/* Each swimlane row */
-.kanban-view__swimlane-row {
-    display: grid;
-    flex: 0 0 auto;
-    /* First column is the swimlane label with fixed width, rest are kanban columns */
-    grid-template-columns: var(--kanban-swimlane-label-width, 120px);
-    grid-auto-columns: var(--kanban-column-width, 280px);
-    grid-auto-flow: column;
-    gap: 0;
-    background: transparent;
-    border: 1px solid var(--tn-border-color);
-    border-radius: var(--tn-radius-sm);
-    min-width: max-content;
+.kanban-view__column--swimlanes {
     overflow: hidden;
 }
 
-.kanban-view__swimlane-row:not(.kanban-view__swimlane-row--header) {
-    max-height: var(--kanban-swimlane-max-height, 600px);
-}
-
-/* Last row gets bottom border */
-.kanban-view__swimlane-row:last-child {
-    border-bottom: 1px solid var(--tn-border-color);
-}
-
-/* Header row styling */
-.kanban-view__swimlane-row--header {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    background: var(--tn-bg-secondary);
-    font-weight: var(--tn-font-weight-semibold);
-}
-
-/* Swimlane label cell (leftmost column) */
-.kanban-view__swimlane-label {
-    background: color-mix(in srgb, var(--tn-bg-secondary) 86%, var(--tn-bg-primary));
-    padding: var(--tn-spacing-md);
+.kanban-view__swimlane-groups {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.kanban-view__swimlane-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: var(--tn-spacing-xs);
-    align-items: flex-start;
-    justify-content: flex-start;
-    border-right: 1px solid var(--tn-border-color);
-    position: sticky;
-    left: 0;
-    z-index: 5;
-    min-height: 72px;
-    overflow: hidden;
+    padding-bottom: var(--tn-spacing-xs);
+}
+
+.kanban-view__swimlane-section-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--tn-spacing-xs);
+    flex: 0 0 auto;
 }
 
 /* Swimlane title */
 .kanban-view__swimlane-title {
     font-weight: var(--tn-font-weight-medium);
     color: var(--tn-text-normal);
-    font-size: var(--tn-font-size-md);
+    font-size: var(--tn-font-size-sm);
     display: flex;
     align-items: center;
     gap: 4px;
     max-width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -1172,6 +1151,30 @@ body.is-mobile .tn-bases-kanban-column {
     border: 1px solid color-mix(in srgb, var(--tn-border-color) 72%, transparent);
     padding: 2px 6px;
     border-radius: var(--tn-radius-sm);
+}
+
+.kanban-view__swimlane-add-task-button {
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+    flex: 0 0 22px;
+    color: var(--tn-text-muted);
+    border-radius: var(--tn-radius-sm);
+    opacity: 0.64;
+    transition: opacity var(--tn-transition-fast), color var(--tn-transition-fast), background-color var(--tn-transition-fast);
+}
+
+.kanban-view__swimlane-add-task-button:hover,
+.kanban-view__swimlane-add-task-button:focus-visible {
+    color: var(--tn-text-normal);
+    background: var(--tn-interactive-hover);
+    opacity: 1;
+}
+
+.kanban-view__swimlane-add-task-button svg {
+    width: 13px;
+    height: 13px;
 }
 
 .kanban-view__swimlane-label--hermes-run {
@@ -1234,8 +1237,8 @@ body.is-mobile .tn-bases-kanban-column {
     font-weight: var(--tn-font-weight-medium);
 }
 
-.kanban-view__swimlane-row--collapsed {
-    max-height: none;
+.kanban-view__swimlane-column--collapsed {
+    min-height: 72px;
 }
 
 .kanban-view__swimlane-column--collapsed-summary {
@@ -1244,62 +1247,24 @@ body.is-mobile .tn-bases-kanban-column {
     min-height: 72px;
 }
 
-/* Column header cell in header row */
-.kanban-view__column-header-cell {
-    background: var(--tn-bg-secondary);
-    padding: var(--tn-spacing-sm) var(--tn-spacing-md);
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    text-align: left;
-    cursor: grab;
-    user-select: none;
-    transition: background-color var(--tn-transition-fast), box-shadow var(--tn-transition-fast), opacity var(--tn-transition-fast), transform var(--tn-transition-fast);
-    gap: var(--tn-spacing-xs);
-    min-height: 40px;
-    border-right: 1px solid var(--tn-border-color);
-}
-
-.kanban-view__column-header-cell:active {
-    cursor: grabbing;
-}
-
-.kanban-view__column-header-cell--dragging {
-    opacity: 0.5;
-    box-shadow: var(--tn-shadow-medium);
-}
-
-@media (pointer: coarse) {
-    .kanban-view__column-header-cell--dragging {
-        pointer-events: none;
-    }
-}
-
-.kanban-view__column-header-cell .kanban-view__column-title {
-    font-size: var(--tn-font-size-md);
-    font-weight: var(--tn-font-weight-semibold);
-    color: var(--tn-text-normal);
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.kanban-view__column-header-cell--unknown-status {
-    background: var(--tn-bg-primary);
-    color: var(--tn-text-muted);
-}
-
-/* Individual swimlane column cells (data cells) */
+/* Individual swimlane groups inside a status column */
 .kanban-view__swimlane-column {
     background: color-mix(in srgb, var(--tn-bg-primary) 92%, var(--tn-bg-secondary));
     padding: var(--tn-spacing-sm);
-    min-height: 112px;
-    max-height: var(--kanban-swimlane-max-height, 600px);
+    min-height: 96px;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--tn-border-color);
-    overflow: hidden;
+    flex: 0 0 auto;
+    border-top: 1px solid var(--tn-border-color);
+    overflow: visible;
+}
+
+.kanban-view__swimlane-groups > .kanban-view__swimlane-column:first-child {
+    border-top: 0;
+}
+
+.kanban-view__swimlane-column--empty-column {
+    min-height: 160px;
 }
 
 .kanban-view__swimlane-column.kanban-view__column--unknown-status {
@@ -1312,9 +1277,9 @@ body.is-mobile .tn-bases-kanban-column {
     display: flex;
     flex-direction: column;
     gap: var(--tn-spacing-xs);
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
+    flex: 0 0 auto;
+    overflow: visible;
+    min-height: auto;
 }
 
 /* Drag over state for swimlane cells */
@@ -1326,27 +1291,14 @@ body.is-mobile .tn-bases-kanban-column {
 
 /* Responsive adjustments for swimlanes */
 @media (max-width: 1200px) {
-    .kanban-view__swimlane-row > :first-child {
-        width: 150px;
-        min-width: 150px;
-    }
-
-    .kanban-view__swimlane-label {
+    .kanban-view__swimlane-column {
         padding: var(--tn-spacing-sm);
     }
 }
 
 @media (max-width: 768px) {
-    .kanban-view__swimlane-row > :first-child {
-        width: 120px;
-        min-width: 120px;
-    }
-
     .kanban-view__swimlane-title {
         font-size: var(--tn-font-size-sm);
     }
 
-    .kanban-view__column-header-cell .kanban-view__column-title {
-        font-size: var(--tn-font-size-sm);
-    }
 }

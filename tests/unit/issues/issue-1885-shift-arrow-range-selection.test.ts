@@ -36,6 +36,29 @@ describe("Issue #1885: Shift+arrow range selection", () => {
 		expect(service.getSelectedPaths()).toEqual(["Tasks/a.md"]);
 	});
 
+	it("selects and deselects task path groups without replacing unrelated selections", () => {
+		const service = createSelectionService();
+		service.selectTask("Tasks/existing.md");
+
+		service.selectPaths(["Tasks/a.md", "Tasks/b.md"]);
+
+		expect(service.isSelectionModeActive()).toBe(true);
+		expect(service.getSelectedPaths()).toEqual([
+			"Tasks/existing.md",
+			"Tasks/a.md",
+			"Tasks/b.md",
+		]);
+
+		service.deselectPaths(["Tasks/a.md", "Tasks/missing.md"]);
+
+		expect(service.getSelectedPaths()).toEqual(["Tasks/existing.md", "Tasks/b.md"]);
+
+		service.deselectPaths(["Tasks/existing.md", "Tasks/b.md"]);
+
+		expect(service.getSelectedPaths()).toEqual([]);
+		expect(service.isSelectionModeActive()).toBe(false);
+	});
+
 	it("hydrates selected tasks from note frontmatter before pending cache data", async () => {
 		const staleTask = {
 			title: "Stale pending title",

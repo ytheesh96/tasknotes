@@ -26,6 +26,7 @@ Example:
 
 ## Added
 
+- Added Kanban column and swimlane header checkboxes for selecting or clearing all visible tasks in that column or column/swimlane section.
 - Added a Hermes availability service for the TaskNotes modal that checks localhost dashboard/API health, reports cache-only/read-only modes, and supports desktop-only startup with the safe localhost dashboard command.
 - Added Hermes task edit modal availability indicators, cache-only labeling, disabled live controls when disconnected, and Start Hermes/Recheck actions that reload live board data after startup.
 - Added implementation notes for Hermes availability states, cache-only labels, desktop startup behavior, and unavailable/startup failure copy in the TaskNotes modal.
@@ -37,7 +38,7 @@ Example:
 - Added a dedicated Hermes Boards Bases view for creating, refreshing, opening, and deleting Hermes boards, including local mirror cleanup after a board is archived through Hermes.
 - Added dry-run Hermes canonical migration/backfill tooling that inventories legacy mirrors, duplicate and orphan candidates, property backfills, and non-destructive activity relocation plans before any writes are enabled.
 - Added a Kanban CLI-backed Hermes task creation transport for TaskNotes submissions when the dashboard API is not the selected write path, with concise transport setup and troubleshooting documentation.
-- Added Hermes run swimlane rows in Kanban bases with run headers, expanded/collapsed states, status-aligned collapsed counts, and visible No run/Unknown run copy, selectable through the existing Kanban grouping controls rather than a separate generated Runs view.
+- Added Hermes run swimlanes in Kanban bases with run headers, expanded/collapsed states, status-aligned collapsed counts, and visible No run/Unknown run copy, selectable through the existing Kanban grouping controls rather than a separate generated Runs view.
 - Added Hermes run swimlane rollout guidance covering safe rollback, conservative backfill, v1 explicit reassignment semantics, and non-regression coverage expectations.
 
 ## Changed
@@ -116,4 +117,5 @@ Example:
 - Fixed Hermes archived-task filtering in generated Bases board views so the TaskNotes Kanban layout hides boolean and stringified archived flags by default and can reveal them with the per-view archived-task toggle; existing generated archive views are removed when board provisioning runs again.
 - Fixed Hermes board provisioning so shared root filters no longer exclude archived tasks before the TaskNotes Kanban archived-task toggle can decide whether to show them.
 - Fixed Hermes-managed TaskNotes archive handling so `hermesArchived` is the archive source of truth for task reads, Bases archived filters, and archive/unarchive actions instead of the generic archive tag.
+- Fixed Kanban swimlane rendering so swimlanes are grouped inside shared status columns, hidden empty columns stay hidden, each column uses one shared scroll area without per-swimlane height caps, and compact add-task controls live in each swimlane header.
 - Fixed the Agent Roster Bases view so completed-only agents and completed task history stay hidden until the user explicitly opens the history section.

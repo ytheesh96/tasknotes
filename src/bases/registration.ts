@@ -121,15 +121,6 @@ export async function registerBasesTaskList(plugin: TaskNotesPlugin): Promise<vo
 						step: 20,
 					},
 					{
-						type: "slider",
-						key: "maxSwimlaneHeight",
-						displayName: "Max Swimlane Height",
-						default: 600,
-						min: 300,
-						max: 1200,
-						step: 50,
-					},
-					{
 						type: "toggle",
 						key: "hideEmptyColumns",
 						displayName: "Hide Empty Columns",

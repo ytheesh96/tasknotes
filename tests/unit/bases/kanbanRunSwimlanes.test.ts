@@ -75,6 +75,25 @@ function createKanbanView(): KanbanView {
 	return view;
 }
 
+function attachSelectionService(view: KanbanView, selectedPaths: Set<string> = new Set()) {
+	const service = {
+		isSelected: jest.fn((path: string) => selectedPaths.has(path)),
+		getPrimarySelectedPath: jest.fn(() => selectedPaths.values().next().value ?? null),
+		selectPaths: jest.fn((paths: string[]) => {
+			for (const path of paths) {
+				selectedPaths.add(path);
+			}
+		}),
+		deselectPaths: jest.fn((paths: string[]) => {
+			for (const path of paths) {
+				selectedPaths.delete(path);
+			}
+		}),
+	};
+	(view as any).plugin.taskSelectionService = service;
+	return service;
+}
+
 describe("Hermes run swimlane helpers", () => {
 	const activeLane: HermesRunLaneLike = {
 		id: "run_active",
@@ -334,15 +353,16 @@ describe("Hermes run swimlane helpers", () => {
 			"status"
 		);
 
-		const row = boardEl.querySelector<HTMLElement>("[data-run-lane-id='run_done']");
-		expect(row).not.toBeNull();
-		expect(row?.classList.contains("kanban-view__swimlane-row--collapsed")).toBe(true);
-		expect(row?.querySelector(".kanban-view__card-wrapper")).toBeNull();
-		expect(row?.textContent).toContain("Completed run");
-		expect(row?.textContent).toContain("done: 1");
+		const cell = boardEl.querySelector<HTMLElement>("[data-run-lane-id='run_done']");
+		expect(cell).not.toBeNull();
+		expect(cell?.classList.contains("kanban-view__swimlane-column--collapsed")).toBe(true);
+		expect(boardEl.querySelector(".kanban-view__swimlane-row")).toBeNull();
+		expect(boardEl.querySelector(".kanban-view__card-wrapper")).toBeNull();
+		expect(cell?.textContent).toContain("Completed run");
+		expect(boardEl.textContent).toContain("done: 1");
 	});
 
-	it("renders expanded Hermes run rows as normal status columns with task cards", async () => {
+	it("renders expanded Hermes run swimlanes inside status columns with task cards", async () => {
 		const view = createKanbanView();
 		const boardEl = document.createElement("div");
 		(view as any).boardEl = boardEl;
@@ -384,23 +404,114 @@ describe("Hermes run swimlane helpers", () => {
 			"status"
 		);
 
-		const row = boardEl.querySelector<HTMLElement>("[data-run-lane-id='run_active']");
-		expect(row).not.toBeNull();
-		expect(row?.classList.contains("kanban-view__swimlane-row--collapsed")).toBe(false);
+		const cell = boardEl.querySelector<HTMLElement>("[data-run-lane-id='run_active']");
+		expect(cell).not.toBeNull();
+		expect(cell?.classList.contains("kanban-view__swimlane-column--collapsed")).toBe(false);
+		expect(boardEl.querySelector(".kanban-view__swimlane-row")).toBeNull();
+		expect(boardEl.querySelector(".kanban-view__swimlane-grid")).toBeNull();
 		expect(
-			Array.from(row?.querySelectorAll(".kanban-view__swimlane-column") ?? []).map((cell) =>
-				cell.getAttribute("data-column")
-			)
+			Array.from(
+				boardEl.querySelectorAll(
+					".kanban-view__swimlane-column[data-swimlane='run_active']"
+				)
+			).map((cell) => cell.getAttribute("data-column"))
 		).toEqual(["todo", "running"]);
 		expect(
-			Array.from(row?.querySelectorAll(".kanban-view__card-wrapper") ?? []).map((card) =>
+			Array.from(boardEl.querySelectorAll(".kanban-view__card-wrapper")).map((card) =>
 				card.getAttribute("data-task-path")
 			)
 		).toEqual([todoTask.path, runningTask.path]);
-		expect(row?.querySelector(".kanban-view__swimlane-column--collapsed-summary")).toBeNull();
+		expect(boardEl.querySelector(".kanban-view__swimlane-column--collapsed-summary")).toBeNull();
 	});
 
-	it("renders No run and Unknown run rows when populated", async () => {
+	it("groups swimlanes only inside columns that contain matching tasks", async () => {
+		const view = createKanbanView();
+		const selectedPaths = new Set<string>();
+		const selectionService = attachSelectionService(view, selectedPaths);
+		const boardEl = document.createElement("div");
+		(view as any).boardEl = boardEl;
+		(view as any).swimLanePropertyId = "hermesBoard";
+		(view as any).hideEmptyColumns = true;
+		(view as any).hideEmptySwimLanes = true;
+
+		const defaultTodo = createTask("tasks/default-todo.md", "todo");
+		const liveTodo = createTask("tasks/live-todo.md", "todo");
+		const defaultRunning = createTask("tasks/default-running.md", "running");
+
+		await (view as any).renderSwimLaneTable(
+			new Map([
+				[
+					"default",
+					new Map([
+						["todo", [defaultTodo]],
+						["running", [defaultRunning]],
+					]),
+				],
+				[
+					"live-archived-check",
+					new Map([
+						["todo", [liveTodo]],
+						["running", []],
+					]),
+				],
+			]),
+			["triage", "todo", "ready", "running", "blocked"],
+			new Map(),
+			"status"
+		);
+
+		const columns = Array.from(boardEl.querySelectorAll<HTMLElement>(".kanban-view__column"));
+		expect(columns.map((column) => column.getAttribute("data-column"))).toEqual([
+			"todo",
+			"running",
+		]);
+		expect(
+			Array.from(
+				columns[0].querySelectorAll<HTMLElement>(".kanban-view__swimlane-column")
+			).map((cell) => cell.getAttribute("data-swimlane"))
+		).toEqual(["default", "live-archived-check"]);
+		const firstLane = columns[0].querySelector<HTMLElement>(
+			".kanban-view__swimlane-column[data-swimlane='default']"
+		);
+		const headerButton = firstLane?.querySelector<HTMLElement>(
+			".kanban-view__swimlane-section-header .kanban-view__swimlane-add-task-button"
+		);
+		expect(headerButton?.getAttribute("aria-label")).toBe("Add task to todo / default");
+		const columnCheckbox = columns[0].querySelector<HTMLInputElement>(
+			".kanban-view__column-header .kanban-view__scope-selection-checkbox"
+		);
+		expect(columnCheckbox?.checked).toBe(false);
+		columnCheckbox!.checked = true;
+		columnCheckbox!.dispatchEvent(new Event("change", { bubbles: true }));
+		expect(selectionService.selectPaths).toHaveBeenCalledWith([
+			defaultTodo.path,
+			liveTodo.path,
+		]);
+
+		const swimlaneCheckbox = firstLane?.querySelector<HTMLInputElement>(
+			".kanban-view__swimlane-section-header .kanban-view__scope-selection-checkbox"
+		);
+		selectedPaths.clear();
+		selectedPaths.add(defaultTodo.path);
+		(view as any).updateSelectionVisuals();
+		expect(swimlaneCheckbox?.checked).toBe(true);
+		expect(swimlaneCheckbox?.indeterminate).toBe(false);
+		expect(columnCheckbox?.checked).toBe(false);
+		expect(columnCheckbox?.indeterminate).toBe(true);
+		swimlaneCheckbox!.checked = false;
+		swimlaneCheckbox!.dispatchEvent(new Event("change", { bubbles: true }));
+		expect(selectionService.deselectPaths).toHaveBeenCalledWith([defaultTodo.path]);
+		expect(firstLane?.querySelector(".kanban-view__add-task-footer")).toBeNull();
+		expect(
+			Array.from(
+				columns[1].querySelectorAll<HTMLElement>(".kanban-view__swimlane-column")
+			).map((cell) => cell.getAttribute("data-swimlane"))
+		).toEqual(["default"]);
+		expect(boardEl.querySelector(".kanban-view__swimlane-row")).toBeNull();
+		expect(boardEl.querySelector(".kanban-view__swimlane-grid")).toBeNull();
+	});
+
+	it("renders No run and Unknown run groups when populated", async () => {
 		const view = createKanbanView();
 		const boardEl = document.createElement("div");
 		(view as any).boardEl = boardEl;
