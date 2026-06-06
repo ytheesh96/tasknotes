@@ -124,29 +124,29 @@ describe("Hermes activity frontmatter snapshots", () => {
 
 		expect(frontmatter).toMatchObject({
 			[HERMES_ACTIVITY_FIELD_KEYS.feed]: [
-				"[[TaskNotes/Activity/t_2b5e2172/comments/t_2b5e2172-comment94|Comment 94]]",
-				"[[TaskNotes/Activity/t_2b5e2172/comments/t_2b5e2172-comment107|Comment 107]]",
-				"[[TaskNotes/Activity/t_2b5e2172/runs/t_2b5e2172-run12|Run 12]]",
-				"[[TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event200|Event 200]]",
-				"[[TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event201|Event 201]]",
-				"[[TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event202|Event 202]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/comments/t_2b5e2172-comment94|Comment 94]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/comments/t_2b5e2172-comment107|Comment 107]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/runs/t_2b5e2172-run12|Run 12]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event200|Event 200]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event201|Event 201]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event202|Event 202]]",
 			],
 			[HERMES_ACTIVITY_FIELD_KEYS.comments]: [
-				"[[TaskNotes/Activity/t_2b5e2172/comments/t_2b5e2172-comment94|Comment 94]]",
-				"[[TaskNotes/Activity/t_2b5e2172/comments/t_2b5e2172-comment107|Comment 107]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/comments/t_2b5e2172-comment94|Comment 94]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/comments/t_2b5e2172-comment107|Comment 107]]",
 			],
 			[HERMES_ACTIVITY_FIELD_KEYS.runs]: [
-				"[[TaskNotes/Activity/t_2b5e2172/runs/t_2b5e2172-run12|Run 12]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/runs/t_2b5e2172-run12|Run 12]]",
 			],
 			[HERMES_ACTIVITY_FIELD_KEYS.events]: [
-				"[[TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event200|Event 200]]",
-				"[[TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event201|Event 201]]",
-				"[[TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event202|Event 202]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event200|Event 200]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event201|Event 201]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event202|Event 202]]",
 			],
 			[HERMES_ACTIVITY_FIELD_KEYS.artifacts]: [
-				"[[TaskNotes/Activity/t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-16a2e63f|hermes-review-thread-card-qa-report.md]]",
-				"[[TaskNotes/Activity/t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-2a79c8ec|hermes-review-thread-card-qa-report.md]]",
-				"[[TaskNotes/Activity/t_2b5e2172/artifacts/t_2b5e2172-run12-run-12-bb45ac14|run-12.md]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-16a2e63f|hermes-review-thread-card-qa-report.md]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-2a79c8ec|hermes-review-thread-card-qa-report.md]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/artifacts/t_2b5e2172-run12-run-12-bb45ac14|run-12.md]]",
 			],
 			[HERMES_ACTIVITY_FIELD_KEYS.changedFiles]: ["src/modals/TaskEditModal.ts"],
 			[HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt]: "2026-06-02T02:00:00Z",
@@ -171,23 +171,23 @@ describe("Hermes activity frontmatter snapshots", () => {
 			taskId: "t_2b5e2172",
 		});
 		expect(notes.map((note) => note.path)).toEqual([
-			"TaskNotes/Activity/t_2b5e2172/comments/t_2b5e2172-comment94.md",
-			"TaskNotes/Activity/t_2b5e2172/comments/t_2b5e2172-comment107.md",
-			"TaskNotes/Activity/t_2b5e2172/runs/t_2b5e2172-run12.md",
-			"TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event200.md",
-			"TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event201.md",
-			"TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event202.md",
-			"TaskNotes/Activity/t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-16a2e63f.md",
-			"TaskNotes/Activity/t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-2a79c8ec.md",
-			"TaskNotes/Activity/t_2b5e2172/artifacts/t_2b5e2172-run12-run-12-bb45ac14.md",
-			"TaskNotes/Activity/t_2b5e2172/raw/t_2b5e2172-run12-metadata.md",
-			"TaskNotes/Activity/t_2b5e2172/raw/t_2b5e2172-event200-payload.md",
-			"TaskNotes/Activity/t_2b5e2172/raw/t_2b5e2172-event201-payload.md",
-			"TaskNotes/Activity/t_2b5e2172/raw/t_2b5e2172-event202-payload.md",
+			"TaskNotes/Activity/default--t_2b5e2172/comments/t_2b5e2172-comment94.md",
+			"TaskNotes/Activity/default--t_2b5e2172/comments/t_2b5e2172-comment107.md",
+			"TaskNotes/Activity/default--t_2b5e2172/runs/t_2b5e2172-run12.md",
+			"TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event200.md",
+			"TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event201.md",
+			"TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event202.md",
+			"TaskNotes/Activity/default--t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-16a2e63f.md",
+			"TaskNotes/Activity/default--t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-2a79c8ec.md",
+			"TaskNotes/Activity/default--t_2b5e2172/artifacts/t_2b5e2172-run12-run-12-bb45ac14.md",
+			"TaskNotes/Activity/default--t_2b5e2172/raw/t_2b5e2172-run12-metadata.md",
+			"TaskNotes/Activity/default--t_2b5e2172/raw/t_2b5e2172-event200-payload.md",
+			"TaskNotes/Activity/default--t_2b5e2172/raw/t_2b5e2172-event201-payload.md",
+			"TaskNotes/Activity/default--t_2b5e2172/raw/t_2b5e2172-event202-payload.md",
 		]);
 		expect(notes.find((note) => note.path.endsWith("comment94.md"))?.frontmatter).toMatchObject({
 			type: "hermes-comment",
-			hermesTask: "[[TaskNotes/Tasks/t_2b5e2172|t_2b5e2172]]",
+			hermesTask: "[[TaskNotes/Tasks/default--t_2b5e2172|t_2b5e2172]]",
 			hermesTaskId: "t_2b5e2172",
 			hermesCommentId: "94",
 			hermesCommentAuthor: "auto-decomposer",
@@ -196,8 +196,8 @@ describe("Hermes activity frontmatter snapshots", () => {
 			hermesCommentSummary:
 				"Decomposed into t_e775e4d5, t_867d671a. Root will wake when all children complete.",
 			hermesCommentTasks: [
-				"[[TaskNotes/Tasks/t_e775e4d5|t_e775e4d5]]",
-				"[[TaskNotes/Tasks/t_867d671a|t_867d671a]]",
+				"[[TaskNotes/Tasks/default--t_e775e4d5|t_e775e4d5]]",
+				"[[TaskNotes/Tasks/default--t_867d671a|t_867d671a]]",
 			],
 		});
 		expect(notes.find((note) => note.path.endsWith("comment107.md"))?.frontmatter).toMatchObject({
@@ -205,8 +205,8 @@ describe("Hermes activity frontmatter snapshots", () => {
 			hermesCommentKind: "review-required",
 			hermesCommentSummary: "Review the generated card.",
 			hermesCommentArtifacts: [
-				"[[TaskNotes/Activity/t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-16a2e63f|hermes-review-thread-card-qa-report.md]]",
-				"[[TaskNotes/Activity/t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-2a79c8ec|hermes-review-thread-card-qa-report.md]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-16a2e63f|hermes-review-thread-card-qa-report.md]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/artifacts/t_2b5e2172-comment107-hermes-review-thread-card-qa-report-2a79c8ec|hermes-review-thread-card-qa-report.md]]",
 			],
 		});
 		expect(notes.find((note) => note.path.endsWith("run12.md"))?.frontmatter).toMatchObject({
@@ -218,13 +218,13 @@ describe("Hermes activity frontmatter snapshots", () => {
 			hermesRunStartedAt: "2026-02-02T02:43:20Z",
 			hermesRunEndedAt: "2026-02-02T02:45:00Z",
 			hermesRunSignals: [
-				"[[TaskNotes/Activity/t_2b5e2172/events/t_2b5e2172-event200|Event 200]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/events/t_2b5e2172-event200|Event 200]]",
 			],
 			hermesRunArtifacts: [
-				"[[TaskNotes/Activity/t_2b5e2172/artifacts/t_2b5e2172-run12-run-12-bb45ac14|run-12.md]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/artifacts/t_2b5e2172-run12-run-12-bb45ac14|run-12.md]]",
 			],
 			hermesRunRawMetadata:
-				"[[TaskNotes/Activity/t_2b5e2172/raw/t_2b5e2172-run12-metadata|Run metadata]]",
+				"[[TaskNotes/Activity/default--t_2b5e2172/raw/t_2b5e2172-run12-metadata|Run metadata]]",
 		});
 		expect(notes.find((note) => note.path.endsWith("event202.md"))?.frontmatter).toMatchObject({
 			type: "hermes-event",
@@ -232,7 +232,7 @@ describe("Hermes activity frontmatter snapshots", () => {
 			hermesEventKind: "handoff",
 			hermesEventSummary: "Continue from t_e775e4d5.",
 			hermesEventCreatedAt: "2026-02-02T02:48:20Z",
-			hermesEventTasks: ["[[TaskNotes/Tasks/t_e775e4d5|t_e775e4d5]]"],
+			hermesEventTasks: ["[[TaskNotes/Tasks/default--t_e775e4d5|t_e775e4d5]]"],
 		});
 		expect(
 			notes.find((note) =>
@@ -240,7 +240,7 @@ describe("Hermes activity frontmatter snapshots", () => {
 			)?.frontmatter
 		).toMatchObject({
 			type: "hermes-artifact",
-			hermesTask: "[[TaskNotes/Tasks/t_2b5e2172|t_2b5e2172]]",
+			hermesTask: "[[TaskNotes/Tasks/default--t_2b5e2172|t_2b5e2172]]",
 			hermesTaskId: "t_2b5e2172",
 			hermesArtifactKind: "report",
 			hermesArtifactLabel: "hermes-review-thread-card-qa-report.md",
@@ -252,7 +252,7 @@ describe("Hermes activity frontmatter snapshots", () => {
 		expect(notes.find((note) => note.path.endsWith("run12-metadata.md"))).toMatchObject({
 			frontmatter: {
 				type: "hermes-raw",
-				hermesTask: "[[TaskNotes/Tasks/t_2b5e2172|t_2b5e2172]]",
+				hermesTask: "[[TaskNotes/Tasks/default--t_2b5e2172|t_2b5e2172]]",
 				hermesTaskId: "t_2b5e2172",
 				hermesRawSourceType: "run",
 				hermesRawSourceId: "12",
@@ -292,14 +292,14 @@ describe("Hermes activity frontmatter snapshots", () => {
 		}).map((note) => note.path);
 
 		expect(firstPaths).toEqual([
-			"TaskNotes/Activity/t_first123/comments/t_first123-comment1.md",
-			"TaskNotes/Activity/t_first123/runs/t_first123-run1.md",
-			"TaskNotes/Activity/t_first123/events/t_first123-event1.md",
+			"TaskNotes/Activity/default--t_first123/comments/t_first123-comment1.md",
+			"TaskNotes/Activity/default--t_first123/runs/t_first123-run1.md",
+			"TaskNotes/Activity/default--t_first123/events/t_first123-event1.md",
 		]);
 		expect(secondPaths).toEqual([
-			"TaskNotes/Activity/t_second45/comments/t_second45-comment1.md",
-			"TaskNotes/Activity/t_second45/runs/t_second45-run1.md",
-			"TaskNotes/Activity/t_second45/events/t_second45-event1.md",
+			"TaskNotes/Activity/default--t_second45/comments/t_second45-comment1.md",
+			"TaskNotes/Activity/default--t_second45/runs/t_second45-run1.md",
+			"TaskNotes/Activity/default--t_second45/events/t_second45-event1.md",
 		]);
 		expect(new Set([...firstPaths, ...secondPaths]).size).toBe(6);
 	});

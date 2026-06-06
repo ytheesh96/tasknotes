@@ -43,17 +43,17 @@ describe("Hermes mirror note content", () => {
 		expect(content).toContain("hermesBoard: job-hunt");
 		expect(content).toContain("hermesAssignee: research-librarian");
 		expect(content).toContain("blockedBy:");
-		expect(content).toContain("[[TaskNotes/Tasks/job-hunt/t_parent.md]]");
-		expect(content).not.toContain("[[TaskNotes/Tasks/job-hunt/t_child.md]]");
+		expect(content).toContain("[[TaskNotes/Tasks/job-hunt--t_parent.md]]");
+		expect(content).not.toContain("[[TaskNotes/Tasks/job-hunt--t_child.md]]");
 		expect(content).toContain("hermesDependencyEdges:");
 		expect(content).toContain("t_body_only->t_child");
 		expect(content).toContain("hermesActivityFeed:");
 		expect(content).toContain("hermesComments:");
 		expect(content).toContain("hermesRuns:");
 		expect(content).toContain("hermesEvents:");
-		expect(content).toContain("[[TaskNotes/Activity/job-hunt/t_body_only/comments/t_body_only-comment1|Comment 1]]");
-		expect(content).toContain("[[TaskNotes/Activity/job-hunt/t_body_only/runs/t_body_only-run12|Run 12]]");
-		expect(content).toContain("[[TaskNotes/Activity/job-hunt/t_body_only/events/t_body_only-event1|Event 1]]");
+		expect(content).toContain("[[TaskNotes/Activity/job-hunt--t_body_only/comments/t_body_only-comment1|Comment 1]]");
+		expect(content).toContain("[[TaskNotes/Activity/job-hunt--t_body_only/runs/t_body_only-run12|Run 12]]");
+		expect(content).toContain("[[TaskNotes/Activity/job-hunt--t_body_only/events/t_body_only-event1|Event 1]]");
 		expect(content).not.toContain("comments:");
 		expect(content).not.toContain("runs:");
 		expect(content).not.toContain("events:");
@@ -105,7 +105,7 @@ describe("Hermes mirror note content", () => {
 			priority: 5,
 		};
 		const legacyPath = "TaskNotes/default/t_migrate.md";
-		const canonicalPath = "TaskNotes/Tasks/default/t_migrate.md";
+		const canonicalPath = "TaskNotes/Tasks/default--t_migrate.md";
 		const legacyFile = Object.assign(new TFile(), { path: legacyPath });
 		const legacyTaskInfo: TaskInfo = {
 			title: "Migrated mirror",
@@ -166,6 +166,90 @@ describe("Hermes mirror note content", () => {
 		);
 	});
 
+	it("ignores an unqualified legacy mirror from a different board with the same task id", async () => {
+		const task: HermesTaskRecord = {
+			id: "t_shared",
+			title: "Job hunt shared id",
+			status: "done",
+			priority: 5,
+		};
+		const wrongLegacyPath = "TaskNotes/Tasks/t_shared.md";
+		const canonicalPath = "TaskNotes/Tasks/job-hunt--t_shared.md";
+		const wrongLegacyFile = Object.assign(new TFile(), { path: wrongLegacyPath });
+		const wrongLegacyTaskInfo: TaskInfo = {
+			title: "Default shared id",
+			status: "done",
+			priority: "normal",
+			path: wrongLegacyPath,
+			tags: ["task"],
+			contexts: [],
+			projects: [],
+			archived: false,
+			dateCreated: "2026-01-01T00:00:00Z",
+			completedDate: "2026-01-01T01:00:00Z",
+			blockedBy: [{ type: "note", uid: "TaskNotes/Tasks/default--t_parent.md" }],
+			customProperties: {
+				hermesTaskId: "t_shared",
+				hermesBoard: "default",
+				hermesActivityFeed: [
+					"[[TaskNotes/Activity/default--t_shared/comments/t_shared-comment1|Comment 1]]",
+				],
+				hermesComments: [
+					"[[TaskNotes/Activity/default--t_shared/comments/t_shared-comment1|Comment 1]]",
+				],
+				hermesActivitySyncedAt: "2026-01-01T02:00:00Z",
+				hermesActivityCommentCount: 1,
+				hermesActivityRunCount: 0,
+				hermesActivityEventCount: 0,
+			},
+		};
+		const createdNotes: Array<{ path: string; content: string }> = [];
+		const plugin = {
+			app: {
+				metadataCache: { getFileCache: jest.fn(() => null) },
+				vault: {
+					adapter: { exists: jest.fn().mockResolvedValue(true) },
+					createFolder: jest.fn(),
+					getAbstractFileByPath: jest.fn((path: string) =>
+						path === wrongLegacyPath ? wrongLegacyFile : null
+					),
+					read: jest.fn(),
+					modify: jest.fn(),
+					create: jest.fn(async (path: string, content: string) => {
+						createdNotes.push({ path, content });
+						const file = new TFile();
+						(file as { path: string }).path = path;
+						return file;
+					}),
+				},
+			},
+			cacheManager: {
+				getTaskInfoFromFrontmatter: jest.fn(async (path: string) =>
+					path === wrongLegacyPath ? wrongLegacyTaskInfo : null
+				),
+				updateTaskInfoInCache: jest.fn(),
+			},
+			fieldMapper: { toUserField: jest.fn((field: string) => field) },
+			settings: { storeTitleInFilename: false, defaultTaskStatus: "triage" },
+		};
+
+		const result = await createOrUpdateHermesMirrorNote(plugin as never, "job-hunt", task);
+
+		expect(result.changed).toBe(true);
+		expect(createdNotes[0]?.path).toBe(canonicalPath);
+		expect(createdNotes[0]?.content).toContain("hermesBoard: job-hunt");
+		expect(createdNotes[0]?.content).toContain("hermesTaskId: t_shared");
+		expect(createdNotes[0]?.content).not.toContain("2026-01-01T00:00:00Z");
+		expect(createdNotes[0]?.content).not.toContain("2026-01-01T01:00:00Z");
+		expect(createdNotes[0]?.content).not.toContain("TaskNotes/Tasks/default--t_parent.md");
+		expect(createdNotes[0]?.content).not.toContain("TaskNotes/Activity/default--t_shared");
+		expect(plugin.app.vault.modify).not.toHaveBeenCalledWith(wrongLegacyFile, expect.any(String));
+		expect(plugin.cacheManager.updateTaskInfoInCache).toHaveBeenCalledWith(
+			canonicalPath,
+			expect.objectContaining({ path: canonicalPath })
+		);
+	});
+
 	it("skips an unchanged mirror rewrite when stable timestamps only exist in frontmatter properties", async () => {
 		const task: HermesTaskRecord = {
 			id: "t_stable",
@@ -174,7 +258,7 @@ describe("Hermes mirror note content", () => {
 			priority: 5,
 			body: "No semantic changes.",
 		};
-		const path = "TaskNotes/Tasks/default/t_stable.md";
+		const path = "TaskNotes/Tasks/default--t_stable.md";
 		const file = Object.assign(new TFile(), { path });
 		const existingContent = buildHermesMirrorContent("default", task, {
 			existingTaskInfo: {
@@ -234,7 +318,7 @@ describe("Hermes mirror note content", () => {
 
 		expect(content).toContain("hermesActivityFeed:");
 		expect(content).toContain("hermesComments:");
-		expect(content).toContain("[[TaskNotes/Activity/default/t_existing/comments/t_existing-comment1|Comment 1]]");
+		expect(content).toContain("[[TaskNotes/Activity/default--t_existing/comments/t_existing-comment1|Comment 1]]");
 		expect(content).not.toContain("comments:");
 		expect(content).not.toContain("review-required handoff");
 		expect(content).not.toContain("hermesActivityCommentCount:");
@@ -270,7 +354,7 @@ describe("Hermes mirror note content", () => {
 			title: "Sync me",
 			status: "done",
 			priority: "normal",
-			path: "TaskNotes/Tasks/default/t_sync.md",
+			path: "TaskNotes/Tasks/default--t_sync.md",
 			tags: ["task"],
 			contexts: [],
 			projects: [],
@@ -347,16 +431,16 @@ describe("Hermes mirror note content", () => {
 		expect(frontmatter.status).toBe("done");
 		expect(frontmatter.keep).toBe("preserved");
 		expect(frontmatter.hermesActivityFeed).toEqual([
-			"[[TaskNotes/Activity/default/t_sync/comments/t_sync-comment1|Comment 1]]",
-			"[[TaskNotes/Activity/default/t_sync/runs/t_sync-run7|Run 7]]",
-			"[[TaskNotes/Activity/default/t_sync/events/t_sync-event9|Event 9]]",
+			"[[TaskNotes/Activity/default--t_sync/comments/t_sync-comment1|Comment 1]]",
+			"[[TaskNotes/Activity/default--t_sync/runs/t_sync-run7|Run 7]]",
+			"[[TaskNotes/Activity/default--t_sync/events/t_sync-event9|Event 9]]",
 		]);
 		expect(frontmatter.hermesComments).toEqual([
-			"[[TaskNotes/Activity/default/t_sync/comments/t_sync-comment1|Comment 1]]",
+			"[[TaskNotes/Activity/default--t_sync/comments/t_sync-comment1|Comment 1]]",
 		]);
-		expect(frontmatter.hermesRuns).toEqual(["[[TaskNotes/Activity/default/t_sync/runs/t_sync-run7|Run 7]]"]);
+		expect(frontmatter.hermesRuns).toEqual(["[[TaskNotes/Activity/default--t_sync/runs/t_sync-run7|Run 7]]"]);
 		expect(frontmatter.hermesEvents).toEqual([
-			"[[TaskNotes/Activity/default/t_sync/events/t_sync-event9|Event 9]]",
+			"[[TaskNotes/Activity/default--t_sync/events/t_sync-event9|Event 9]]",
 		]);
 		expect(frontmatter.hermesAttachments).toBeUndefined();
 		expect(frontmatter.hermesChangedFiles).toBeUndefined();
@@ -366,10 +450,10 @@ describe("Hermes mirror note content", () => {
 		expect(frontmatter.artifacts).toBeUndefined();
 		expect(frontmatter.changedFiles).toBeUndefined();
 		expect(createdNotes.map((note) => note.path)).toEqual([
-			"TaskNotes/Activity/default/t_sync/comments/t_sync-comment1.md",
-			"TaskNotes/Activity/default/t_sync/runs/t_sync-run7.md",
-			"TaskNotes/Activity/default/t_sync/events/t_sync-event9.md",
-			"TaskNotes/Activity/default/t_sync/raw/t_sync-event9-payload.md",
+			"TaskNotes/Activity/default--t_sync/comments/t_sync-comment1.md",
+			"TaskNotes/Activity/default--t_sync/runs/t_sync-run7.md",
+			"TaskNotes/Activity/default--t_sync/events/t_sync-event9.md",
+			"TaskNotes/Activity/default--t_sync/raw/t_sync-event9-payload.md",
 		]);
 		expect(createdNotes.find((note) => note.path.endsWith("event9-payload.md"))?.content).toContain(
 			"type: hermes-raw"
@@ -379,13 +463,13 @@ describe("Hermes mirror note content", () => {
 		);
 		expect(updated.customProperties).toMatchObject({
 			hermesActivityFeed: [
-				"[[TaskNotes/Activity/default/t_sync/comments/t_sync-comment1|Comment 1]]",
-				"[[TaskNotes/Activity/default/t_sync/runs/t_sync-run7|Run 7]]",
-				"[[TaskNotes/Activity/default/t_sync/events/t_sync-event9|Event 9]]",
+				"[[TaskNotes/Activity/default--t_sync/comments/t_sync-comment1|Comment 1]]",
+				"[[TaskNotes/Activity/default--t_sync/runs/t_sync-run7|Run 7]]",
+				"[[TaskNotes/Activity/default--t_sync/events/t_sync-event9|Event 9]]",
 			],
-			hermesComments: ["[[TaskNotes/Activity/default/t_sync/comments/t_sync-comment1|Comment 1]]"],
-			hermesRuns: ["[[TaskNotes/Activity/default/t_sync/runs/t_sync-run7|Run 7]]"],
-			hermesEvents: ["[[TaskNotes/Activity/default/t_sync/events/t_sync-event9|Event 9]]"],
+			hermesComments: ["[[TaskNotes/Activity/default--t_sync/comments/t_sync-comment1|Comment 1]]"],
+			hermesRuns: ["[[TaskNotes/Activity/default--t_sync/runs/t_sync-run7|Run 7]]"],
+			hermesEvents: ["[[TaskNotes/Activity/default--t_sync/events/t_sync-event9|Event 9]]"],
 			keep: "preserved",
 		});
 		expect(updated.customProperties?.comments).toBeUndefined();

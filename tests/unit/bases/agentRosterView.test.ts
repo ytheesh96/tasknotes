@@ -293,12 +293,16 @@ describe("AgentRosterView", () => {
 
 	it("selects only local Hermes mirror notes for board deletion cleanup", () => {
 		const mirror = task({
-			path: "TaskNotes/job-hunt/t_abc12345.md",
+			path: "TaskNotes/Tasks/job-hunt--t_abc12345.md",
 			projects: ["Hermes/job-hunt"],
 		});
 		const otherBoardMirror = task({
-			path: "TaskNotes/default/t_abc12345.md",
+			path: "TaskNotes/Tasks/default--t_abc12345.md",
 			projects: ["Hermes/default"],
+		});
+		const legacyDirectBoardMirror = task({
+			path: "TaskNotes/job-hunt/t_legacy123.md",
+			projects: ["Hermes/job-hunt"],
 		});
 		const ordinaryNote = task({
 			path: "Notes/job-hunt.md",
@@ -311,9 +315,9 @@ describe("AgentRosterView", () => {
 
 		expect(
 			getLocalHermesMirrorTasksForBoard(
-				[mirror, otherBoardMirror, ordinaryNote, nestedNote],
+				[mirror, otherBoardMirror, legacyDirectBoardMirror, ordinaryNote, nestedNote],
 				"job-hunt"
 			)
-		).toEqual([mirror]);
+		).toEqual([mirror, legacyDirectBoardMirror]);
 	});
 });

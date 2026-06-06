@@ -70,7 +70,7 @@ describe("Hermes canonical migration tooling", () => {
 			{
 				taskId: "t_legacy",
 				board: "developer",
-				canonicalPath: "TaskNotes/Tasks/developer/t_legacy.md",
+				canonicalPath: "TaskNotes/Tasks/developer--t_legacy.md",
 				paths: ["TaskNotes/Tasks/t_legacy.md", "TaskNotes/developer/t_legacy.md"],
 			},
 		]);
@@ -88,7 +88,7 @@ describe("Hermes canonical migration tooling", () => {
 				board: "developer",
 				activityType: "comments",
 				fromPath: "TaskNotes/developer/activity/comments/t_legacy-comment42.md",
-				toPath: "TaskNotes/Activity/developer/t_legacy/comments/t_legacy-comment42.md",
+				toPath: "TaskNotes/Activity/developer--t_legacy/comments/t_legacy-comment42.md",
 				action: "copy",
 				destructive: false,
 				reason: "legacy-board-activity-path",

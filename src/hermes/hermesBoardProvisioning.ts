@@ -168,7 +168,6 @@ export function buildHermesBoardKanbanBase(
 	const blockedByProperty = getMappedField(fieldMapping, "blockedBy", "blockedBy");
 	const sortOrderProperty = getMappedField(fieldMapping, "sortOrder", "tasknotes_manual_order");
 	const title = formatBoardTitle(normalizedBoard);
-	const archiveTitle = `${title} Archive`;
 	const statusColumns = DEFAULT_STATUSES.map((status) => status.value).join(",");
 
 	return `  - type: tasknotesKanban
@@ -177,7 +176,6 @@ export function buildHermesBoardKanbanBase(
       and:
         - ${HERMES_TASK_ID_FRONTMATTER}.isEmpty() == false
         - ${HERMES_BOARD_FRONTMATTER} == "${escapeBasesStringLiteral(normalizedBoard)}"
-        - ${HERMES_ARCHIVED_FRONTMATTER} != true
     groupBy:
       property: ${statusProperty}
       direction: ASC
@@ -199,29 +197,9 @@ export function buildHermesBoardKanbanBase(
     options:
       columnWidth: 280
       hideEmptyColumns: false
+      showHermesArchivedTasks: false
     hideEmptyColumns: false
     pinnedColumns: ${statusColumns}
-  - type: table
-    name: "${escapeBasesStringLiteral(archiveTitle)}"
-    filters:
-      and:
-        - ${HERMES_TASK_ID_FRONTMATTER}.isEmpty() == false
-        - ${HERMES_BOARD_FRONTMATTER} == "${escapeBasesStringLiteral(normalizedBoard)}"
-        - ${HERMES_ARCHIVED_FRONTMATTER} == true
-    order:
-      - file.name
-      - ${statusProperty}
-      - ${priorityProperty}
-      - ${contextsProperty}
-      - ${projectsProperty}
-      - ${HERMES_BOARD_FRONTMATTER}
-      - ${HERMES_ARCHIVED_FRONTMATTER}
-      - ${dueProperty}
-      - ${scheduledProperty}
-      - ${blockedByProperty}
-    sort:
-      - property: ${HERMES_ARCHIVED_FRONTMATTER}
-        direction: DESC
 `;
 }
 
@@ -266,7 +244,8 @@ async function ensureSharedHermesKanbanBase(
 
 	const originalContent = await vault.read(existingView);
 	const existingContent = normalizeSharedHermesTaskScopeFilter(originalContent);
-	let nextContent = normalizeGeneratedSharedHermesKanbanBaseHeader(existingContent, host.settings);
+	let nextContent = normalizeRootHermesArchivedExclusionFilters(existingContent);
+	nextContent = normalizeGeneratedSharedHermesKanbanBaseHeader(nextContent, host.settings);
 	nextContent = ensureHermesBoardBaseProperties(nextContent);
 
 	if (boards.some((board) => isGeneratedHermesBoardStandaloneFile(nextContent, board))) {
@@ -316,6 +295,23 @@ function normalizeSharedHermesTaskScopeFilter(content: string): string {
 		return content;
 	}
 	return content.replace(/^\s*- file\.inFolder\("TaskNotes\/Tasks"\)\n/m, "");
+}
+
+function normalizeRootHermesArchivedExclusionFilters(content: string): string {
+	if (!isGeneratedHermesOnlySharedKanbanBase(content)) {
+		return content;
+	}
+	const viewsMatch = content.match(/^views:\s*$/m);
+	if (!viewsMatch || viewsMatch.index === undefined) {
+		return content;
+	}
+
+	const rootContent = content.slice(0, viewsMatch.index);
+	const viewsContent = content.slice(viewsMatch.index);
+	const normalizedRootContent = rootContent
+		.replace(new RegExp(`^\\s*- ${HERMES_ARCHIVED_FRONTMATTER} != true\\n`, "gm"), "")
+		.replace(new RegExp(`^\\s*- ${HERMES_ARCHIVED_FRONTMATTER} != "true"\\n`, "gm"), "");
+	return `${normalizedRootContent}${viewsContent}`;
 }
 
 function ensureHermesBoardBaseProperties(content: string): string {

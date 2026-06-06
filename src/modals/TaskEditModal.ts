@@ -46,6 +46,7 @@ import {
 	hasHermesActivityNotesChanged,
 } from "../hermes/hermesActivityFrontmatter";
 import { normalizeHermesAssignee } from "../hermes/hermesAssignee";
+import { canonicalHermesTaskPath } from "../hermes/hermesCanonicalTaskNotes";
 import {
 	canonicalHermesBoardProjects,
 	defaultHermesAssignees,
@@ -3198,7 +3199,7 @@ export class TaskEditModal extends TaskModal {
 
 		for (const taskId of normalizedIds) {
 			const directTask = board
-				? await getTaskInfoFromNoteFirst(this.plugin, `TaskNotes/${board}/${taskId}.md`)
+				? await getTaskInfoFromNoteFirst(this.plugin, canonicalHermesTaskPath(board, taskId))
 				: null;
 			if (directTask) {
 				resolved.set(taskId, directTask);

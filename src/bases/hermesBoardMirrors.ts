@@ -1,9 +1,13 @@
 import { TFile } from "obsidian";
 import type TaskNotesPlugin from "../main";
 import { EVENT_TASK_DELETED, type TaskInfo } from "../types";
-import { HERMES_BOARD_FRONTMATTER, canonicalHermesBoardValue } from "../hermes/hermesCanonicalTaskNotes";
+import {
+	HERMES_BOARD_FRONTMATTER,
+	canonicalHermesBoardValue,
+	canonicalHermesTaskPath,
+} from "../hermes/hermesCanonicalTaskNotes";
 
-function getBoardMirrorPathPrefix(board: string): string {
+function getLegacyBoardMirrorPathPrefix(board: string): string {
 	return `TaskNotes/${board}/`;
 }
 
@@ -11,7 +15,7 @@ export function getLocalHermesMirrorTasksForBoard(
 	tasks: readonly TaskInfo[],
 	board: string
 ): TaskInfo[] {
-	const prefix = getBoardMirrorPathPrefix(board);
+	const legacyPrefix = getLegacyBoardMirrorPathPrefix(board);
 	return tasks.filter((task) => {
 		const canonicalBoard = canonicalHermesBoardValue(
 			task.customProperties?.[HERMES_BOARD_FRONTMATTER]
@@ -19,10 +23,15 @@ export function getLocalHermesMirrorTasksForBoard(
 		if (canonicalBoard) {
 			return canonicalBoard === board;
 		}
-		if (!task.path.startsWith(prefix)) {
+		const canonicalMatch = task.path.match(/^TaskNotes\/Tasks\/([^/]+)--(t_[^/]+)\.md$/);
+		if (canonicalMatch) {
+			const [, pathBoard, taskId] = canonicalMatch;
+			return pathBoard === board && task.path === canonicalHermesTaskPath(pathBoard, taskId);
+		}
+		if (!task.path.startsWith(legacyPrefix)) {
 			return false;
 		}
-		return /^t_[^/]+\.md$/.test(task.path.slice(prefix.length));
+		return /^t_[^/]+\.md$/.test(task.path.slice(legacyPrefix.length));
 	});
 }
 

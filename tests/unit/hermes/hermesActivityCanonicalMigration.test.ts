@@ -43,14 +43,14 @@ describe("Hermes canonical activity mirror migration", () => {
 			"TaskNotes/old-board/activity/runs/t_activity-run142.md",
 		]);
 		expect(plan.legacy.map((item) => item.toPath)).toEqual([
-			"TaskNotes/Activity/developer/t_activity/runs/t_activity-run142.md",
+			"TaskNotes/Activity/developer--t_activity/runs/t_activity-run142.md",
 		]);
 		expect(plan.legacy.every((item) => item.action === "copy" && item.destructive === false)).toBe(true);
 		expect(plan.duplicates).toEqual([
 			{
 				taskId: "t_activity",
 				activityType: "comments",
-				canonicalPath: "TaskNotes/Activity/developer/t_activity/comments/t_activity-comment11.md",
+				canonicalPath: "TaskNotes/Activity/developer--t_activity/comments/t_activity-comment11.md",
 				paths: [
 					"TaskNotes/Activity/t_activity/comments/t_activity-comment11.md",
 					"TaskNotes/default/activity/comments/t_activity-comment11.md",

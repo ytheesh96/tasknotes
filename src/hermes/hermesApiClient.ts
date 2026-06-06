@@ -6,7 +6,7 @@ import {
 } from "./hermesCanonicalTaskNotes";
 
 const DEFAULT_HERMES_KANBAN_API_BASE = "http://127.0.0.1:9119/api/plugins/kanban";
-const TASKNOTES_CANONICAL_BOARD_TASK_PATH = /^TaskNotes\/Tasks\/([^/]+)\/(t_[^/]+)\.md$/;
+const TASKNOTES_CANONICAL_BOARD_TASK_PATH = /^TaskNotes\/Tasks\/(.+)--(t_[^/]+)\.md$/;
 const TASKNOTES_LEGACY_UNQUALIFIED_TASK_PATH = /^TaskNotes\/Tasks\/(t_[^/]+)\.md$/;
 const TASKNOTES_LEGACY_BOARD_TASK_PATH = /^TaskNotes\/([^/]+)\/(t_[^/]+)\.md$/;
 const RESERVED_TASKNOTES_FOLDERS = new Set(["Activity", "Hermes", "Tasks", "Views"]);

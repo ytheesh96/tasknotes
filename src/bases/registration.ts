@@ -136,6 +136,12 @@ export async function registerBasesTaskList(plugin: TaskNotesPlugin): Promise<vo
 						default: false,
 					},
 					{
+						type: "toggle",
+						key: "showHermesArchivedTasks",
+						displayName: "Show Hermes archived tasks",
+						default: false,
+					},
+					{
 						type: "text",
 						key: "pinnedColumns",
 						displayName: "Pinned Columns",

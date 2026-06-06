@@ -33,6 +33,22 @@ describe("HermesKanbanApiClient", () => {
 		});
 	});
 
+	it("resolves board and task id from the board-qualified canonical TaskNotes path", () => {
+		const task = {
+			title: "Example",
+			status: "triage",
+			priority: "normal",
+			path: "TaskNotes/Tasks/default--t_1234.md",
+			archived: false,
+			tags: ["task", "hermes-kanban"],
+		} satisfies TaskInfo;
+
+		expect(getHermesTaskIdentity(task)).toEqual({
+			board: "default",
+			id: "t_1234",
+		});
+	});
+
 	it("does not treat legacy Hermes mirror paths as board task identities", () => {
 		const task = {
 			title: "Example",

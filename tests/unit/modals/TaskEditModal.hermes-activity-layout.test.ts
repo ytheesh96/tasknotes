@@ -1602,7 +1602,7 @@ describe("TaskEditModal Hermes activity layout", () => {
 		const app = MockObsidian.createMockApp() as unknown as App;
 		const frontmatterChild = {
 			...createHermesTask(),
-			path: "TaskNotes/default/t_e775e4d5.md",
+			path: "TaskNotes/Tasks/default--t_e775e4d5.md",
 			title: "Fresh frontmatter child",
 			status: "done",
 		};

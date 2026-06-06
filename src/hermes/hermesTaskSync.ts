@@ -608,7 +608,7 @@ function getHermesOwnedDependencyEdges(task: TaskInfo, taskId: string): string[]
 		.filter((item) => item.startsWith("t_"));
 }
 
-function getHermesBlockedByTaskIds(_board: string, task: TaskInfo): string[] {
+function getHermesBlockedByTaskIds(board: string, task: TaskInfo): string[] {
 	const prefix = "[[TaskNotes/Tasks/";
 	return (task.blockedBy ?? [])
 		.map((dependency) => {
@@ -617,7 +617,10 @@ function getHermesBlockedByTaskIds(_board: string, task: TaskInfo): string[] {
 			}
 			const pathTail = dependency.uid.slice(prefix.length);
 			const separatorIndex = pathTail.search(/[\]|#]/);
-			const id = separatorIndex >= 0 ? pathTail.slice(0, separatorIndex) : pathTail;
+			const pathWithoutSuffix = separatorIndex >= 0 ? pathTail.slice(0, separatorIndex) : pathTail;
+			const id = pathWithoutSuffix.startsWith(`${board}--`)
+				? pathWithoutSuffix.slice(`${board}--`.length)
+				: pathWithoutSuffix;
 			return id.startsWith("t_") ? id : null;
 		})
 		.filter((value): value is string => Boolean(value));

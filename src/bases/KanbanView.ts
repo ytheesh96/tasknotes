@@ -93,6 +93,7 @@ import {
 	type HermesRunLaneLike,
 } from "./kanbanRunSwimlanes";
 import {
+	HERMES_ARCHIVED_FRONTMATTER,
 	HERMES_ROOT_RUN_ID_FRONTMATTER,
 	HERMES_RUN_ID_FRONTMATTER,
 	HERMES_RUN_TITLE_FRONTMATTER,
@@ -254,6 +255,21 @@ function normalizeKanbanCardLayout(value: unknown): TaskCardOptions["layout"] {
 	return value === "compact" ? "compact" : "default";
 }
 
+export function isHermesArchivedTask(task: TaskInfo): boolean {
+	const hermesArchived = task.customProperties?.[HERMES_ARCHIVED_FRONTMATTER];
+	return hermesArchived === true || hermesArchived === "true";
+}
+
+export function filterKanbanTasksByHermesArchivedVisibility(
+	tasks: TaskInfo[],
+	showHermesArchivedTasks: boolean
+): TaskInfo[] {
+	if (showHermesArchivedTasks) {
+		return tasks;
+	}
+	return tasks.filter((task) => !isHermesArchivedTask(task));
+}
+
 export class KanbanView extends BasesViewBase {
 	type = "tasknotesKanban";
 
@@ -338,6 +354,7 @@ export class KanbanView extends BasesViewBase {
 	private swimLaneOrders: Record<string, string[]> = {};
 	private hideEmptySwimLanes = false;
 	private cardLayout: TaskCardOptions["layout"] = "default";
+	private showHermesArchivedTasks = false;
 	private hermesRunLaneExpandedOverrides = new Map<string, boolean>();
 	private configLoaded = false; // Track if we've successfully loaded config
 	/**
@@ -474,6 +491,7 @@ export class KanbanView extends BasesViewBase {
 			);
 			this.hideEmptySwimLanes = this.config.get("hideEmptySwimLanes") === true;
 			this.cardLayout = normalizeKanbanCardLayout(this.config.get("cardLayout"));
+			this.showHermesArchivedTasks = this.config.get("showHermesArchivedTasks") === true;
 
 			// Read enableSearch toggle (default: false for backward compatibility)
 			const enableSearchValue = this.config.get("enableSearch");
@@ -661,8 +679,13 @@ export class KanbanView extends BasesViewBase {
 			const taskNotes = await identifyTaskNotesFromBasesData(dataItems, this.plugin);
 			this.mergeBasesPropertiesIntoTaskInfo(taskNotes, pathToProps);
 
+			const archivedFilteredTasks = filterKanbanTasksByHermesArchivedVisibility(
+				taskNotes,
+				this.showHermesArchivedTasks
+			);
+
 			// Apply search filter
-			const filteredTasks = this.applySearchFilter(taskNotes);
+			const filteredTasks = this.applySearchFilter(archivedFilteredTasks);
 			this.setCurrentVisibleTaskPaths(filteredTasks);
 
 			// Clear board and cleanup scrollers
@@ -839,7 +862,11 @@ export class KanbanView extends BasesViewBase {
 		const pathToProps = buildBasesPathProperties(dataItems);
 		const taskNotes = await identifyTaskNotesFromBasesData(dataItems, this.plugin);
 		this.mergeBasesPropertiesIntoTaskInfo(taskNotes, pathToProps);
-		const filteredTasks = this.applySearchFilter(taskNotes);
+		const archivedFilteredTasks = filterKanbanTasksByHermesArchivedVisibility(
+			taskNotes,
+			this.showHermesArchivedTasks
+		);
+		const filteredTasks = this.applySearchFilter(archivedFilteredTasks);
 		this.setCurrentVisibleTaskPaths(filteredTasks);
 
 		if (filteredTasks.length === 0 || this.swimLanePropertyId) {
@@ -910,6 +937,7 @@ export class KanbanView extends BasesViewBase {
 			pinnedColumns: this.pinnedColumns,
 			wipLimits: this.wipLimits,
 			consolidateStatusIcon: this.consolidateStatusIcon,
+			showHermesArchivedTasks: this.showHermesArchivedTasks,
 			cardRenderSignature,
 		});
 

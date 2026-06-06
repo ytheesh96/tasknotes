@@ -91,6 +91,7 @@ import {
 } from "./hermes/hermesTaskNotesIntegration";
 import { HermesKanbanApiClient, getHermesTaskIdentity } from "./hermes/hermesApiClient";
 import { provisionHermesBoardSurfaces } from "./hermes/hermesBoardProvisioning";
+import { canonicalHermesTaskPath } from "./hermes/hermesCanonicalTaskNotes";
 import {
 	HERMES_DASHBOARD_START_COMMAND,
 	HERMES_KANBAN_API_URL,
@@ -1958,7 +1959,7 @@ export default class TaskNotesPlugin extends Plugin {
 		}
 
 		const directPath = normalizedBoard
-			? `TaskNotes/${normalizedBoard}/${normalizedTaskId}.md`
+			? canonicalHermesTaskPath(normalizedBoard, normalizedTaskId)
 			: "";
 		const directTask = directPath
 			? await getTaskInfoFromNoteFirst(this, directPath)

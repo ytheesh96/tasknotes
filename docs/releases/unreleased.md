@@ -69,16 +69,17 @@ Example:
 - Improved Hermes Goal Mode card creation duplicate-submit and partial-success handling with in-flight submit disabling, stable create idempotency keys, and notices that name the existing card when post-create sync is incomplete.
 - Simplified modal field handling so Activity fields are part of the shared TaskNotes Modal Fields configuration and edit modals no longer use a separate Hermes field layout.
 - Changed generated Hermes board Kanban surfaces to add board-specific views to the shared `TaskNotes/Views/kanban-default.base` file instead of creating a separate `.base` file for each board.
-- Changed generated Hermes board Bases views to filter on canonical `hermesTaskId`, `hermesBoard`, and `hermesArchived` properties, with active board views hiding archived tasks and archive views exposing history separately.
+- Changed generated Hermes board Bases views to filter on canonical `hermesTaskId` and `hermesBoard` properties, with Hermes archived-task visibility controlled by the TaskNotes Kanban view's new archived-task toggle instead of separate archive views.
 
 ## Fixed
 
+- Fixed Hermes TaskNotes canonical paths so task mirrors and activity notes use `TaskNotes/Tasks/<board>--<task-id>.md` and `TaskNotes/Activity/<board>--<task-id>/...`, preventing two boards with the same Hermes task id from sharing the same mirror path and preserving safe migration reporting for older unqualified notes.
 - Fixed Hermes mirror sync no-op churn by preserving existing stable mirror timestamps when cache metadata is missing, so unchanged periodic reconciles no longer rewrite TaskNotes mirror/activity files.
 - Fixed TaskNotes Kanban Bases refreshes so debounced data updates cannot patch card DOM after a drag or post-drop suppression starts.
 - Fixed Hermes run swimlane drag/drop so dropping onto an existing task card obeys the same explicit-only cross-run reassignment guard as dropping onto an empty lane.
-- Fixed Hermes canonical sync metadata handling so TaskNotes reads legacy snake_case Hermes frontmatter aliases during migration while continuing to write camelCase `hermesTaskId`, `hermesBoard`, and `hermesArchived` fields in canonical `TaskNotes/Tasks/<task-id>.md` mirrors.
+- Fixed Hermes canonical sync metadata handling so TaskNotes reads legacy snake_case Hermes frontmatter aliases during migration while continuing to write camelCase `hermesTaskId`, `hermesBoard`, and `hermesArchived` fields in canonical board-qualified mirrors.
 - Blocked unsupported local edits that move an existing Hermes-managed TaskNote from one `hermesBoard` to another until Hermes exposes an API-backed board move.
-- Fixed Hermes activity migration planning so legacy per-board activity notes are inventoried by `hermesTaskId`, backfilled non-destructively into canonical `TaskNotes/Activity/<task-id>/...` folders, and deduplicated against existing canonical activity notes.
+- Fixed Hermes activity migration planning so legacy per-board activity notes are inventoried by `hermesTaskId`, backfilled non-destructively into canonical board-qualified activity folders, and deduplicated against existing canonical activity notes.
 - Fixed Hermes managed-task sync so active boards with no existing local TaskNotes mirrors are bootstrapped from the live Hermes board list, allowing developer-board tasks to appear in TaskNotes Kanban again without affecting existing board mirrors.
 - Fixed Modal Fields settings so duplicated persisted Hermes activity fields are cleaned up on load and during Field Manager initialization, preventing duplicate draggable Activity cards from reappearing after settings refreshes or reorders.
 - Fixed TaskNotes Kanban Bases views so ordinary data updates reconcile existing cards in place instead of rebuilding the full board, preserving DOM identity where safe and falling back to full render for structural changes.
@@ -112,4 +113,6 @@ Example:
 - Removed generated legacy `TaskNotes/Views/kanban-board-*.base` files during Hermes board provisioning now that board views live in the shared `TaskNotes/Views/kanban-default.base` file.
 - Fixed Hermes board provisioning so updating one shared Kanban view keeps the next view on a separate YAML list item instead of merging the two view definitions.
 - Fixed Hermes board provisioning so adding generated board views to the shared default Kanban base preserves existing TaskNotes root filters, formulas, and properties.
+- Fixed Hermes archived-task filtering in generated Bases board views so the TaskNotes Kanban layout hides boolean and stringified archived flags by default and can reveal them with the per-view archived-task toggle; existing generated archive views are removed when board provisioning runs again.
+- Fixed Hermes board provisioning so shared root filters no longer exclude archived tasks before the TaskNotes Kanban archived-task toggle can decide whether to show them.
 - Fixed the Agent Roster Bases view so completed-only agents and completed task history stay hidden until the user explicitly opens the history section.

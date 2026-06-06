@@ -70,29 +70,29 @@ describe("Hermes canonical TaskNotes frontmatter", () => {
 
 	it("maps the same hermesTaskId on different hermesBoard values to distinct canonical task paths", () => {
 		expect(canonicalHermesTaskPath("default", "t_shared")).toBe(
-			"TaskNotes/Tasks/default/t_shared.md"
+			"TaskNotes/Tasks/default--t_shared.md"
 		);
 		expect(canonicalHermesTaskPath("job-hunt", "t_shared")).toBe(
-			"TaskNotes/Tasks/job-hunt/t_shared.md"
+			"TaskNotes/Tasks/job-hunt--t_shared.md"
 		);
 	});
 
 	it("maps the same board/task identity pair to a distinct canonical activity folder", () => {
 		expect(canonicalHermesActivityFolder("default", "t_shared")).toBe(
-			"TaskNotes/Activity/default/t_shared"
+			"TaskNotes/Activity/default--t_shared"
 		);
 		expect(canonicalHermesActivityFolder("job-hunt", "t_shared")).toBe(
-			"TaskNotes/Activity/job-hunt/t_shared"
+			"TaskNotes/Activity/job-hunt--t_shared"
 		);
 		expect(canonicalHermesActivityPath("job-hunt", "t_shared", "comments", "t_shared-comment1")).toBe(
-			"TaskNotes/Activity/job-hunt/t_shared/comments/t_shared-comment1.md"
+			"TaskNotes/Activity/job-hunt--t_shared/comments/t_shared-comment1.md"
 		);
 	});
 
 	it("uses legacy aliases only to recover managed identity for migration/backfill", () => {
 		const identity = getHermesTaskIdentity(
 			createTask({
-				path: "TaskNotes/Tasks/developer/t_legacy.md",
+				path: "TaskNotes/Tasks/developer--t_legacy.md",
 				customProperties: { hermes_task_id: "t_legacy", hermes_board: "developer" },
 			})
 		);

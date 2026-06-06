@@ -31,6 +31,8 @@ import {
 	canonicalHermesTaskPath,
 	legacyHermesBoardTaskPath,
 	legacyHermesUnqualifiedTaskPath,
+	readHermesBoardFrontmatter,
+	readHermesTaskIdFrontmatter,
 } from "./hermesCanonicalTaskNotes";
 import type { HermesTaskRecord } from "./hermesApiClient";
 
@@ -263,13 +265,45 @@ async function getExistingHermesMirror(
 	for (const legacyPath of legacyPaths) {
 		const legacyExisting = plugin.app.vault.getAbstractFileByPath(legacyPath);
 		if (legacyExisting instanceof TFile) {
+			const taskInfo = await getLegacyHermesMirrorTaskInfo(plugin, legacyExisting, legacyPath);
+			if (
+				legacyPath === legacyHermesUnqualifiedTaskPath(taskId) &&
+				!matchesHermesMirrorIdentity(taskInfo, board, taskId)
+			) {
+				continue;
+			}
 			return {
 				file: legacyExisting,
-				taskInfo: await plugin.cacheManager.getTaskInfoFromFrontmatter(legacyPath),
+				taskInfo,
 			};
 		}
 	}
 	return { file: null, taskInfo: null };
+}
+
+async function getLegacyHermesMirrorTaskInfo(
+	plugin: TaskNotesPlugin,
+	file: TFile,
+	path: string
+): Promise<TaskInfo | null> {
+	const taskInfo = await plugin.cacheManager.getTaskInfoFromFrontmatter(path);
+	if (taskInfo) {
+		return taskInfo;
+	}
+	const content = await plugin.app.vault.read(file);
+	return taskInfoFromMirrorFrontmatter(path, parseHermesMirrorFrontmatter(content));
+}
+
+function matchesHermesMirrorIdentity(
+	taskInfo: TaskInfo | null,
+	board: string,
+	taskId: string
+): boolean {
+	const frontmatter = taskInfo?.customProperties;
+	return (
+		readHermesBoardFrontmatter(frontmatter) === board.trim() &&
+		readHermesTaskIdFrontmatter(frontmatter) === taskId.trim()
+	);
 }
 
 export async function updateHermesActivityForTaskNote(
@@ -739,7 +773,7 @@ function hermesTaskPath(board: string, taskId: string): string {
 }
 
 function isCanonicalHermesTaskPath(path: string): boolean {
-	return /^TaskNotes\/Tasks\/[^/]+\/t_[A-Za-z0-9]+\.md$/.test(path);
+	return /^TaskNotes\/Tasks\/.+--t_[A-Za-z0-9]+\.md$/.test(path);
 }
 
 function normalizeDependencyUidPath(uid: string): string {

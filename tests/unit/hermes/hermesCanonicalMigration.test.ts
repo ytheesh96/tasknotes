@@ -34,14 +34,14 @@ describe("Hermes canonical mirror migration planning", () => {
 				taskId: "t_legacy",
 				board: "default",
 				fromPath: "TaskNotes/default/t_legacy.md",
-				toPath: "TaskNotes/Tasks/default/t_legacy.md",
+				toPath: "TaskNotes/Tasks/default--t_legacy.md",
 				reason: "legacy-board-prefixed-path",
 			},
 			{
 				taskId: "t_current",
 				board: "developer",
 				fromPath: "TaskNotes/Tasks/t_current.md",
-				toPath: "TaskNotes/Tasks/developer/t_current.md",
+				toPath: "TaskNotes/Tasks/developer--t_current.md",
 				reason: "noncanonical-managed-path",
 			},
 		]);
@@ -66,7 +66,7 @@ describe("Hermes canonical mirror migration planning", () => {
 			{
 				taskId: "t_dup",
 				board: "default",
-				canonicalPath: "TaskNotes/Tasks/default/t_dup.md",
+				canonicalPath: "TaskNotes/Tasks/default--t_dup.md",
 				paths: ["TaskNotes/Tasks/t_dup.md", "TaskNotes/default/t_dup.md"],
 			},
 		]);
@@ -110,7 +110,27 @@ describe("Hermes canonical mirror migration planning", () => {
 				taskId: "t_unqualified",
 				board: "default",
 				fromPath: "TaskNotes/Tasks/t_unqualified.md",
-				toPath: "TaskNotes/Tasks/default/t_unqualified.md",
+				toPath: "TaskNotes/Tasks/default--t_unqualified.md",
+				reason: "noncanonical-managed-path",
+			},
+		]);
+		expect(plan.duplicates).toEqual([]);
+	});
+
+	it("migrates an old board-directory TaskNotes/Tasks note when hermesBoard makes the destination unambiguous", () => {
+		const plan = planHermesCanonicalMirrorMigration([
+			createTask({
+				path: "TaskNotes/Tasks/developer/t_partial.md",
+				customProperties: { hermesTaskId: "t_partial", hermesBoard: "developer" },
+			}),
+		]);
+
+		expect(plan.migrations).toEqual([
+			{
+				taskId: "t_partial",
+				board: "developer",
+				fromPath: "TaskNotes/Tasks/developer/t_partial.md",
+				toPath: "TaskNotes/Tasks/developer--t_partial.md",
 				reason: "noncanonical-managed-path",
 			},
 		]);

@@ -107,7 +107,7 @@ export function evaluateHermesBoardMovePolicy(
 }
 
 export function canonicalHermesTaskPath(board: string, taskId: string): string {
-	return `${HERMES_TASKNOTES_TASKS_FOLDER}/${canonicalHermesPathSegment(board)}/${taskId}.md`;
+	return `${HERMES_TASKNOTES_TASKS_FOLDER}/${canonicalHermesIdentityPathSegment(board, taskId)}.md`;
 }
 
 export function legacyHermesUnqualifiedTaskPath(taskId: string): string {
@@ -119,7 +119,7 @@ export function legacyHermesBoardTaskPath(board: string, taskId: string): string
 }
 
 export function canonicalHermesActivityFolder(board: string, taskId: string): string {
-	return `${HERMES_TASKNOTES_ACTIVITY_FOLDER}/${canonicalHermesPathSegment(board)}/${taskId}`;
+	return `${HERMES_TASKNOTES_ACTIVITY_FOLDER}/${canonicalHermesIdentityPathSegment(board, taskId)}`;
 }
 
 export function canonicalHermesActivityPath(
@@ -133,6 +133,10 @@ export function canonicalHermesActivityPath(
 
 export function canonicalHermesPathSegment(value: string): string {
 	return value.trim();
+}
+
+export function canonicalHermesIdentityPathSegment(board: string, taskId: string): string {
+	return `${canonicalHermesPathSegment(board)}--${taskId.trim()}`;
 }
 
 export function normalizeHermesScalar(value: unknown): string | null {

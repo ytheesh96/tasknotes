@@ -41,10 +41,11 @@ describe("Hermes board surface provisioning", () => {
 		expect(content).toContain('name: "Obsidian Os"');
 		expect(content).toContain('hermesTaskId.isEmpty() == false');
 		expect(content).toContain('hermesBoard == "obsidian-os"');
-		expect(content).toContain("hermesArchived != true");
-		expect(content).toContain('name: "Default Archive"');
+		expect(content).not.toContain("hermesArchived != true");
+		expect(content).toContain("showHermesArchivedTasks: false");
+		expect(content).not.toContain('name: "Default Archive"');
 		expect(content).toContain('hermesBoard == "default"');
-		expect(content).toContain("hermesArchived == true");
+		expect(content).not.toContain("hermesArchived == true");
 		expect(content).not.toContain('file.inFolder("TaskNotes/Tasks")');
 		expect(content).not.toContain('file.hasTag("task")');
 		expect(app.vault.getAbstractFileByPath("TaskNotes/Views/kanban-board-default.base")).toBeNull();
@@ -59,6 +60,7 @@ describe("Hermes board surface provisioning", () => {
 filters:
   and:
     - file.hasTag("task")
+    - hermesArchived != true
 
 views:
   - type: tasknotesKanban
@@ -72,12 +74,13 @@ views:
 		expect(result.viewsUpdated).toEqual(["TaskNotes/Views/kanban-default.base"]);
 		const existing = app.vault.getAbstractFileByPath("TaskNotes/Views/kanban-default.base") as TFile;
 		const content = await app.vault.read(existing);
+		const rootBlock = extractRootBlock(content);
 		expect(content).toContain('name: "Custom"');
 		expect(content).toContain('name: "Default"');
 		expect(content).toContain('hermesTaskId.isEmpty() == false');
 		expect(content).toContain('hermesBoard == "default"');
-		expect(content).toContain("hermesArchived != true");
-		expect(content).toContain('name: "Default Archive"');
+		expect(rootBlock).toContain("hermesArchived != true");
+		expect(content).not.toContain('name: "Default Archive"');
 		expect(content).not.toContain('file.inFolder("TaskNotes/Tasks")');
 	});
 
@@ -125,7 +128,7 @@ views:
 		expect(content).toContain('name: "Kanban Board"');
 		expect(content).toContain('name: "Default"');
 		expect(content).toContain('hermesBoard == "default"');
-		expect(content).toContain('name: "Default Archive"');
+		expect(content).not.toContain('name: "Default Archive"');
 	});
 
 	it("adds Hermes run properties to legacy shared bases so Run is available in the swimlane picker", async () => {
@@ -162,7 +165,7 @@ views:
 		expect(content).toContain('hermesBoard == "hermes-agent"');
 	});
 
-	it("generates property-only active and archive/history views without a separate run-swimlane view", () => {
+	it("generates a property-only Kanban view with archived visibility controlled by a view option", () => {
 		const content = buildHermesBoardKanbanBase("job-hunt", {
 			fieldMapping: DEFAULT_FIELD_MAPPING,
 			taskTag: "task",
@@ -170,18 +173,64 @@ views:
 
 		expect(content).toContain('name: "Job Hunt"');
 		expect(content).not.toContain('name: "Job Hunt Runs"');
-		expect(content).toContain('name: "Job Hunt Archive"');
+		expect(content).not.toContain('name: "Job Hunt Archive"');
 		expect(content).toContain("hermesTaskId.isEmpty() == false");
 		expect(content).toContain('hermesBoard == "job-hunt"');
-		expect(content).toContain("hermesArchived != true");
-		expect(content).toContain("hermesArchived == true");
-		expect(content).toContain("property: hermesArchived");
+		expect(content).not.toContain("hermesArchived != true");
+		expect(content).not.toContain('hermesArchived != "true"');
+		expect(content).not.toContain("hermesArchived == true");
+		expect(content).not.toContain('hermesArchived == "true"');
+		expect(content).toContain("showHermesArchivedTasks: false");
 		expect(content).not.toContain("swimLane: hermesRootRunId");
 		expect(content).not.toContain("hideEmptySwimLanes: true");
 		expect(content).not.toContain("file.inFolder(");
 		expect(content).not.toContain("Hermes/job-hunt");
 		expect(content).not.toContain('file.hasTag("task")');
 		expect(content).not.toContain("hermes_board");
+	});
+
+	it("generates active board filters broad enough for the archived toggle to reveal archived tasks", () => {
+		const content = buildHermesBoardKanbanBase("job-hunt", {
+			fieldMapping: DEFAULT_FIELD_MAPPING,
+			taskTag: "task",
+		});
+
+		const activeView = extractViewBlock(content, "Job Hunt");
+		expect(activeView).not.toContain("hermesArchived != true");
+		expect(activeView).not.toContain('hermesArchived != "true"');
+		expect(activeView).not.toContain("hermesArchived == true");
+		expect(activeView).toContain("showHermesArchivedTasks: false");
+		expect(content).not.toContain('name: "Job Hunt Archive"');
+	});
+
+	it("removes archived exclusions from generated root and view filters so the Kanban toggle can reveal archived tasks", async () => {
+		const app = new App();
+		const path = "TaskNotes/Views/kanban-default.base";
+		await app.vault.create(
+			path,
+			`${buildHermesBoardKanbanBaseHeader().replace(
+				"    - hermesTaskId.isEmpty() == false",
+				'    - hermesTaskId.isEmpty() == false\n    - hermesArchived != true\n    - hermesArchived != "true"'
+			)}${buildHermesBoardKanbanBase("default")}`
+		);
+
+		const result = await provisionHermesBoardSurfaces({ app }, ["default"]);
+
+		expect(result.viewsUpdated).toEqual([path]);
+		const existing = app.vault.getAbstractFileByPath(path) as TFile;
+		const content = await app.vault.read(existing);
+		const rootBlock = extractRootBlock(content);
+		const activeView = extractViewBlock(content, "Default");
+		expect(rootBlock).not.toContain("hermesArchived != true");
+		expect(rootBlock).not.toContain('hermesArchived != "true"');
+		expect(rootBlock).not.toContain("hermesArchived == true");
+		expect(rootBlock).not.toContain('hermesArchived == "true"');
+		expect(rootBlock).toContain("hermesTaskId.isEmpty() == false");
+		expect(activeView).not.toContain("hermesArchived != true");
+		expect(activeView).not.toContain('hermesArchived != "true"');
+		expect(activeView).not.toContain("hermesArchived == true");
+		expect(activeView).toContain("showHermesArchivedTasks: false");
+		expect(content).not.toContain('name: "Default Archive"');
 	});
 
 	it("updates unquoted generated board views without appending quoted duplicates", async () => {
@@ -243,10 +292,10 @@ views:
 		const content = await app.vault.read(file);
 		expect(content.match(/^    name:\s*"Default"$/gm)).toHaveLength(1);
 		expect(content.match(/^    name:\s*"Default Runs"$/gm)).toBeNull();
-		expect(content.match(/^    name:\s*"Default Archive"$/gm)).toHaveLength(1);
+		expect(content.match(/^    name:\s*"Default Archive"$/gm)).toBeNull();
 	});
 
-	it("removes generated run swimlane views during re-provisioning while preserving active and archive views", async () => {
+	it("removes generated run swimlane and archive views during re-provisioning while preserving the active view", async () => {
 		const app = new App();
 		const path = "TaskNotes/Views/kanban-default.base";
 		const settings = {
@@ -255,10 +304,22 @@ views:
 		};
 		await app.vault.create(
 			path,
-			`${buildHermesBoardKanbanBaseHeader(settings)}${buildHermesBoardKanbanBase("default", settings).replace(
-				'name: "Default Archive"',
-				'name: "Default Runs"\n    swimLane: hermesRootRunId\n    # legacy generated run view\n    name: "Default Archive"'
-			)}`
+			`${buildHermesBoardKanbanBaseHeader(settings)}${buildHermesBoardKanbanBase("default", settings)}
+  - type: tasknotesKanban
+    name: "Default Runs"
+    filters:
+      and:
+        - hermesBoard == "default"
+    swimLane: hermesRootRunId
+  - type: table
+    name: "Default Archive"
+    filters:
+      and:
+        - hermesBoard == "default"
+        - or:
+            - hermesArchived == true
+            - hermesArchived == "true"
+`
 		);
 
 		await provisionHermesBoardSurfaces({ app, settings }, ["default"]);
@@ -266,7 +327,7 @@ views:
 		const file = app.vault.getAbstractFileByPath(path) as TFile;
 		const content = await app.vault.read(file);
 		expect(content).toContain('name: "Default"');
-		expect(content).toContain('name: "Default Archive"');
+		expect(content).not.toContain('name: "Default Archive"');
 		expect(content).not.toContain('name: "Default Runs"');
 		expect(content).not.toContain("swimLane: hermesRootRunId");
 	});
@@ -359,9 +420,9 @@ views:
 		const existing = app.vault.getAbstractFileByPath("TaskNotes/Views/kanban-default.base") as TFile;
 		const content = await app.vault.read(existing);
 		expect(content).toContain(
-			"pinnedColumns: triage,todo,ready,running,blocked,done\n  - type: table"
+			"pinnedColumns: triage,todo,ready,running,blocked,done\n  - type: tasknotesKanban"
 		);
-		expect(content).toContain('name: "Default Archive"');
+		expect(content).not.toContain('name: "Default Archive"');
 		expect(content).toContain('name: Developer');
 		expect(content).not.toContain(
 			"pinnedColumns: triage,todo,ready,running,blocked,done  - type: tasknotesKanban"
@@ -458,8 +519,9 @@ views:
 		const updatedContent = await app.vault.read(updated);
 		expect(updatedContent).toContain('hermesTaskId.isEmpty() == false');
 		expect(updatedContent).toContain('hermesBoard == "job-hunt"');
-		expect(updatedContent).toContain("hermesArchived != true");
-		expect(updatedContent).toContain('name: "Job Hunt Archive"');
+		expect(updatedContent).not.toContain("hermesArchived != true");
+		expect(updatedContent).toContain("showHermesArchivedTasks: false");
+		expect(updatedContent).not.toContain('name: "Job Hunt Archive"');
 		expect(updatedContent).not.toContain('file.inFolder("TaskNotes/Tasks")');
 		expect(updatedContent).not.toContain('list(projects).contains("Hermes/job-hunt")');
 		expect(app.vault.getAbstractFileByPath("TaskNotes/Views/kanban-board-job-hunt.base")).toBeNull();
@@ -532,9 +594,10 @@ views:
 		expect(content).toContain('name: "Job Hunt"');
 		expect(content).toContain('hermesTaskId.isEmpty() == false');
 		expect(content).toContain('hermesBoard == "job-hunt"');
-		expect(content).toContain("hermesArchived != true");
-		expect(content).toContain('name: "Job Hunt Archive"');
-		expect(content).toContain("hermesArchived == true");
+		expect(content).not.toContain("hermesArchived != true");
+		expect(content).toContain("showHermesArchivedTasks: false");
+		expect(content).not.toContain('name: "Job Hunt Archive"');
+		expect(content).not.toContain("hermesArchived == true");
 		expect(content).not.toContain('file.inFolder("TaskNotes/Tasks")');
 		expect(content).not.toContain('list(projects).contains("Hermes/job-hunt")');
 		expect(content).toContain("pinnedColumns: triage,todo,ready,running,blocked,done");
@@ -574,3 +637,20 @@ views:
 		expect(getHermesBoardKanbanViewPath("obsidian-os")).toBe("TaskNotes/Views/kanban-default.base");
 	});
 });
+
+function extractViewBlock(content: string, viewName: string): string {
+	const viewStartPattern = new RegExp(`^  - type: (?:tasknotesKanban|table)\\n    name: "${viewName}"`, "m");
+	const startMatch = content.match(viewStartPattern);
+	expect(startMatch?.index).toBeDefined();
+	const start = startMatch?.index ?? 0;
+	const remainingContent = content.slice(start + 1);
+	const nextViewMatch = remainingContent.match(/^  - type: (?:tasknotesKanban|table)\s*$/m);
+	const end = nextViewMatch?.index === undefined ? content.length : start + 1 + nextViewMatch.index;
+	return content.slice(start, end).trimEnd();
+}
+
+function extractRootBlock(content: string): string {
+	const viewsMatch = content.match(/^views:\s*$/m);
+	expect(viewsMatch?.index).toBeDefined();
+	return content.slice(0, viewsMatch?.index ?? 0);
+}
