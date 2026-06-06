@@ -166,6 +166,66 @@ describe("Hermes mirror note content", () => {
 		);
 	});
 
+	it("skips an unchanged mirror rewrite when stable timestamps only exist in frontmatter properties", async () => {
+		const task: HermesTaskRecord = {
+			id: "t_stable",
+			title: "Stable mirror",
+			status: "done",
+			priority: 5,
+			body: "No semantic changes.",
+		};
+		const path = "TaskNotes/Tasks/t_stable.md";
+		const file = Object.assign(new TFile(), { path });
+		const existingContent = buildHermesMirrorContent("default", task, {
+			existingTaskInfo: {
+				dateCreated: "2026-06-01T00:00:00Z",
+				completedDate: "2026-06-01T01:00:00Z",
+				customProperties: {},
+			},
+		});
+		const existingTaskInfo: TaskInfo = {
+			title: task.title,
+			status: "done",
+			priority: "normal",
+			path,
+			tags: ["task"],
+			contexts: [],
+			projects: [],
+			archived: false,
+			customProperties: {
+				hermesTaskId: "t_stable",
+				hermesBoard: "default",
+				dateCreated: "2026-06-01T00:00:00Z",
+				completedDate: "2026-06-01T01:00:00Z",
+			},
+		};
+		const plugin = {
+			app: {
+				metadataCache: { getFileCache: jest.fn(() => null) },
+				vault: {
+					adapter: { exists: jest.fn().mockResolvedValue(true) },
+					createFolder: jest.fn(),
+					getAbstractFileByPath: jest.fn((candidate: string) => (candidate === path ? file : null)),
+					read: jest.fn().mockResolvedValue(existingContent),
+					modify: jest.fn(),
+					create: jest.fn(),
+				},
+			},
+			cacheManager: {
+				getTaskInfoFromFrontmatter: jest.fn().mockResolvedValue(existingTaskInfo),
+				updateTaskInfoInCache: jest.fn(),
+			},
+			fieldMapper: { toUserField: jest.fn((field: string) => field) },
+			settings: { storeTitleInFilename: false, defaultTaskStatus: "triage" },
+		};
+
+		const result = await createOrUpdateHermesMirrorNote(plugin as never, "default", task);
+
+		expect(result.changed).toBe(false);
+		expect(plugin.app.vault.modify).not.toHaveBeenCalled();
+		expect(plugin.cacheManager.updateTaskInfoInCache).not.toHaveBeenCalled();
+	});
+
 	it("preserves cached Hermes activity when rewriting an existing mirror note", () => {
 		const task: HermesTaskRecord = {
 			id: "t_existing",

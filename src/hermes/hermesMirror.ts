@@ -404,7 +404,7 @@ function buildHermesMirrorFrontmatter(
 		[HERMES_LIST_FRONTMATTER]: task.status || status,
 		[HERMES_VISIBLE_FRONTMATTER]: task.status !== "archived",
 		[HERMES_PRIORITY_FRONTMATTER]: hermesPriority,
-		dateCreated: options.existingTaskInfo?.dateCreated ?? now,
+		dateCreated: stableExistingTimestamp(options.existingTaskInfo, "dateCreated") ?? now,
 	};
 	if (assignee && assignee !== "none") {
 		frontmatter[HERMES_ASSIGNEE_FRONTMATTER] = assignee;
@@ -426,7 +426,7 @@ function buildHermesMirrorFrontmatter(
 		frontmatter[HERMES_RUN_TYPE_FRONTMATTER] = runType;
 	}
 	if (status === "done") {
-		frontmatter.completedDate = options.existingTaskInfo?.completedDate ?? now;
+		frontmatter.completedDate = stableExistingTimestamp(options.existingTaskInfo, "completedDate") ?? now;
 	}
 	const dependencyUpdate = buildHermesDependencyFrontmatter(board, task.id, {
 		parents: options.parents ?? [],
@@ -442,12 +442,90 @@ function buildHermesMirrorFrontmatter(
 		frontmatter[HERMES_DEPENDENCY_EDGES_FIELD] = dependencyUpdate.edges;
 	}
 	const activity = options.activity ?? options.existingActivity ?? null;
+	const activityFrontmatter = activity
+		? stableActivityFrontmatterProperties(
+				buildHermesActivityFrontmatterProperties(activity, { board, taskId: task.id }),
+				options.existingTaskInfo?.customProperties
+			)
+		: {};
 	return {
 		...frontmatter,
 		...frontmatterFromHermesMetadata(task.metadata),
 		...(options.extraFrontmatter ?? {}),
-		...(activity ? buildHermesActivityFrontmatterProperties(activity, { board, taskId: task.id }) : {}),
+		...activityFrontmatter,
 	};
+}
+
+function stableExistingTimestamp(
+	existingTaskInfo: Pick<TaskInfo, "dateCreated" | "completedDate" | "customProperties"> | undefined,
+	key: "dateCreated" | "completedDate"
+): string | undefined {
+	const taskValue = existingTaskInfo?.[key];
+	if (typeof taskValue === "string" && taskValue.trim().length > 0) {
+		return taskValue;
+	}
+	const frontmatterValue = existingTaskInfo?.customProperties?.[key];
+	return typeof frontmatterValue === "string" && frontmatterValue.trim().length > 0
+		? frontmatterValue
+		: undefined;
+}
+
+function stableActivityFrontmatterProperties(
+	next: Record<string, unknown>,
+	existing: Record<string, unknown> | undefined
+): Record<string, unknown> {
+	const lastSyncedAtKey = HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt;
+	const existingLastSyncedAt = existing?.[lastSyncedAtKey];
+	if (
+		!existing ||
+		typeof existingLastSyncedAt !== "string" ||
+		existingLastSyncedAt.trim().length === 0 ||
+		!Object.prototype.hasOwnProperty.call(next, lastSyncedAtKey)
+	) {
+		return next;
+	}
+	if (!sameActivityFrontmatterExceptKey(existing, next, lastSyncedAtKey)) {
+		return next;
+	}
+	return {
+		...next,
+		[lastSyncedAtKey]: existingLastSyncedAt,
+	};
+}
+
+function sameActivityFrontmatterExceptKey(
+	existing: Record<string, unknown>,
+	next: Record<string, unknown>,
+	excludedKey: string
+): boolean {
+	const relevantKeys = new Set(Object.values(HERMES_ACTIVITY_FIELD_KEYS));
+	const comparableExisting: Record<string, unknown> = {};
+	const comparableNext: Record<string, unknown> = {};
+	for (const key of relevantKeys) {
+		if (key === excludedKey) {
+			continue;
+		}
+		if (Object.prototype.hasOwnProperty.call(existing, key)) {
+			comparableExisting[key] = existing[key];
+		}
+		if (Object.prototype.hasOwnProperty.call(next, key)) {
+			comparableNext[key] = next[key];
+		}
+	}
+	return stableStringify(comparableExisting) === stableStringify(comparableNext);
+}
+
+function stableStringify(value: unknown): string {
+	if (Array.isArray(value)) {
+		return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+	}
+	if (isPlainObject(value)) {
+		return `{${Object.keys(value)
+			.sort()
+			.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+			.join(",")}}`;
+	}
+	return JSON.stringify(value);
 }
 
 function frontmatterFromHermesMetadata(

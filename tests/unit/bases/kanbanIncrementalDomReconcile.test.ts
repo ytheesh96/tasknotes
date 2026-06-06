@@ -143,6 +143,102 @@ describe("KanbanView flat incremental DOM reconciliation", () => {
 		expect((view as any).currentTaskElements.get(taskB.path)).toBe(wrapperB);
 	});
 
+	it("coalesces rapid data updates into one incremental render", () => {
+		jest.useFakeTimers();
+		try {
+			const view = makeView();
+			const renderSpy = jest
+				.spyOn(view as any, "renderFromDataUpdate")
+				.mockResolvedValue(undefined);
+
+			(view as any).scheduleDataUpdateRender({ scrollTop: 10 });
+			(view as any).scheduleDataUpdateRender({ scrollTop: 20 });
+			jest.advanceTimersByTime(49);
+			expect(renderSpy).not.toHaveBeenCalled();
+
+			jest.advanceTimersByTime(1);
+
+			expect(renderSpy).toHaveBeenCalledTimes(1);
+			expect(renderSpy).toHaveBeenCalledWith({ scrollTop: 20 });
+		} finally {
+			jest.useRealTimers();
+		}
+	});
+
+	it("recognizes unchanged flat render state as a semantic no-op", () => {
+		const view = makeView();
+		const taskA = createTask("tasks/a.md");
+		const taskB = createTask("tasks/b.md");
+		const state = createFlatState({ todo: [taskA, taskB] });
+		(view as any).lastFlatRenderSnapshot = {
+			structuralSignature: state.structuralSignature,
+			scopes: state.scopes,
+		};
+		(view as any).lastTaskSignatures.set(
+			taskA.path,
+			(view as any).buildTaskRenderSignature(taskA, state)
+		);
+		(view as any).lastTaskSignatures.set(
+			taskB.path,
+			(view as any).buildTaskRenderSignature(taskB, state)
+		);
+		const diff = (view as any).getFlatRenderSignatureDiff(state);
+
+		expect((view as any).isFlatRenderNoOp(state, diff)).toBe(true);
+	});
+
+	it("does not treat a reorder as a semantic no-op", () => {
+		const view = makeView();
+		const taskA = createTask("tasks/a.md");
+		const taskB = createTask("tasks/b.md");
+		const previousState = createFlatState({ todo: [taskA, taskB] });
+		const nextState = createFlatState({ todo: [taskB, taskA] });
+		(view as any).lastFlatRenderSnapshot = {
+			structuralSignature: previousState.structuralSignature,
+			scopes: previousState.scopes,
+		};
+		(view as any).lastTaskSignatures.set(
+			taskA.path,
+			(view as any).buildTaskRenderSignature(taskA, nextState)
+		);
+		(view as any).lastTaskSignatures.set(
+			taskB.path,
+			(view as any).buildTaskRenderSignature(taskB, nextState)
+		);
+		const diff = (view as any).getFlatRenderSignatureDiff(nextState);
+
+		expect((view as any).isFlatRenderNoOp(nextState, diff)).toBe(false);
+	});
+
+	it("does not move already ordered cards during a no-op data refresh", () => {
+		const view = makeView();
+		const containers = createBoard(view, ["todo"]);
+		const taskA = createTask("tasks/a.md");
+		const taskB = createTask("tasks/b.md");
+		const state = createFlatState({ todo: [taskA, taskB] });
+		const wrapperA = createWrapper(taskA.path);
+		const wrapperB = createWrapper(taskB.path);
+		containers.todo.append(wrapperA, wrapperB);
+		(view as any).currentTaskElements.set(taskA.path, wrapperA);
+		(view as any).currentTaskElements.set(taskB.path, wrapperB);
+		(view as any).lastTaskSignatures.set(
+			taskA.path,
+			(view as any).buildTaskRenderSignature(taskA, state)
+		);
+		(view as any).lastTaskSignatures.set(
+			taskB.path,
+			(view as any).buildTaskRenderSignature(taskB, state)
+		);
+		const appendSpy = jest.spyOn(containers.todo, "appendChild");
+
+		const result = (view as any).applyFlatIncrementalUpdate(state);
+
+		expect(result).toBe(true);
+		expect(appendSpy).not.toHaveBeenCalled();
+		expect(containers.todo.children[0]).toBe(wrapperA);
+		expect(containers.todo.children[1]).toBe(wrapperB);
+	});
+
 	it("reports no card replacements for a no-op data refresh", () => {
 		const view = makeView();
 		const containers = createBoard(view, ["todo"]);

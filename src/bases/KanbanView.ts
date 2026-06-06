@@ -297,6 +297,9 @@ export class KanbanView extends BasesViewBase {
 	private currentVisibleTaskOrder = new Map<string, number>();
 	private suppressRenderUntil = 0;
 	private postDropTimer: number | null = null;
+	private pendingDataUpdateTimer: number | null = null;
+	private pendingDataUpdateSavedState: unknown = null;
+	private readonly DATA_UPDATE_RENDER_DEBOUNCE_MS = 50;
 	private dropQueue = new DropOperationQueue();
 	private activeDropCount = 0;
 	private postDropRefreshRequested = false;
@@ -403,7 +406,20 @@ export class KanbanView extends BasesViewBase {
 		}
 
 		const savedState = this.getEphemeralState();
-		void this.renderFromDataUpdate(savedState);
+		this.scheduleDataUpdateRender(savedState);
+	}
+
+	private scheduleDataUpdateRender(savedState: unknown): void {
+		this.pendingDataUpdateSavedState = savedState;
+		if (this.pendingDataUpdateTimer) {
+			window.clearTimeout(this.pendingDataUpdateTimer);
+		}
+		this.pendingDataUpdateTimer = window.setTimeout(() => {
+			const stateForRender = this.pendingDataUpdateSavedState;
+			this.pendingDataUpdateTimer = null;
+			this.pendingDataUpdateSavedState = null;
+			void this.renderFromDataUpdate(stateForRender);
+		}, this.DATA_UPDATE_RENDER_DEBOUNCE_MS);
 	}
 
 	/**
@@ -749,6 +765,16 @@ export class KanbanView extends BasesViewBase {
 				return;
 			}
 
+			if (this.isFlatRenderNoOp(state, signatureDiff)) {
+				this.applyFlatRenderStateCaches(state);
+				this.debugLog("INCREMENTAL-RENDER: no-op skipped", {
+					renderDebugId,
+					elapsedMs: Date.now() - renderStartedAt,
+					...signatureDiff,
+				});
+				return;
+			}
+
 			const incrementalStats = this.createIncrementalDebugStats();
 			if (!this.applyFlatIncrementalUpdate(state, incrementalStats)) {
 				this.debugLog("INCREMENTAL-RENDER: reconcile failed; fallback to full render", {
@@ -971,7 +997,7 @@ export class KanbanView extends BasesViewBase {
 			}
 		}
 
-		for (const task of tasks) {
+		for (const [index, task] of tasks.entries()) {
 			const nextSignature = this.buildTaskRenderSignature(task, state);
 			const currentSignature = this.lastTaskSignatures.get(task.path);
 			let wrapper = this.currentTaskElements.get(task.path);
@@ -986,7 +1012,11 @@ export class KanbanView extends BasesViewBase {
 			} else {
 				debugStats.reusedCards += 1;
 			}
-			container.appendChild(wrapper);
+
+			const currentChildAtIndex = container.children.item(index);
+			if (currentChildAtIndex !== wrapper) {
+				container.insertBefore(wrapper, currentChildAtIndex);
+			}
 			this.taskInfoCache.set(task.path, task);
 			this.lastTaskSignatures.set(task.path, nextSignature);
 		}
@@ -1034,6 +1064,51 @@ export class KanbanView extends BasesViewBase {
 		}
 
 		return { addedCards, removedCards, changedCards, unchangedCards };
+	}
+
+	private isFlatRenderNoOp(
+		state: KanbanFlatRenderState,
+		signatureDiff: KanbanSignatureDiff
+	): boolean {
+		if (!this.lastFlatRenderSnapshot) {
+			return false;
+		}
+		if (
+			signatureDiff.addedCards !== 0 ||
+			signatureDiff.removedCards !== 0 ||
+			signatureDiff.changedCards !== 0
+		) {
+			return false;
+		}
+		if (this.lastFlatRenderSnapshot.structuralSignature !== state.structuralSignature) {
+			return false;
+		}
+		return this.haveSameScopePaths(this.lastFlatRenderSnapshot.scopes, state.scopes);
+	}
+
+	private haveSameScopePaths(
+		previousScopes: readonly KanbanIncrementalScopeSnapshot[],
+		nextScopes: readonly KanbanIncrementalScopeSnapshot[]
+	): boolean {
+		if (previousScopes.length !== nextScopes.length) {
+			return false;
+		}
+		for (let scopeIndex = 0; scopeIndex < nextScopes.length; scopeIndex += 1) {
+			const previousScope = previousScopes[scopeIndex];
+			const nextScope = nextScopes[scopeIndex];
+			if (previousScope.key !== nextScope.key) {
+				return false;
+			}
+			if (previousScope.paths.length !== nextScope.paths.length) {
+				return false;
+			}
+			for (let pathIndex = 0; pathIndex < nextScope.paths.length; pathIndex += 1) {
+				if (previousScope.paths[pathIndex] !== nextScope.paths[pathIndex]) {
+					return false;
+				}
+			}
+		}
+		return true;
 	}
 
 	private captureFlatRenderSnapshot(state: KanbanFlatRenderState): void {
@@ -4970,6 +5045,11 @@ export class KanbanView extends BasesViewBase {
 			window.clearTimeout(this.postDropTimer);
 			this.postDropTimer = null;
 		}
+		if (this.pendingDataUpdateTimer) {
+			window.clearTimeout(this.pendingDataUpdateTimer);
+			this.pendingDataUpdateTimer = null;
+		}
+		this.pendingDataUpdateSavedState = null;
 		this.suppressRenderUntil = 0;
 
 		// Component.register() calls will be automatically cleaned up
