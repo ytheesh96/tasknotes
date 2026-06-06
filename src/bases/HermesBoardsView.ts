@@ -16,10 +16,10 @@ import {
 	summarizeHermesBoardProvisionResult,
 } from "../hermes/hermesBoardProvisioning";
 import {
-	HERMES_ARCHIVED_FRONTMATTER,
 	HERMES_ASSIGNEE_FRONTMATTER,
 	HERMES_BOARD_FRONTMATTER,
 	canonicalHermesBoardValue,
+	readHermesArchivedFrontmatter,
 } from "../hermes/hermesCanonicalTaskNotes";
 import { showConfirmationModal } from "../modals/ConfirmationModal";
 import { showTextInputModal } from "../modals/TextInputModal";
@@ -211,7 +211,7 @@ export function buildHermesBoardSummaries(
 		const review = options.reviewStatuses.has(status);
 		const blocked = status === "blocked" || task.isBlocked === true;
 		const archived =
-			task.customProperties?.[HERMES_ARCHIVED_FRONTMATTER] === true || task.archived === true;
+			readHermesArchivedFrontmatter(task.customProperties) ?? task.archived === true;
 		const active = !archived && !done;
 		const agents = getTaskAgents(task, options);
 

@@ -31,6 +31,7 @@ import {
 	canonicalHermesTaskPath,
 	legacyHermesBoardTaskPath,
 	legacyHermesUnqualifiedTaskPath,
+	readHermesArchivedFrontmatter,
 	readHermesBoardFrontmatter,
 	readHermesTaskIdFrontmatter,
 } from "./hermesCanonicalTaskNotes";
@@ -214,7 +215,7 @@ function taskInfoFromMirrorFrontmatter(
 		tags: [],
 		contexts: [],
 		projects: [],
-		archived: frontmatter.archived === true || frontmatter.hermesArchived === true,
+		archived: readHermesArchivedFrontmatter(frontmatter) ?? frontmatter.archived === true,
 		customProperties: { ...frontmatter },
 	};
 }

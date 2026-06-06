@@ -16,6 +16,10 @@ import { validateCompleteInstances } from "../utils/dateUtils";
 import { getFrontmatterTags } from "../utils/taskIdentificationFrontmatter";
 import { stringifyUnknown } from "../utils/stringUtils";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import {
+	readHermesArchivedFrontmatter,
+	readHermesFrontmatterProperties,
+} from "../hermes/hermesCanonicalTaskNotes";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Core/FieldMapping" });
 
@@ -304,6 +308,19 @@ export function mapTaskFromFrontmatter(
 		const tags = getFrontmatterTags(frontmatter.tags);
 		mapped.tags = tags;
 		mapped.archived = tags.includes(normalizeTagForComparison(mapping.archiveTag));
+	}
+
+	const hermesArchived = readHermesArchivedFrontmatter(frontmatter);
+	if (hermesArchived !== null) {
+		mapped.archived = hermesArchived;
+	}
+
+	const hermesProperties = readHermesFrontmatterProperties(frontmatter);
+	if (Object.keys(hermesProperties).length > 0) {
+		mapped.customProperties = {
+			...mapped.customProperties,
+			...hermesProperties,
+		};
 	}
 
 	if (userFields.length > 0) {

@@ -35,6 +35,53 @@ describe("core/fieldMapping", () => {
 		});
 	});
 
+	it("uses Hermes archived frontmatter as the TaskNotes archived state when present", () => {
+		const mapped = mapTaskFromFrontmatter(
+			DEFAULT_FIELD_MAPPING,
+			{
+				title: "Hermes task",
+				status: "done",
+				tags: ["task", "archived"],
+				hermesTaskId: "t_1234abcd",
+				hermesBoard: "default",
+				hermesArchived: false,
+			},
+			"TaskNotes/Tasks/default--t_1234abcd.md",
+			true
+		);
+
+		expect(mapped.archived).toBe(false);
+		expect(mapped.tags).toEqual(["task", "archived"]);
+		expect(mapped.customProperties).toMatchObject({
+			hermesTaskId: "t_1234abcd",
+			hermesBoard: "default",
+			hermesArchived: false,
+		});
+	});
+
+	it("normalizes legacy Hermes archived frontmatter aliases", () => {
+		const mapped = mapTaskFromFrontmatter(
+			DEFAULT_FIELD_MAPPING,
+			{
+				title: "Legacy Hermes task",
+				status: "done",
+				hermes_task_id: "t_1234abcd",
+				hermes_board: "default",
+				hermes_archived: "true",
+			},
+			"TaskNotes/Tasks/default--t_1234abcd.md",
+			true
+		);
+
+		expect(mapped.archived).toBe(true);
+		expect(mapped.customProperties).toMatchObject({
+			hermesTaskId: "t_1234abcd",
+			hermesBoard: "default",
+			hermesArchived: true,
+			hermes_archived: "true",
+		});
+	});
+
 	it("maps task fields back to frontmatter with serialized dependency data", () => {
 		const frontmatter = mapTaskToFrontmatter(
 			DEFAULT_FIELD_MAPPING,

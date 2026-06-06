@@ -1,6 +1,7 @@
 import {
 	isHermesArchivedTask,
 	filterKanbanTasksByHermesArchivedVisibility,
+	getKanbanViewConfigOption,
 } from "../../../src/bases/KanbanView";
 import type { TaskInfo } from "../../../src/types";
 
@@ -47,5 +48,39 @@ describe("KanbanView Hermes archived visibility", () => {
 			"boolean-archived.md",
 			"string-archived.md",
 		]);
+	});
+
+	it("reads the archived toggle from nested Bases view options", () => {
+		const config = {
+			get: jest.fn((key: string) =>
+				key === "options" ? { showHermesArchivedTasks: true } : undefined
+			),
+		};
+
+		expect(getKanbanViewConfigOption(config, "showHermesArchivedTasks")).toBe(true);
+	});
+
+	it("falls back to nested Bases view options when direct config returns null", () => {
+		const config = {
+			get: jest.fn((key: string) => {
+				if (key === "showHermesArchivedTasks") return null;
+				if (key === "options") return { showHermesArchivedTasks: true };
+				return undefined;
+			}),
+		};
+
+		expect(getKanbanViewConfigOption(config, "showHermesArchivedTasks")).toBe(true);
+	});
+
+	it("prefers direct view config values over nested options", () => {
+		const config = {
+			get: jest.fn((key: string) => {
+				if (key === "showHermesArchivedTasks") return false;
+				if (key === "options") return { showHermesArchivedTasks: true };
+				return undefined;
+			}),
+		};
+
+		expect(getKanbanViewConfigOption(config, "showHermesArchivedTasks")).toBe(false);
 	});
 });

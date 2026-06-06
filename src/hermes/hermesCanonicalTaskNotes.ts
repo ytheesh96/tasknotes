@@ -31,6 +31,8 @@ export const HERMES_ROOT_RUN_ID_FRONTMATTER = "hermesRootRunId";
 export const HERMES_RUN_TITLE_FRONTMATTER = "hermesRunTitle";
 export const HERMES_RUN_TYPE_FRONTMATTER = "hermesRunType";
 
+const HERMES_FRONTMATTER_PREFIX = /^hermes[A-Z_]/;
+
 export const HERMES_BOARD_MOVE_API_SUPPORT = "unsupported" as const;
 export const HERMES_BOARD_MOVE_API_PATH = null;
 
@@ -73,6 +75,38 @@ export function readHermesArchivedFrontmatter(
 		HERMES_LEGACY_SYNC_FRONTMATTER_ALIASES.archived
 	);
 	return normalizeHermesBoolean(value);
+}
+
+export function readHermesFrontmatterProperties(
+	frontmatter: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+	if (!frontmatter) {
+		return {};
+	}
+
+	const properties: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(frontmatter)) {
+		if (HERMES_FRONTMATTER_PREFIX.test(key)) {
+			properties[key] = value;
+		}
+	}
+
+	const taskId = readHermesTaskIdFrontmatter(frontmatter);
+	if (taskId) {
+		properties[HERMES_TASK_ID_FRONTMATTER] = taskId;
+	}
+
+	const board = readHermesBoardFrontmatter(frontmatter);
+	if (board) {
+		properties[HERMES_BOARD_FRONTMATTER] = board;
+	}
+
+	const archived = readHermesArchivedFrontmatter(frontmatter);
+	if (archived !== null) {
+		properties[HERMES_ARCHIVED_FRONTMATTER] = archived;
+	}
+
+	return properties;
 }
 
 export interface HermesBoardMovePolicyDecision {

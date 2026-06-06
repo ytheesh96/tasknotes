@@ -93,11 +93,11 @@ import {
 	type HermesRunLaneLike,
 } from "./kanbanRunSwimlanes";
 import {
-	HERMES_ARCHIVED_FRONTMATTER,
 	HERMES_ROOT_RUN_ID_FRONTMATTER,
 	HERMES_RUN_ID_FRONTMATTER,
 	HERMES_RUN_TITLE_FRONTMATTER,
 	HERMES_RUN_TYPE_FRONTMATTER,
+	readHermesArchivedFrontmatter,
 } from "../hermes/hermesCanonicalTaskNotes";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
@@ -255,9 +255,26 @@ function normalizeKanbanCardLayout(value: unknown): TaskCardOptions["layout"] {
 	return value === "compact" ? "compact" : "default";
 }
 
+interface KanbanViewConfigLike {
+	get(key: string): unknown;
+}
+
+export function getKanbanViewConfigOption(
+	config: KanbanViewConfigLike,
+	key: string
+): unknown {
+	const directValue = config.get(key);
+	if (directValue !== undefined && directValue !== null) {
+		return directValue;
+	}
+	const options = config.get("options");
+	return options && typeof options === "object"
+		? (options as Record<string, unknown>)[key]
+		: undefined;
+}
+
 export function isHermesArchivedTask(task: TaskInfo): boolean {
-	const hermesArchived = task.customProperties?.[HERMES_ARCHIVED_FRONTMATTER];
-	return hermesArchived === true || hermesArchived === "true";
+	return readHermesArchivedFrontmatter(task.customProperties) === true;
 }
 
 export function filterKanbanTasksByHermesArchivedVisibility(
@@ -467,36 +484,54 @@ export class KanbanView extends BasesViewBase {
 
 		try {
 			this.swimLanePropertyId = this.config.getAsPropertyId("swimLane");
-			this.columnWidth = (this.config.get("columnWidth") as number) || 280;
-			this.maxSwimlaneHeight = (this.config.get("maxSwimlaneHeight") as number) || 600;
-			this.hideEmptyColumns = (this.config.get("hideEmptyColumns") as boolean) || false;
+			this.columnWidth =
+				(getKanbanViewConfigOption(this.config, "columnWidth") as number) || 280;
+			this.maxSwimlaneHeight =
+				(getKanbanViewConfigOption(this.config, "maxSwimlaneHeight") as number) || 600;
+			this.hideEmptyColumns =
+				(getKanbanViewConfigOption(this.config, "hideEmptyColumns") as boolean) || false;
 
 			// Read explodeListColumns option (defaults to true)
-			const explodeValue = this.config.get("explodeListColumns");
+			const explodeValue = getKanbanViewConfigOption(this.config, "explodeListColumns");
 			this.explodeListColumns = explodeValue !== false; // Default to true if not set
 
 			// Read consolidateStatusIcon option (defaults to false)
-			const consolidateValue = this.config.get("consolidateStatusIcon");
+			const consolidateValue = getKanbanViewConfigOption(
+				this.config,
+				"consolidateStatusIcon"
+			);
 			this.consolidateStatusIcon = consolidateValue === true; // Default to false if not set
 
 			// Read column orders
-			this.columnOrders = normalizeKanbanOrderConfig(this.config.get("columnOrder"));
-			this.pinnedColumns = normalizePinnedColumnConfig(this.config.get("pinnedColumns"));
-			this.wipLimits = normalizeKanbanWipLimitsConfig(this.config.get("wipLimits"));
+			this.columnOrders = normalizeKanbanOrderConfig(
+				getKanbanViewConfigOption(this.config, "columnOrder")
+			);
+			this.pinnedColumns = normalizePinnedColumnConfig(
+				getKanbanViewConfigOption(this.config, "pinnedColumns")
+			);
+			this.wipLimits = normalizeKanbanWipLimitsConfig(
+				getKanbanViewConfigOption(this.config, "wipLimits")
+			);
 
 			// Read swimlane orders. Support both the public singular key and the
 			// originally proposed plural key for manually-authored Bases YAML.
 			this.swimLaneOrders = normalizeKanbanOrderConfig(
-				this.config.get("swimLaneOrder") ?? this.config.get("swimLaneOrders")
+				getKanbanViewConfigOption(this.config, "swimLaneOrder") ??
+					getKanbanViewConfigOption(this.config, "swimLaneOrders")
 			);
-			this.hideEmptySwimLanes = this.config.get("hideEmptySwimLanes") === true;
-			this.cardLayout = normalizeKanbanCardLayout(this.config.get("cardLayout"));
-			this.showHermesArchivedTasks = this.config.get("showHermesArchivedTasks") === true;
+			this.hideEmptySwimLanes =
+				getKanbanViewConfigOption(this.config, "hideEmptySwimLanes") === true;
+			this.cardLayout = normalizeKanbanCardLayout(
+				getKanbanViewConfigOption(this.config, "cardLayout")
+			);
+			this.showHermesArchivedTasks =
+				getKanbanViewConfigOption(this.config, "showHermesArchivedTasks") === true;
 
 			// Read enableSearch toggle (default: false for backward compatibility)
-			const enableSearchValue = this.config.get("enableSearch");
+			const enableSearchValue = getKanbanViewConfigOption(this.config, "enableSearch");
 			this.enableSearch = (enableSearchValue as boolean) ?? false;
-			const expandedRelationshipFilterModeValue = this.config.get(
+			const expandedRelationshipFilterModeValue = getKanbanViewConfigOption(
+				this.config,
 				"expandedRelationshipFilterMode"
 			);
 			this.expandedRelationshipFilterMode = normalizeExpandedRelationshipFilterMode(

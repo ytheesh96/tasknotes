@@ -115,4 +115,5 @@ Example:
 - Fixed Hermes board provisioning so adding generated board views to the shared default Kanban base preserves existing TaskNotes root filters, formulas, and properties.
 - Fixed Hermes archived-task filtering in generated Bases board views so the TaskNotes Kanban layout hides boolean and stringified archived flags by default and can reveal them with the per-view archived-task toggle; existing generated archive views are removed when board provisioning runs again.
 - Fixed Hermes board provisioning so shared root filters no longer exclude archived tasks before the TaskNotes Kanban archived-task toggle can decide whether to show them.
+- Fixed Hermes-managed TaskNotes archive handling so `hermesArchived` is the archive source of truth for task reads, Bases archived filters, and archive/unarchive actions instead of the generic archive tag.
 - Fixed the Agent Roster Bases view so completed-only agents and completed task history stay hidden until the user explicitly opens the history section.

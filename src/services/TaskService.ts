@@ -544,6 +544,8 @@ export class TaskService {
 				isCurrentlyArchived,
 				dateModified,
 				dateModifiedField,
+				stateSource: archivePlan.stateSource,
+				hermesListOnUnarchive: archivePlan.hermesListOnUnarchive,
 			});
 		});
 
@@ -551,7 +553,8 @@ export class TaskService {
 		let movedFile = file;
 		const movePlan = buildTaskArchiveMovePlan({
 			isCurrentlyArchived,
-			moveArchivedTasks: this.plugin.settings.moveArchivedTasks,
+			moveArchivedTasks:
+				archivePlan.stateSource === "archive-tag" && this.plugin.settings.moveArchivedTasks,
 			archiveFolderTemplate: this.plugin.settings.archiveFolder,
 			tasksFolderTemplate: this.plugin.settings.tasksFolder,
 			fileName: file.name,

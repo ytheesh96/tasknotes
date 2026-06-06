@@ -1139,6 +1139,53 @@ describe("TaskService", () => {
 			expect(result.tags).toContain("custom-archived");
 		});
 
+		it("should toggle hermesArchived instead of archive tags for Hermes-managed tasks", async () => {
+			const hermesTask = TaskFactory.createTask({
+				path: "TaskNotes/Tasks/default--t_1234abcd.md",
+				status: "done",
+				archived: false,
+				tags: ["task"],
+				customProperties: {
+					hermesTaskId: "t_1234abcd",
+					hermesBoard: "default",
+					hermesArchived: false,
+					hermesList: "done",
+					hermesVisible: true,
+				},
+			});
+			const hermesFile = new TFile(hermesTask.path);
+			const frontmatter: Record<string, unknown> = {
+				tags: ["task"],
+				status: "done",
+				hermesTaskId: "t_1234abcd",
+				hermesBoard: "default",
+				hermesArchived: false,
+				hermesList: "done",
+				hermesVisible: true,
+			};
+
+			mockPlugin.settings.moveArchivedTasks = true;
+			mockPlugin.app.vault.getAbstractFileByPath.mockReturnValue(hermesFile);
+			mockPlugin.app.fileManager.processFrontMatter.mockImplementation(async (_file, fn) => {
+				fn(frontmatter);
+			});
+
+			const result = await taskService.toggleArchive(hermesTask);
+
+			expect(frontmatter.tags).toEqual(["task"]);
+			expect(frontmatter.hermesArchived).toBe(true);
+			expect(frontmatter.hermesList).toBe("archived");
+			expect(frontmatter.hermesVisible).toBe(false);
+			expect(result.archived).toBe(true);
+			expect(result.tags).toEqual(["task"]);
+			expect(result.customProperties).toMatchObject({
+				hermesArchived: true,
+				hermesList: "archived",
+				hermesVisible: false,
+			});
+			expect(mockPlugin.app.fileManager.renameFile).not.toHaveBeenCalled();
+		});
+
 		it("should preserve the Google Calendar event ID across an archive move and clear it after successful deletion", async () => {
 			const taskWithCalendar = TaskFactory.createTask({
 				path: "TaskNotes/Tasks/archive-me.md",
