@@ -356,7 +356,7 @@ export async function syncHermesManagedTaskFromHermes(
 		localTaskDeleter?: HermesLocalTaskDeleter;
 	} = {}
 ): Promise<boolean> {
-	const path = canonicalHermesTaskPath(identity.id);
+	const path = canonicalHermesTaskPath(identity.board, identity.id);
 	const localTask =
 		options.localTask === undefined
 			? (await plugin.cacheManager.getTaskInfoFromFrontmatter(path)) ??

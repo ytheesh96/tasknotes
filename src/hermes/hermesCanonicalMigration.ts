@@ -152,7 +152,7 @@ export function planHermesCanonicalMirrorMigration(
 			return {
 				identity,
 				task,
-				canonicalPath: canonicalHermesTaskPath(identity.id),
+				canonicalPath: canonicalHermesTaskPath(identity.board, identity.id),
 			};
 		})
 		.filter((candidate): candidate is ManagedTaskCandidate => candidate !== null);
@@ -231,10 +231,14 @@ function getManagedActivityCandidate(task: TaskInfo): ManagedActivityCandidate |
 	if (!basename) {
 		return null;
 	}
-	const canonicalPath = canonicalHermesActivityPath(taskId, activityType, basename);
+	const board = readHermesBoardFrontmatter(frontmatter);
+	if (!board) {
+		return null;
+	}
+	const canonicalPath = canonicalHermesActivityPath(board, taskId, activityType, basename);
 	return {
 		taskId,
-		board: readHermesBoardFrontmatter(frontmatter),
+		board,
 		activityType,
 		task,
 		canonicalPath,
@@ -280,7 +284,7 @@ function activityTypeFromPath(path: string): HermesActivityMirrorType | null {
 		return match[1].toLowerCase() as HermesActivityMirrorType;
 	}
 	const canonicalMatch = normalized.match(
-		/(?:^|\/)Activity\/[^/]+\/(comments|runs|events|artifacts|raw)\//
+		/(?:^|\/)Activity\/(?:[^/]+\/)?[^/]+\/(comments|runs|events|artifacts|raw)\//
 	);
 	return canonicalMatch ? (canonicalMatch[1] as HermesActivityMirrorType) : null;
 }

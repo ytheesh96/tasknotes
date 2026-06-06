@@ -942,7 +942,7 @@ function buildActivityItem(
 		return { label, sortTimestampMs };
 	}
 	const basename = activityNoteBasename(prefix, rawId, index, options.taskId);
-	const path = canonicalHermesActivityPath(options.taskId, folder, basename);
+	const path = canonicalHermesActivityPath(options.board, options.taskId, folder, basename);
 	return {
 		label,
 		path,
@@ -961,11 +961,11 @@ function buildActivityLink(
 	label: string
 ): string {
 	const basename = activityNoteBasename(prefix, rawId, 0, options.taskId);
-	return `[[${canonicalHermesActivityPath(options.taskId, folder, basename).replace(/\.md$/i, "")}|${label}]]`;
+	return `[[${canonicalHermesActivityPath(options.board, options.taskId, folder, basename).replace(/\.md$/i, "")}|${label}]]`;
 }
 
 function buildHermesTaskLink(options: HermesActivityNoteOptions): string {
-	return `[[${canonicalHermesTaskPath(options.taskId).replace(/\.md$/i, "")}|${options.taskId}]]`;
+	return `[[${canonicalHermesTaskPath(options.board, options.taskId).replace(/\.md$/i, "")}|${options.taskId}]]`;
 }
 
 function activityNoteBasename(
@@ -1085,7 +1085,7 @@ function buildRawActivityPath(
 	const normalizedTaskId = options.taskId.replace(/[^A-Za-z0-9_-]/g, "");
 	const normalizedId = rawId.replace(/[^A-Za-z0-9]/g, "") || "1";
 	const basename = `${normalizedTaskId}-${source}${normalizedId}-${kind}`;
-	return canonicalHermesActivityPath(options.taskId, "raw", basename);
+	return canonicalHermesActivityPath(options.board, options.taskId, "raw", basename);
 }
 
 function buildArtifactActivityLink(
@@ -1110,7 +1110,7 @@ function buildArtifactActivityPath(
 		slug,
 		digest,
 	].filter(Boolean).join("-");
-	return canonicalHermesActivityPath(options.taskId, "artifacts", basename);
+	return canonicalHermesActivityPath(options.board, options.taskId, "artifacts", basename);
 }
 
 function collectEventArtifacts(event: JsonRecord): string[] {
@@ -1248,7 +1248,8 @@ function collectHermesTaskReferenceLinks(text: string, board: string | undefined
 			return match;
 		}
 		const normalizedTaskId = taskId.toLowerCase();
-		links.push(`[[${canonicalHermesTaskPath(normalizedTaskId).replace(/\.md$/i, "")}|${normalizedTaskId}]]`);
+		const targetBoard = _explicitBoard?.trim() || normalizedBoard;
+		links.push(`[[${canonicalHermesTaskPath(targetBoard, normalizedTaskId).replace(/\.md$/i, "")}|${normalizedTaskId}]]`);
 		return match;
 	});
 	return uniqueStrings(links);

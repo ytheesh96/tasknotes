@@ -6,7 +6,8 @@ import {
 } from "./hermesCanonicalTaskNotes";
 
 const DEFAULT_HERMES_KANBAN_API_BASE = "http://127.0.0.1:9119/api/plugins/kanban";
-const TASKNOTES_CANONICAL_TASK_PATH = /^TaskNotes\/Tasks\/(t_[^/]+)\.md$/;
+const TASKNOTES_CANONICAL_BOARD_TASK_PATH = /^TaskNotes\/Tasks\/([^/]+)\/(t_[^/]+)\.md$/;
+const TASKNOTES_LEGACY_UNQUALIFIED_TASK_PATH = /^TaskNotes\/Tasks\/(t_[^/]+)\.md$/;
 const TASKNOTES_LEGACY_BOARD_TASK_PATH = /^TaskNotes\/([^/]+)\/(t_[^/]+)\.md$/;
 const RESERVED_TASKNOTES_FOLDERS = new Set(["Activity", "Hermes", "Tasks", "Views"]);
 
@@ -184,9 +185,14 @@ export function getHermesTaskIdentity(task: TaskInfo): HermesTaskIdentity | null
 		return { board: frontmatterBoard, id: frontmatterId };
 	}
 
-	const canonicalPathMatch = task.path.match(TASKNOTES_CANONICAL_TASK_PATH);
-	if (canonicalPathMatch && frontmatterBoard) {
-		return { board: frontmatterBoard, id: canonicalPathMatch[1] };
+	const boardPathMatch = task.path.match(TASKNOTES_CANONICAL_BOARD_TASK_PATH);
+	if (boardPathMatch) {
+		return { board: frontmatterBoard ?? boardPathMatch[1], id: frontmatterId ?? boardPathMatch[2] };
+	}
+
+	const legacyUnqualifiedPathMatch = task.path.match(TASKNOTES_LEGACY_UNQUALIFIED_TASK_PATH);
+	if (legacyUnqualifiedPathMatch && frontmatterBoard) {
+		return { board: frontmatterBoard, id: frontmatterId ?? legacyUnqualifiedPathMatch[1] };
 	}
 
 	const legacyPathMatch = task.path.match(TASKNOTES_LEGACY_BOARD_TASK_PATH);

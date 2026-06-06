@@ -63,14 +63,14 @@ describe("Hermes canonical migration tooling", () => {
 			duplicateActivityGroups: 0,
 			orphanedTaskMirrors: 1,
 			orphanedActivityMirrors: 0,
-			destructiveCleanupCandidates: 2,
+			destructiveCleanupCandidates: 3,
 		});
 		expect(result.writes).toEqual([]);
 		expect(result.report.taskMirrorPlan.duplicates).toEqual([
 			{
 				taskId: "t_legacy",
 				board: "developer",
-				canonicalPath: "TaskNotes/Tasks/t_legacy.md",
+				canonicalPath: "TaskNotes/Tasks/developer/t_legacy.md",
 				paths: ["TaskNotes/Tasks/t_legacy.md", "TaskNotes/developer/t_legacy.md"],
 			},
 		]);
@@ -88,7 +88,7 @@ describe("Hermes canonical migration tooling", () => {
 				board: "developer",
 				activityType: "comments",
 				fromPath: "TaskNotes/developer/activity/comments/t_legacy-comment42.md",
-				toPath: "TaskNotes/Activity/t_legacy/comments/t_legacy-comment42.md",
+				toPath: "TaskNotes/Activity/developer/t_legacy/comments/t_legacy-comment42.md",
 				action: "copy",
 				destructive: false,
 				reason: "legacy-board-activity-path",
@@ -189,6 +189,14 @@ describe("Hermes canonical migration tooling", () => {
 		expect(report.cleanupCandidates).toEqual([
 			{
 				path: "TaskNotes/developer/t_dup.md",
+				taskId: "t_dup",
+				board: "developer",
+				reason: "duplicate-task-mirror",
+				destructive: true,
+				requiresApproval: true,
+			},
+			{
+				path: "TaskNotes/Tasks/t_dup.md",
 				taskId: "t_dup",
 				board: "developer",
 				reason: "duplicate-task-mirror",

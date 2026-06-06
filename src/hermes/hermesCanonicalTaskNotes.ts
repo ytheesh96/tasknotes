@@ -106,7 +106,11 @@ export function evaluateHermesBoardMovePolicy(
 	};
 }
 
-export function canonicalHermesTaskPath(taskId: string): string {
+export function canonicalHermesTaskPath(board: string, taskId: string): string {
+	return `${HERMES_TASKNOTES_TASKS_FOLDER}/${canonicalHermesPathSegment(board)}/${taskId}.md`;
+}
+
+export function legacyHermesUnqualifiedTaskPath(taskId: string): string {
 	return `${HERMES_TASKNOTES_TASKS_FOLDER}/${taskId}.md`;
 }
 
@@ -114,16 +118,21 @@ export function legacyHermesBoardTaskPath(board: string, taskId: string): string
 	return `${HERMES_TASKNOTES_ROOT}/${board.trim()}/${taskId}.md`;
 }
 
-export function canonicalHermesActivityFolder(taskId: string): string {
-	return `${HERMES_TASKNOTES_ACTIVITY_FOLDER}/${taskId}`;
+export function canonicalHermesActivityFolder(board: string, taskId: string): string {
+	return `${HERMES_TASKNOTES_ACTIVITY_FOLDER}/${canonicalHermesPathSegment(board)}/${taskId}`;
 }
 
 export function canonicalHermesActivityPath(
+	board: string,
 	taskId: string,
 	folder: "comments" | "runs" | "events" | "artifacts" | "raw",
 	basename: string
 ): string {
-	return `${canonicalHermesActivityFolder(taskId)}/${folder}/${basename}.md`;
+	return `${canonicalHermesActivityFolder(board, taskId)}/${folder}/${basename}.md`;
+}
+
+export function canonicalHermesPathSegment(value: string): string {
+	return value.trim();
 }
 
 export function normalizeHermesScalar(value: unknown): string | null {

@@ -34,8 +34,15 @@ describe("Hermes canonical mirror migration planning", () => {
 				taskId: "t_legacy",
 				board: "default",
 				fromPath: "TaskNotes/default/t_legacy.md",
-				toPath: "TaskNotes/Tasks/t_legacy.md",
+				toPath: "TaskNotes/Tasks/default/t_legacy.md",
 				reason: "legacy-board-prefixed-path",
+			},
+			{
+				taskId: "t_current",
+				board: "developer",
+				fromPath: "TaskNotes/Tasks/t_current.md",
+				toPath: "TaskNotes/Tasks/developer/t_current.md",
+				reason: "noncanonical-managed-path",
 			},
 		]);
 		expect(plan.duplicates).toEqual([]);
@@ -59,7 +66,7 @@ describe("Hermes canonical mirror migration planning", () => {
 			{
 				taskId: "t_dup",
 				board: "default",
-				canonicalPath: "TaskNotes/Tasks/t_dup.md",
+				canonicalPath: "TaskNotes/Tasks/default/t_dup.md",
 				paths: ["TaskNotes/Tasks/t_dup.md", "TaskNotes/default/t_dup.md"],
 			},
 		]);
@@ -88,5 +95,38 @@ describe("Hermes canonical mirror migration planning", () => {
 				reason: "missing-from-hermes-board",
 			},
 		]);
+	});
+
+	it("migrates an unqualified TaskNotes/Tasks note when hermesBoard makes the destination unambiguous", () => {
+		const plan = planHermesCanonicalMirrorMigration([
+			createTask({
+				path: "TaskNotes/Tasks/t_unqualified.md",
+				customProperties: { hermesTaskId: "t_unqualified", hermesBoard: "default" },
+			}),
+		]);
+
+		expect(plan.migrations).toEqual([
+			{
+				taskId: "t_unqualified",
+				board: "default",
+				fromPath: "TaskNotes/Tasks/t_unqualified.md",
+				toPath: "TaskNotes/Tasks/default/t_unqualified.md",
+				reason: "noncanonical-managed-path",
+			},
+		]);
+		expect(plan.duplicates).toEqual([]);
+	});
+
+	it("skips an unqualified TaskNotes/Tasks note safely when board identity is unknown", () => {
+		const plan = planHermesCanonicalMirrorMigration([
+			createTask({
+				path: "TaskNotes/Tasks/t_unknown.md",
+				customProperties: { hermesTaskId: "t_unknown" },
+			}),
+		]);
+
+		expect(plan.migrations).toEqual([]);
+		expect(plan.duplicates).toEqual([]);
+		expect(plan.orphans).toEqual([]);
 	});
 });

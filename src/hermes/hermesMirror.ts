@@ -1,5 +1,5 @@
 import { TFile } from "obsidian";
-import { stringify as stringifyYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import TaskNotesPlugin from "../main";
 import type { TaskDependency, TaskInfo } from "../types";
 import { getCurrentTimestamp } from "../utils/dateUtils";
@@ -30,6 +30,7 @@ import {
 	HERMES_VISIBLE_FRONTMATTER,
 	canonicalHermesTaskPath,
 	legacyHermesBoardTaskPath,
+	legacyHermesUnqualifiedTaskPath,
 } from "./hermesCanonicalTaskNotes";
 import type { HermesTaskRecord } from "./hermesApiClient";
 
@@ -75,24 +76,32 @@ export async function createOrUpdateHermesMirrorNote(
 ): Promise<{ file: TFile; taskInfo: TaskInfo; changed: boolean }> {
 	const folder = HERMES_TASKNOTES_TASKS_FOLDER;
 	await ensureFolderExists(plugin.app.vault, folder);
-	const path = canonicalHermesTaskPath(task.id);
+	const path = canonicalHermesTaskPath(board, task.id);
 	const canonicalExisting = plugin.app.vault.getAbstractFileByPath(path);
 	const existingMirror = await getExistingHermesMirror(plugin, board, task.id, canonicalExisting);
 	const existingTaskInfo = existingMirror.taskInfo;
-	const existingActivity = existingTaskInfo
-		? getHermesActivitySnapshotFromTask(plugin, existingTaskInfo)
+	const canonicalExistingContent = canonicalExisting instanceof TFile
+		? await plugin.app.vault.read(canonicalExisting)
+		: null;
+	const parsedFrontmatter = parseHermesMirrorFrontmatter(canonicalExistingContent);
+	const stableExistingTaskInfo = mergeStableMirrorFrontmatter(
+		existingTaskInfo ?? taskInfoFromMirrorFrontmatter(path, parsedFrontmatter),
+		parsedFrontmatter
+	);
+	const existingActivity = stableExistingTaskInfo
+		? getHermesActivitySnapshotFromTask(plugin, stableExistingTaskInfo)
 		: null;
 	const blockedByField = plugin.fieldMapper?.toUserField("blockedBy") ?? "blockedBy";
 	const content = buildHermesMirrorContent(board, task, {
 		...options,
-		existingTaskInfo: existingTaskInfo ?? undefined,
+		existingTaskInfo: stableExistingTaskInfo ?? undefined,
 		existingActivity,
 		blockedByField,
 	});
 	let file: TFile;
 	let mainNoteChanged = false;
 	if (canonicalExisting instanceof TFile) {
-		const existingContent = await plugin.app.vault.read(canonicalExisting);
+		const existingContent = canonicalExistingContent ?? (await plugin.app.vault.read(canonicalExisting));
 		if (existingContent !== content) {
 			await plugin.app.vault.modify(canonicalExisting, content);
 			mainNoteChanged = true;
@@ -116,7 +125,7 @@ export async function createOrUpdateHermesMirrorNote(
 			...options,
 			existingActivity,
 			blockedByField,
-			existingTaskInfo: existingTaskInfo ?? undefined,
+			existingTaskInfo: stableExistingTaskInfo ?? undefined,
 		});
 
 	taskInfo.details = splitBody(content);
@@ -137,10 +146,102 @@ export async function createOrUpdateHermesMirrorNote(
 		};
 	}
 	const changed = mainNoteChanged || activityNotesChanged;
-	if (changed || !existingTaskInfo) {
+	if (changed || !stableExistingTaskInfo) {
 		plugin.cacheManager.updateTaskInfoInCache(file.path, taskInfo);
 	}
 	return { file, taskInfo, changed };
+}
+
+function parseHermesMirrorFrontmatter(content: string | null): Record<string, unknown> | null {
+	if (!content) {
+		return null;
+	}
+	const match = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
+	if (!match) {
+		return null;
+	}
+	try {
+		const yamlText = match[1];
+		const parsed = parseYaml(yamlText);
+		if (!isPlainObject(parsed)) {
+			return null;
+		}
+		for (const key of ["dateCreated", "completedDate", HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt]) {
+			const rawValue = readRawYamlScalar(yamlText, key);
+			if (rawValue) {
+				parsed[key] = rawValue;
+			}
+		}
+		return parsed;
+	} catch {
+		return null;
+	}
+}
+
+function readRawYamlScalar(yamlText: string, key: string): string | null {
+	const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const match = yamlText.match(new RegExp(`^${escapedKey}:\\s*(.+?)\\s*$`, "m"));
+	if (!match) {
+		return null;
+	}
+	const value = match[1].trim();
+	if (!value || value === "|" || value === ">") {
+		return null;
+	}
+	if (
+		(value.startsWith('"') && value.endsWith('"')) ||
+		(value.startsWith("'") && value.endsWith("'"))
+	) {
+		return value.slice(1, -1);
+	}
+	return value;
+}
+
+function taskInfoFromMirrorFrontmatter(
+	path: string,
+	frontmatter: Record<string, unknown> | null
+): TaskInfo | null {
+	if (!frontmatter) {
+		return null;
+	}
+	return {
+		title: typeof frontmatter.title === "string" ? frontmatter.title : "",
+		status: typeof frontmatter.status === "string" ? frontmatter.status : "",
+		priority: typeof frontmatter.priority === "string" ? frontmatter.priority : "none",
+		path,
+		tags: [],
+		contexts: [],
+		projects: [],
+		archived: frontmatter.archived === true || frontmatter.hermesArchived === true,
+		customProperties: { ...frontmatter },
+	};
+}
+
+function mergeStableMirrorFrontmatter(
+	taskInfo: TaskInfo | null,
+	frontmatter: Record<string, unknown> | null
+): TaskInfo | null {
+	if (!taskInfo || !frontmatter) {
+		return taskInfo;
+	}
+	const customProperties = {
+		...(taskInfo.customProperties ?? {}),
+	};
+	for (const key of ["dateCreated", "completedDate", HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt]) {
+		const value = frontmatter[key];
+		const existingValue = customProperties[key];
+		if (
+			typeof value === "string" &&
+			value.trim().length > 0 &&
+			(typeof existingValue !== "string" || existingValue.trim().length === 0)
+		) {
+			customProperties[key] = value;
+		}
+	}
+	return {
+		...taskInfo,
+		customProperties,
+	};
 }
 
 async function getExistingHermesMirror(
@@ -155,13 +256,18 @@ async function getExistingHermesMirror(
 			taskInfo: await plugin.cacheManager.getTaskInfoFromFrontmatter(canonicalExisting.path),
 		};
 	}
-	const legacyPath = legacyHermesBoardTaskPath(board, taskId);
-	const legacyExisting = plugin.app.vault.getAbstractFileByPath(legacyPath);
-	if (legacyExisting instanceof TFile) {
-		return {
-			file: legacyExisting,
-			taskInfo: await plugin.cacheManager.getTaskInfoFromFrontmatter(legacyPath),
-		};
+	const legacyPaths = [
+		legacyHermesUnqualifiedTaskPath(taskId),
+		legacyHermesBoardTaskPath(board, taskId),
+	];
+	for (const legacyPath of legacyPaths) {
+		const legacyExisting = plugin.app.vault.getAbstractFileByPath(legacyPath);
+		if (legacyExisting instanceof TFile) {
+			return {
+				file: legacyExisting,
+				taskInfo: await plugin.cacheManager.getTaskInfoFromFrontmatter(legacyPath),
+			};
+		}
 	}
 	return { file: null, taskInfo: null };
 }
@@ -628,12 +734,12 @@ function getHermesDependencyEdges(customProperties: Record<string, unknown> | un
 	return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
-function hermesTaskPath(_board: string, taskId: string): string {
-	return canonicalHermesTaskPath(taskId);
+function hermesTaskPath(board: string, taskId: string): string {
+	return canonicalHermesTaskPath(board, taskId);
 }
 
 function isCanonicalHermesTaskPath(path: string): boolean {
-	return /^TaskNotes\/Tasks\/t_[A-Za-z0-9]+\.md$/.test(path);
+	return /^TaskNotes\/Tasks\/[^/]+\/t_[A-Za-z0-9]+\.md$/.test(path);
 }
 
 function normalizeDependencyUidPath(uid: string): string {

@@ -73,6 +73,7 @@ Example:
 
 ## Fixed
 
+- Fixed Hermes mirror sync no-op churn by preserving existing stable mirror timestamps when cache metadata is missing, so unchanged periodic reconciles no longer rewrite TaskNotes mirror/activity files.
 - Fixed Hermes run swimlane drag/drop so dropping onto an existing task card obeys the same explicit-only cross-run reassignment guard as dropping onto an empty lane.
 - Fixed Hermes canonical sync metadata handling so TaskNotes reads legacy snake_case Hermes frontmatter aliases during migration while continuing to write camelCase `hermesTaskId`, `hermesBoard`, and `hermesArchived` fields in canonical `TaskNotes/Tasks/<task-id>.md` mirrors.
 - Blocked unsupported local edits that move an existing Hermes-managed TaskNote from one `hermesBoard` to another until Hermes exposes an API-backed board move.

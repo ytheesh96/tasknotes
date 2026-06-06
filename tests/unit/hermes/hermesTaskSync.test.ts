@@ -171,7 +171,7 @@ describe("Hermes managed task sync", () => {
 
 		expect(changed).toBe(true);
 		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
-			"TaskNotes/Tasks/t_sync.md"
+			"TaskNotes/Tasks/default/t_sync.md"
 		);
 		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
 		expect(api.getBoard).not.toHaveBeenCalled();
@@ -215,7 +215,7 @@ describe("Hermes managed task sync", () => {
 		);
 
 		expect(changed).toBe(true);
-		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith("TaskNotes/Tasks/t_sync.md");
+		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith("TaskNotes/Tasks/default/t_sync.md");
 		expect(api.getTask).toHaveBeenCalledWith({ board: "default", id: "t_sync" });
 		expect(mirrorWriter).toHaveBeenCalledWith(
 			plugin,
@@ -294,7 +294,7 @@ describe("Hermes managed task sync", () => {
 
 	it("ignores explicit one-task refreshes for local tasks outside Hermes management", async () => {
 		const localTask = createTask({
-			path: "TaskNotes/Tasks/t_sync.md",
+			path: "Notes/t_sync.md",
 			tags: ["task"],
 			projects: [],
 			customProperties: { hermesBoard: undefined },
@@ -355,10 +355,10 @@ describe("Hermes managed task sync", () => {
 			contexts: ["codex"],
 			customProperties: {
 				[HERMES_ACTIVITY_FIELD_KEYS.feed]: [
-					"[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]",
+					"[[TaskNotes/Activity/default/t_sync/comments/t_sync-comment1|Comment 1]]",
 				],
 				[HERMES_ACTIVITY_FIELD_KEYS.comments]: [
-					"[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]",
+					"[[TaskNotes/Activity/default/t_sync/comments/t_sync-comment1|Comment 1]]",
 				],
 				[HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt]: storedSyncedAt,
 				[HERMES_ACTIVITY_FIELD_KEYS.version]: 2,
@@ -403,10 +403,10 @@ describe("Hermes managed task sync", () => {
 			contexts: ["codex"],
 			customProperties: {
 				[HERMES_ACTIVITY_FIELD_KEYS.feed]: [
-					"[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]",
+					"[[TaskNotes/Activity/default/t_sync/comments/t_sync-comment1|Comment 1]]",
 				],
 				[HERMES_ACTIVITY_FIELD_KEYS.comments]: [
-					"[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]",
+					"[[TaskNotes/Activity/default/t_sync/comments/t_sync-comment1|Comment 1]]",
 				],
 				[HERMES_ACTIVITY_FIELD_KEYS.lastSyncedAt]: storedSyncedAt,
 				[HERMES_ACTIVITY_FIELD_KEYS.version]: 2,
@@ -644,7 +644,7 @@ describe("Hermes managed task sync", () => {
 	it("detects Hermes boards from TaskNotes update events for immediate stream subscription", () => {
 		expect(
 			getHermesManagedBoardFromTaskEvent({
-				updatedTask: createTask({ path: "TaskNotes/Tasks/t_sync.md" }),
+				updatedTask: createTask({ path: "TaskNotes/Tasks/default/t_sync.md" }),
 			})
 		).toBe("default");
 		expect(
@@ -728,7 +728,7 @@ describe("Hermes managed task sync", () => {
 		const updatedTask = {
 			...localTask,
 			customProperties: {
-				comments: ["[[TaskNotes/Activity/t_sync/comments/t_sync-comment1|Comment 1]]"],
+				comments: ["[[TaskNotes/Activity/default/t_sync/comments/t_sync-comment1|Comment 1]]"],
 			},
 		};
 		const api = createApi({
@@ -960,11 +960,12 @@ function createApi(options: {
 }
 
 function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
-	const path = overrides.path ?? "TaskNotes/Tasks/t_sync.md";
-	const canonicalMatch = path.match(/^TaskNotes\/Tasks\/(t_[^/]+)\.md$/);
+	const path = overrides.path ?? "TaskNotes/Tasks/default/t_sync.md";
+	const canonicalMatch = path.match(/^TaskNotes\/Tasks\/([^/]+)\/(t_[^/]+)\.md$/);
+	const legacyUnqualifiedMatch = path.match(/^TaskNotes\/Tasks\/(t_[^/]+)\.md$/);
 	const legacyMatch = path.match(/^TaskNotes\/([^/]+)\/(t_[^/]+)\.md$/);
-	const board = canonicalMatch ? "default" : legacyMatch ? legacyMatch[1] : null;
-	const taskId = canonicalMatch?.[1] ?? legacyMatch?.[2] ?? null;
+	const board = canonicalMatch ? canonicalMatch[1] : legacyUnqualifiedMatch ? "default" : legacyMatch ? legacyMatch[1] : null;
+	const taskId = canonicalMatch?.[2] ?? legacyUnqualifiedMatch?.[1] ?? legacyMatch?.[2] ?? null;
 	const assignee = overrides.contexts?.find((value) => value && value !== "hermes-kanban");
 	const baseCustomProperties = taskId && board
 		? {
