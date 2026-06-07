@@ -50,6 +50,10 @@ import { Extension } from "@codemirror/state";
 
 import TaskNotesPlugin from "../main";
 import { createTaskCard } from "../ui/TaskCard";
+import {
+	createHermesTaskReviewSurface,
+	isHermesManagedTaskNote,
+} from "./HermesTaskReviewSurface";
 import { convertInternalToUserProperties } from "../utils/propertyMapping";
 import {
 	ReadingModeInjectionContext,
@@ -115,8 +119,11 @@ function createTaskCardWidget(plugin: TaskNotesPlugin, task: TaskInfo): HTMLElem
 		? convertInternalToUserProperties(plugin.settings.defaultVisibleProperties, plugin)
 		: undefined;
 
-	// Create the task card
-	const taskCard = createTaskCard(task, plugin, visibleProperties);
+	// Hermes-managed task notes get a dedicated split review surface. Ordinary
+	// TaskNotes task notes keep the existing compact card widget unchanged.
+	const taskCard = isHermesManagedTaskNote(task)
+		? createHermesTaskReviewSurface({ plugin, task })
+		: createTaskCard(task, plugin, visibleProperties);
 
 	// Add specific styling for the note widget
 	taskCard.classList.add("task-card-note-widget__card");

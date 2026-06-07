@@ -1,0 +1,259 @@
+/* Hermes Task Note review surface */
+.tasknotes-plugin.hermes-task-review-surface {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-l);
+	background: var(--background-primary);
+	box-shadow: 0 1px 2px var(--background-modifier-box-shadow);
+	margin: 0 0 1rem;
+	padding: 1rem;
+	color: var(--text-normal);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__header {
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding-bottom: 0.75rem;
+	margin-bottom: 0.875rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__title-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.625rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__status-dot {
+	width: 0.65rem;
+	height: 0.65rem;
+	border-radius: 999px;
+	background: var(--color-blue);
+	margin-top: 0.45rem;
+	flex: 0 0 auto;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__status-dot.is-blocked {
+	background: var(--color-red);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__status-dot.is-done,
+.tasknotes-plugin .hermes-task-review-surface__status-dot.is-completed {
+	background: var(--color-green);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__status-dot.is-review {
+	background: var(--color-orange);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__task-id {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__task-title {
+	font-size: var(--font-ui-large);
+	font-weight: var(--font-semibold);
+	line-height: 1.25;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.375rem;
+	margin-top: 0.625rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__chip {
+	display: inline-flex;
+	gap: 0.2rem;
+	align-items: center;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	padding: 0.125rem 0.5rem;
+	font-size: var(--font-ui-smaller);
+	background: var(--background-secondary);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__chip-label {
+	color: var(--text-muted);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__question {
+	margin-top: 0.625rem;
+	color: var(--text-normal);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__split {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(17rem, 0.42fr);
+	gap: 1rem;
+	align-items: start;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__main,
+.tasknotes-plugin .hermes-task-review-surface__rail {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__rail {
+	border-left: 1px solid var(--background-modifier-border);
+	padding-left: 1rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__section,
+.tasknotes-plugin .hermes-task-review-surface__rail-section {
+	display: flex;
+	flex-direction: column;
+	gap: 0.45rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__rail-section + .hermes-task-review-surface__rail-section {
+	border-top: 1px solid var(--background-modifier-border);
+	padding-top: 0.75rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__section-label,
+.tasknotes-plugin .hermes-task-review-surface__rail-title {
+	font-size: var(--font-ui-smaller);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--text-muted);
+	font-weight: var(--font-semibold);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__lead {
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-medium);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__body-copy,
+.tasknotes-plugin .hermes-task-review-surface__muted {
+	font-size: var(--font-ui-small);
+	line-height: 1.45;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__muted {
+	color: var(--text-muted);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__file-list,
+.tasknotes-plugin .hermes-task-review-surface__comments {
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__file-row,
+.tasknotes-plugin .hermes-task-review-surface__info-row {
+	display: flex;
+	gap: 0.5rem;
+	align-items: flex-start;
+	border-radius: var(--radius-s);
+	padding: 0.35rem 0.4rem;
+	background: var(--background-secondary-alt);
+	font-size: var(--font-ui-small);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__row-icon,
+.tasknotes-plugin .hermes-task-review-surface__button-icon {
+	width: 1rem;
+	height: 1rem;
+	flex: 0 0 auto;
+	color: var(--text-muted);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__comment {
+	border-left: 3px solid var(--background-modifier-border);
+	padding: 0.45rem 0.55rem;
+	background: var(--background-secondary);
+	border-radius: var(--radius-s);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__comment.is-warning {
+	border-left-color: var(--color-orange);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__comment.is-success {
+	border-left-color: var(--color-green);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__comment.is-blocked,
+.tasknotes-plugin .hermes-task-review-surface__comment.is-danger {
+	border-left-color: var(--color-red);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__comment-meta,
+.tasknotes-plugin .hermes-task-review-surface__info-label {
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	color: var(--text-muted);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__comment-body,
+.tasknotes-plugin .hermes-task-review-surface__info-value {
+	font-size: var(--font-ui-small);
+	word-break: break-word;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__composer {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0.375rem;
+	align-items: end;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__composer textarea {
+	resize: vertical;
+	min-height: 2.5rem;
+	border-radius: var(--radius-m);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__send,
+.tasknotes-plugin .hermes-task-review-surface__action {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.35rem;
+	border-radius: var(--radius-m);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__send {
+	min-height: 2.5rem;
+	min-width: 2.5rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__button-grid {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 0.375rem;
+}
+
+.tasknotes-plugin .hermes-task-review-surface__action.is-primary {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__action.is-danger:not(:disabled) {
+	color: var(--text-error);
+}
+
+.tasknotes-plugin .hermes-task-review-surface__details summary,
+.tasknotes-plugin .hermes-task-review-surface__worker-log summary {
+	cursor: pointer;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+@media (max-width: 820px) {
+	.tasknotes-plugin .hermes-task-review-surface__split {
+		grid-template-columns: 1fr;
+	}
+
+	.tasknotes-plugin .hermes-task-review-surface__rail {
+		border-left: 0;
+		border-top: 1px solid var(--background-modifier-border);
+		padding-left: 0;
+		padding-top: 0.75rem;
+	}
+}
