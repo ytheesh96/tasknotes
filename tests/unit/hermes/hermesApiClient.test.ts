@@ -316,6 +316,61 @@ describe("HermesKanbanApiClient", () => {
 		);
 	});
 
+	it("reads Loop handoff records and status from the dashboard API", async () => {
+		requestUrlMock
+			.mockResolvedValueOnce(
+				jsonResponse({
+					ok: true,
+					handoffs: [
+						{
+							id: 17,
+							root_task_id: "t_root",
+							task_id: "t_child",
+							handoff_kind: "worker_completed",
+							state: "reviewing",
+							reviewer_session_id: "20260613_review",
+						},
+					],
+				})
+			)
+			.mockResolvedValueOnce(
+				jsonResponse({
+					tenant: "tenant-a",
+					root_task_id: "t_root",
+					pending_count: 1,
+					active_count: 1,
+					terminal_count: 0,
+					total_count: 2,
+				})
+			);
+		const api = new HermesKanbanApiClient("http://127.0.0.1:9119/api/plugins/kanban");
+
+		const handoffs = await api.listLoopHandoffs("developer", {
+			rootTaskId: "t_root",
+			tenant: "tenant-a",
+			taskId: "t_child",
+		});
+		const status = await api.getLoopHandoffStatus("developer", {
+			tenant: "tenant-a",
+			rootTaskId: "t_root",
+		});
+
+		expect(handoffs[0]).toMatchObject({ id: 17, state: "reviewing" });
+		expect(status).toMatchObject({ pending_count: 1, active_count: 1, total_count: 2 });
+		expect(requestUrlMock).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/loop-handoffs?board=developer&root_task_id=t_root&tenant=tenant-a&task_id=t_child",
+			})
+		);
+		expect(requestUrlMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				url: "http://127.0.0.1:9119/api/plugins/kanban/loop-handoffs?board=developer&status_only=true&tenant=tenant-a&root_task_id=t_root",
+			})
+		);
+	});
+
 	it("posts explicit run reassignment payloads and preserves returned audit fields", async () => {
 		requestUrlMock.mockResolvedValueOnce(
 			jsonResponse({

@@ -178,6 +178,60 @@ export interface HermesTaskDetailResponse extends HermesTaskResponse {
 	runs?: unknown[];
 }
 
+export interface HermesLoopHandoffRecord {
+	id: number;
+	root_task_id: string;
+	tenant?: string | null;
+	task_id: string;
+	run_id?: number | null;
+	source_event_id?: number | null;
+	handoff_kind: string;
+	state: string;
+	attention?: string | null;
+	verification_state?: string | null;
+	verification_status?: string | null;
+	worker_profile?: string | null;
+	worker_session_id?: string | null;
+	originating_session_id?: string | null;
+	task_title?: string | null;
+	summary?: string | null;
+	reason?: string | null;
+	artifacts?: string[];
+	changed_files?: string[];
+	created_cards?: string[];
+	review_task_id?: string | null;
+	review_run_id?: number | null;
+	reviewer_session_id?: string | null;
+	review_batch_id?: string | null;
+	decision_actor?: string | null;
+	decision_reason?: string | null;
+	resolution_summary?: string | null;
+	auto_actions_log?: unknown[];
+	escalation_reason?: string | null;
+	escalation_options?: unknown[];
+	final_summary_sent_at?: number | null;
+	escalation_notified_at?: number | null;
+	created_at?: number | null;
+	updated_at?: number | null;
+	started_at?: number | null;
+	completed_at?: number | null;
+	resolved_at?: number | null;
+}
+
+export interface HermesLoopHandoffsResponse {
+	ok?: boolean;
+	handoffs?: HermesLoopHandoffRecord[];
+}
+
+export interface HermesLoopHandoffStatusResponse {
+	tenant: string;
+	root_task_id: string;
+	pending_count: number;
+	active_count: number;
+	terminal_count: number;
+	total_count: number;
+}
+
 export function getHermesTaskIdentity(task: TaskInfo): HermesTaskIdentity | null {
 	const frontmatterId = readHermesTaskIdFrontmatter(task.customProperties);
 	const frontmatterBoard = readHermesBoardFrontmatter(task.customProperties);
@@ -273,6 +327,37 @@ export class HermesKanbanApiClient {
 			}
 		}
 		return this.request<HermesBoardStateResponse>(`/board?${params.toString()}`);
+	}
+
+	async listLoopHandoffs(
+		board: string,
+		filters: {
+			rootTaskId?: string;
+			tenant?: string;
+			state?: string;
+			taskId?: string;
+		} = {}
+	): Promise<HermesLoopHandoffRecord[]> {
+		const params = new URLSearchParams({ board });
+		if (filters.rootTaskId) params.set("root_task_id", filters.rootTaskId);
+		if (filters.tenant) params.set("tenant", filters.tenant);
+		if (filters.state) params.set("state", filters.state);
+		if (filters.taskId) params.set("task_id", filters.taskId);
+		const response = await this.request<HermesLoopHandoffsResponse>(`/loop-handoffs?${params.toString()}`);
+		return Array.isArray(response.handoffs) ? response.handoffs : [];
+	}
+
+	async getLoopHandoffStatus(
+		board: string,
+		params: { tenant: string; rootTaskId: string }
+	): Promise<HermesLoopHandoffStatusResponse> {
+		const query = new URLSearchParams({
+			board,
+			status_only: "true",
+			tenant: params.tenant,
+			root_task_id: params.rootTaskId,
+		});
+		return this.request<HermesLoopHandoffStatusResponse>(`/loop-handoffs?${query.toString()}`);
 	}
 
 	async getEventStreamUrl(board: string, since = 0): Promise<string | null> {

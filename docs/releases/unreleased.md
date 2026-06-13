@@ -26,6 +26,9 @@ Example:
 
 ## Added
 
+- Added Loop handoff reviewer status to the Hermes-managed TaskNote review surface, including composer status stack counts, Agents/Loop overlay links, state/evidence/queue chips, reviewer and worker session links, audit/action links, auto-action summaries, and explicit quiet green-path notification copy.
+- Added Hermes Kanban API client support for Loop handoff list/status endpoints so TaskNotes can read durable reviewer queue state from the dashboard API.
+- Added a native Hermes-managed TaskNote review surface with a split task brief, compact comments composer, decision/task action rail, open-next evidence rows, verification summaries, filtered activity timeline, collapsed run history, and dependency chips.
 - Added Kanban column and swimlane header checkboxes for selecting or clearing all visible tasks in that column or column/swimlane section.
 - Added a Hermes availability service for the TaskNotes modal that checks localhost dashboard/API health, reports cache-only/read-only modes, and supports desktop-only startup with the safe localhost dashboard command.
 - Added Hermes task edit modal availability indicators, cache-only labeling, disabled live controls when disconnected, and Start Hermes/Recheck actions that reload live board data after startup.
@@ -35,7 +38,7 @@ Example:
 - Added a configurable `TaskNotes: Start Hermes` command, settings controls, and optional auto-start after Hermes-linked task note changes.
 - Added an Activity group in Modal Fields so Hermes comments, runs, events, artifacts, and changed files can be enabled or disabled independently.
 - Added a TaskNotes Agent Roster Bases view for reviewing agent queues and opening delegated Hermes task submissions from grouped roster cards.
-- Added a dedicated Hermes Boards Bases view for creating, refreshing, opening, and deleting Hermes boards, including local mirror cleanup after a board is archived through Hermes.
+- Added a dedicated Hermes Boards Bases view for creating, refreshing, opening, and deleting Hermes boards from TaskNotes-native board records, so empty boards remain visible offline and deleting a board archives the local board record while cleaning up local mirror notes.
 - Added dry-run Hermes canonical migration/backfill tooling that inventories legacy mirrors, duplicate and orphan candidates, property backfills, and non-destructive activity relocation plans before any writes are enabled.
 - Added a Kanban CLI-backed Hermes task creation transport for TaskNotes submissions when the dashboard API is not the selected write path, with concise transport setup and troubleshooting documentation.
 - Added Hermes run swimlanes in Kanban bases with run headers, expanded/collapsed states, status-aligned collapsed counts, and visible No run/Unknown run copy, selectable through the existing Kanban grouping controls rather than a separate generated Runs view.
@@ -43,8 +46,11 @@ Example:
 
 ## Changed
 
+- Added a Hermes task note review surface PRD with embedded mockups for the split review sheet, evidence rail, review decisions, and compact comment composer direction.
 - Redesigned the Hermes section of the task edit modal as a review-thread activity rail with pinned handoffs, chat-style comments, compact run status chips, artifact links, and inline status updates while preserving the existing TaskNotes editing experience.
 - Updated the Hermes TaskNotes API and webhook sync PRD for the dashboardless architecture, with TaskNotes HTTP API reads as authoritative, webhooks as wake-up signals, board-qualified `hermesBoard`/`hermesTaskId` identity, and legacy dashboard sync documented as a gated fallback.
+- Defaulted Hermes Kanban writes to the local CLI transport unless the dashboard API transport is explicitly selected, so TaskNotes does not silently reintroduce a dashboard dependency for normal Hermes task submissions.
+- Changed native TaskNotes archive state to use an `archived` frontmatter field instead of treating an `archived` tag as the archive mechanism.
 - Added a Hermes managed write guard PRD that defines read-only cache behavior and live-Hermes requirements for board task creation and editing.
 - Changed Hermes-managed task creation and editing so board writes are blocked while Hermes is disconnected, starting, or degraded.
 - Refined the Hermes task edit modal so the review comment Send button sits inside the composer, Hermes live status appears as a compact indicator, status updates appear inside the review thread, and the task information footer is hidden.
@@ -74,6 +80,10 @@ Example:
 
 ## Fixed
 
+- Fixed Hermes Loop handoff review detection so generic TaskNotes/Hermes `state` or `decision` properties do not create a fake handoff review when no explicit Loop handoff marker or event has been recorded.
+
+- Fixed Hermes Boards live-board backfill so unchanged board records preserve their existing `dateModified` value and are not rewritten during repeated renders, reducing Bases refresh flicker while still updating records when board names or archive state change.
+- Fixed the Hermes Boards Bases view so it imports live Hermes board lists into TaskNotes-native board records, preserves archived local board tombstones so deleted boards do not reappear from live/task-derived references, ignores stale or vanished E2E fixture board records, removes generated fixture views from the shared Kanban base during provisioning, and keeps Settings board creation/deletion local-first when the dashboard is unavailable.
 - Fixed Hermes TaskNotes canonical paths so task mirrors and activity notes use `TaskNotes/Tasks/<board>--<task-id>.md` and `TaskNotes/Activity/<board>--<task-id>/...`, preventing two boards with the same Hermes task id from sharing the same mirror path and preserving safe migration reporting for older unqualified notes.
 - Fixed Hermes mirror sync no-op churn by preserving existing stable mirror timestamps when cache metadata is missing, so unchanged periodic reconciles no longer rewrite TaskNotes mirror/activity files.
 - Fixed TaskNotes Kanban Bases refreshes so debounced data updates cannot patch card DOM after a drag or post-drop suppression starts.
@@ -116,6 +126,6 @@ Example:
 - Fixed Hermes board provisioning so adding generated board views to the shared default Kanban base preserves existing TaskNotes root filters, formulas, and properties.
 - Fixed Hermes archived-task filtering in generated Bases board views so the TaskNotes Kanban layout hides boolean and stringified archived flags by default and can reveal them with the per-view archived-task toggle; existing generated archive views are removed when board provisioning runs again.
 - Fixed Hermes board provisioning so shared root filters no longer exclude archived tasks before the TaskNotes Kanban archived-task toggle can decide whether to show them.
-- Fixed Hermes-managed TaskNotes archive handling so `hermesArchived` is the archive source of truth for task reads, Bases archived filters, and archive/unarchive actions instead of the generic archive tag.
+- Fixed Hermes-managed TaskNotes archive handling so `hermesArchived` is the archive source of truth for task reads, Bases archived filters, and archive/unarchive actions instead of the native archived field.
 - Fixed Kanban swimlane rendering so swimlanes are grouped inside shared status columns, hidden empty columns stay hidden, each column uses one shared scroll area without per-swimlane height caps, and compact add-task controls live in each swimlane header.
 - Fixed the Agent Roster Bases view so completed-only agents and completed task history stay hidden until the user explicitly opens the history section.

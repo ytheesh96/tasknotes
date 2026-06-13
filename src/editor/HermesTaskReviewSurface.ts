@@ -28,7 +28,39 @@ interface ReviewAction {
 interface ActivityRow {
 	label: string;
 	text: string;
-	kind: "comment" | "run" | "event";
+	kind: "comment" | "run" | "event" | "handoff";
+}
+
+interface HandoffReviewLink {
+	label: string;
+	value: string;
+	icon: string;
+}
+
+interface HandoffReviewModel {
+	id?: string;
+	kind?: string;
+	state: string;
+	statusLabel: string;
+	attention?: string;
+	verificationState?: string;
+	verificationStatus?: string;
+	queueLabel?: string;
+	pendingCount?: string;
+	activeCount?: string;
+	totalCount?: string;
+	batchId?: string;
+	reviewerSessionId?: string;
+	workerSessionId?: string;
+	sourceRunId?: string;
+	sourceEventId?: string;
+	decision?: string;
+	decisionReason?: string;
+	evidenceSummary?: string;
+	autoActions: string[];
+	escalationReason?: string;
+	finalSummarySentAt?: string;
+	links: HandoffReviewLink[];
 }
 
 const HIGH_SIGNAL_EVENT_PATTERN =
@@ -44,6 +76,31 @@ const CHANGED_FILE_KEYS = [
 	"hermesActivityChangedFiles",
 	"hermesRunChangedFiles",
 ];
+const HANDOFF_ID_KEYS = ["hermesLoopHandoffId", "loopHandoffId", "handoff_id", "handoffId"];
+const HANDOFF_KIND_KEYS = ["hermesLoopHandoffKind", "loopHandoffKind", "handoff_kind", "handoffKind"];
+const HANDOFF_STATE_KEYS = ["hermesLoopHandoffState", "loopHandoffState", "handoff_state"];
+const HANDOFF_ATTENTION_KEYS = ["hermesLoopHandoffAttention", "loopHandoffAttention"];
+const HANDOFF_VERIFICATION_STATE_KEYS = ["hermesLoopVerificationState", "verification_state", "verificationState"];
+const HANDOFF_VERIFICATION_STATUS_KEYS = ["hermesLoopVerificationStatus", "verification_status", "verificationStatus"];
+const HANDOFF_QUEUE_KEYS = ["hermesLoopQueuePosition", "reviewer_queue_position", "queuePosition"];
+const HANDOFF_PENDING_COUNT_KEYS = ["hermesLoopPendingCount", "pending_count", "pendingCount"];
+const HANDOFF_ACTIVE_COUNT_KEYS = ["hermesLoopActiveCount", "active_count", "activeCount"];
+const HANDOFF_TOTAL_COUNT_KEYS = ["hermesLoopTotalCount", "total_count", "totalCount"];
+const HANDOFF_BATCH_KEYS = ["hermesLoopReviewBatchId", "review_batch_id", "reviewBatchId"];
+const HANDOFF_REVIEWER_SESSION_KEYS = ["hermesLoopReviewerSessionId", "reviewer_session_id", "reviewerSessionId"];
+const HANDOFF_WORKER_SESSION_KEYS = ["hermesLoopWorkerSessionId", "worker_session_id", "workerSessionId"];
+const HANDOFF_RUN_KEYS = ["hermesLoopSourceRunId", "run_id", "runId", "sourceRunId"];
+const HANDOFF_EVENT_KEYS = ["hermesLoopSourceEventId", "source_event_id", "sourceEventId"];
+const HANDOFF_DECISION_KEYS = ["hermesLoopDecision", "decision_actor", "decisionActor"];
+const HANDOFF_DECISION_REASON_KEYS = ["hermesLoopDecisionReason", "decision_reason", "decisionReason"];
+const HANDOFF_EVIDENCE_KEYS = ["hermesLoopEvidenceSummary", "evidence_summary", "evidenceSummary", "resolution_summary", "resolutionSummary"];
+const HANDOFF_ESCALATION_KEYS = ["hermesLoopEscalationReason", "escalation_reason", "escalationReason"];
+const HANDOFF_FINAL_SUMMARY_KEYS = ["hermesLoopFinalSummarySentAt", "final_summary_sent_at", "finalSummarySentAt"];
+const HANDOFF_AUTO_ACTION_KEYS = ["hermesLoopAutoActions", "auto_actions_log", "autoActionsLog", "autoActions"];
+const HANDOFF_AUDIT_LINK_KEYS = ["hermesLoopAuditLink", "audit_link", "auditLink"];
+const HANDOFF_LINK_KEYS = ["hermesLoopHandoffLink", "handoff_link", "handoffLink"];
+const HANDOFF_REVIEWER_LINK_KEYS = ["hermesLoopReviewerSessionLink", "reviewer_session_link", "reviewerSessionLink"];
+const HANDOFF_WORKER_LINK_KEYS = ["hermesLoopWorkerTranscriptLink", "worker_transcript_link", "workerTranscriptLink"];
 const COMMENT_KEYS = ["comments", "hermesComments", "hermesActivityComments"];
 const RUN_KEYS = ["runs", "hermesRuns", "hermesActivityRuns"];
 const EVENT_KEYS = ["events", "hermesEvents", "hermesActivityEvents"];
@@ -95,6 +152,8 @@ export function createHermesTaskReviewSurface(
 	const rail = split.createDiv({ cls: "hermes-task-review-surface__rail" });
 
 	renderBrief(main, model);
+	renderComposerStatusStack(main, model);
+	renderHandoffReview(main, model);
 	renderChangedFiles(main, model.changedFiles);
 	renderComments(main, model, apiClient, runApiAction);
 	renderDetails(main, task);
@@ -104,6 +163,7 @@ export function createHermesTaskReviewSurface(
 		buildTaskActions(identity, model, plugin, task, apiClient, runApiAction, refresh)
 	);
 	renderOpenNext(rail, model);
+	renderHandoffLinks(rail, model);
 	renderVerification(rail, model);
 	renderActivity(rail, model);
 	renderDependencies(rail, model);
@@ -133,6 +193,7 @@ function buildReviewModel(plugin: TaskNotesPlugin, task: TaskInfo, identity: Her
 	const blockedBy = collectStringValues(props, ["blocked_by", "blockedBy", "parents", "hermesParents"]);
 	const children = collectStringValues(props, ["children", "hermesChildren"]);
 	const board = identity.board;
+	const handoff = buildHandoffReviewModel(props, events);
 
 	return {
 		identity,
@@ -148,11 +209,12 @@ function buildReviewModel(plugin: TaskNotesPlugin, task: TaskInfo, identity: Her
 		comments,
 		runs,
 		events,
-		activityRows: buildActivityRows(comments, runs, events),
-		verificationRows: buildVerificationRows(comments, runs),
+		activityRows: buildActivityRows(comments, runs, events, handoff),
+		verificationRows: buildVerificationRows(comments, runs, handoff),
 		worktree,
 		branch,
 		commit,
+		handoff,
 		changedFileCount: changedFiles.length,
 		plugin,
 	};
@@ -182,6 +244,75 @@ function renderBrief(container: HTMLElement, model: ReturnType<typeof buildRevie
 	const changed = container.createDiv({ cls: "hermes-task-review-surface__section" });
 	changed.createDiv({ cls: "hermes-task-review-surface__section-label", text: "What changed" });
 	changed.createDiv({ cls: "hermes-task-review-surface__body-copy", text: model.whatChanged });
+}
+
+function renderComposerStatusStack(container: HTMLElement, model: ReturnType<typeof buildReviewModel>): void {
+	const handoff = model.handoff;
+	if (!handoff) return;
+	const section = container.createDiv({ cls: "hermes-task-review-surface__section hermes-task-review-surface__composer-stack" });
+	section.createDiv({ cls: "hermes-task-review-surface__section-label", text: "Composer status stack" });
+	const chips = section.createDiv({ cls: "hermes-task-review-surface__chips" });
+	renderChip(chips, "State", handoff.statusLabel);
+	if (handoff.pendingCount) renderChip(chips, "Pending", handoff.pendingCount);
+	if (handoff.activeCount) renderChip(chips, "Active", handoff.activeCount);
+	if (handoff.totalCount) renderChip(chips, "Total", handoff.totalCount);
+	if (handoff.queueLabel) renderChip(chips, "Queue", handoff.queueLabel);
+	section.createDiv({
+		cls: "hermes-task-review-surface__muted",
+		text: handoff.escalationReason
+			? "Escalation copy is visible because Loop marked this handoff as needing attention."
+			: "Quiet green-path copy: status updates stay local until final tenant-ready or escalation copy is needed.",
+	});
+}
+
+function renderHandoffReview(container: HTMLElement, model: ReturnType<typeof buildReviewModel>): void {
+	const section = container.createDiv({ cls: "hermes-task-review-surface__section" });
+	section.createDiv({ cls: "hermes-task-review-surface__section-label", text: "Handoff review" });
+	const handoff = model.handoff;
+	if (!handoff) {
+		section.createDiv({
+			cls: "hermes-task-review-surface__muted",
+			text: "No Loop handoff has been recorded for this task yet.",
+		});
+		return;
+	}
+	const chips = section.createDiv({ cls: "hermes-task-review-surface__chips" });
+	if (handoff.id) renderChip(chips, "Handoff", handoff.id);
+	renderChip(chips, "State", handoff.statusLabel);
+	if (handoff.kind) renderChip(chips, "Kind", formatHandoffKind(handoff.kind));
+	if (handoff.verificationState) renderChip(chips, "Evidence", formatHandoffState(handoff.verificationState));
+	if (handoff.queueLabel) renderChip(chips, "Queue", handoff.queueLabel);
+	if (handoff.batchId) renderChip(chips, "Batch", shortValue(handoff.batchId));
+
+	section.createDiv({
+		cls: "hermes-task-review-surface__body-copy",
+		text: describeHandoffReview(handoff),
+	});
+	section.createDiv({
+		cls: "hermes-task-review-surface__muted",
+		text: "Noise policy: routine green-path decisions update live status and audit only; chat notifications are reserved for escalation and final tenant-ready summaries.",
+	});
+}
+
+function renderHandoffLinks(container: HTMLElement, model: ReturnType<typeof buildReviewModel>): void {
+	const handoff = model.handoff;
+	const section = renderRailSection(container, handoff ? "Agents / Loop overlay" : "Review links");
+	if (!handoff) {
+		renderInfoRow(section, "Handoff", "No handoff link recorded", "git-pull-request-arrow");
+		return;
+	}
+	for (const link of handoff.links) {
+		renderInfoRow(section, link.label, link.value, link.icon);
+	}
+	if (handoff.links.length === 0) {
+		renderInfoRow(section, "Audit", "No reviewer session, transcript, or audit link recorded", "list-checks");
+	}
+	if (handoff.autoActions.length > 0) {
+		renderInfoRow(section, "Auto-actions", handoff.autoActions.join("; "), "list-checks");
+	}
+	if (handoff.finalSummarySentAt) {
+		renderInfoRow(section, "Final summary", `Sent ${handoff.finalSummarySentAt}`, "send");
+	}
 }
 
 function renderChangedFiles(container: HTMLElement, changedFiles: string[]): void {
@@ -473,16 +604,181 @@ function renderChip(container: HTMLElement, label: string, value: string): void 
 	chip.createSpan({ cls: "hermes-task-review-surface__chip-value", text: value });
 }
 
-function buildActivityRows(comments: ReturnType<typeof parseHermesComment>[], runs: string[], events: string[]): ActivityRow[] {
+function buildHandoffReviewModel(
+	props: Record<string, unknown>,
+	events: string[]
+): HandoffReviewModel | null {
+	const hasExplicitHandoff = [
+		...HANDOFF_ID_KEYS,
+		...HANDOFF_KIND_KEYS,
+		...HANDOFF_STATE_KEYS,
+		...HANDOFF_REVIEWER_SESSION_KEYS,
+		...HANDOFF_WORKER_SESSION_KEYS,
+	].some((key) => toStringList(props[key]).length > 0);
+	const handoffEvent = events.find((event) => /loop[ _-]?foreground[ _-]?handoff|handoff review|loop review/i.test(event));
+	if (!hasExplicitHandoff && !handoffEvent) return null;
+
+	const state = firstString(props, HANDOFF_STATE_KEYS) ?? inferHandoffState(handoffEvent) ?? "queued";
+	const id = firstString(props, HANDOFF_ID_KEYS) ?? undefined;
+	const kind = firstString(props, HANDOFF_KIND_KEYS) ?? inferHandoffKind(handoffEvent) ?? undefined;
+	const verificationState = firstString(props, HANDOFF_VERIFICATION_STATE_KEYS) ?? undefined;
+	const verificationStatus = firstString(props, HANDOFF_VERIFICATION_STATUS_KEYS) ?? undefined;
+	const queue = firstString(props, HANDOFF_QUEUE_KEYS);
+	const pendingCount = firstString(props, HANDOFF_PENDING_COUNT_KEYS) ?? undefined;
+	const activeCount = firstString(props, HANDOFF_ACTIVE_COUNT_KEYS) ?? undefined;
+	const totalCount = firstString(props, HANDOFF_TOTAL_COUNT_KEYS) ?? undefined;
+	const batchId = firstString(props, HANDOFF_BATCH_KEYS) ?? undefined;
+	const reviewerSessionId = firstString(props, HANDOFF_REVIEWER_SESSION_KEYS) ?? undefined;
+	const workerSessionId = firstString(props, HANDOFF_WORKER_SESSION_KEYS) ?? undefined;
+	const sourceRunId = firstString(props, HANDOFF_RUN_KEYS) ?? undefined;
+	const sourceEventId = firstString(props, HANDOFF_EVENT_KEYS) ?? undefined;
+	const decision = firstString(props, HANDOFF_DECISION_KEYS) ?? undefined;
+	const decisionReason = firstString(props, HANDOFF_DECISION_REASON_KEYS) ?? undefined;
+	const evidenceSummary = firstString(props, HANDOFF_EVIDENCE_KEYS) ?? undefined;
+	const escalationReason = firstString(props, HANDOFF_ESCALATION_KEYS) ?? undefined;
+	const finalSummarySentAt = firstString(props, HANDOFF_FINAL_SUMMARY_KEYS) ?? undefined;
+	const autoActions = collectStringValues(props, HANDOFF_AUTO_ACTION_KEYS);
+	const links = buildHandoffLinks(props, {
+		id,
+		reviewerSessionId,
+		workerSessionId,
+		sourceRunId,
+		sourceEventId,
+	});
+
+	return {
+		id,
+		kind,
+		state,
+		statusLabel: formatHandoffState(state),
+		attention: firstString(props, HANDOFF_ATTENTION_KEYS) ?? undefined,
+		verificationState,
+		verificationStatus,
+		queueLabel: queue ? `#${queue}` : undefined,
+		pendingCount,
+		activeCount,
+		totalCount,
+		batchId,
+		reviewerSessionId,
+		workerSessionId,
+		sourceRunId,
+		sourceEventId,
+		decision,
+		decisionReason,
+		evidenceSummary,
+		autoActions,
+		escalationReason,
+		finalSummarySentAt,
+		links,
+	};
+}
+
+function buildHandoffLinks(
+	props: Record<string, unknown>,
+	ids: {
+		id?: string;
+		reviewerSessionId?: string;
+		workerSessionId?: string;
+		sourceRunId?: string;
+		sourceEventId?: string;
+	}
+): HandoffReviewLink[] {
+	const links: HandoffReviewLink[] = [];
+	const handoffLink = firstString(props, HANDOFF_LINK_KEYS) ?? ids.id;
+	if (handoffLink) {
+		links.push({ label: "Open handoff", value: handoffLink, icon: "git-pull-request-arrow" });
+	}
+	const reviewerLink = firstString(props, HANDOFF_REVIEWER_LINK_KEYS) ?? ids.reviewerSessionId;
+	if (reviewerLink) {
+		links.push({ label: "Open reviewer session", value: reviewerLink, icon: "bot" });
+	}
+	const workerLink = firstString(props, HANDOFF_WORKER_LINK_KEYS) ?? ids.workerSessionId;
+	if (workerLink) {
+		links.push({ label: "Open worker transcript", value: workerLink, icon: "scroll-text" });
+	}
+	const auditLink = firstString(props, HANDOFF_AUDIT_LINK_KEYS);
+	if (auditLink) {
+		links.push({ label: "Open audit log", value: auditLink, icon: "list-checks" });
+	}
+	if (ids.sourceRunId) {
+		links.push({ label: "Source run", value: ids.sourceRunId, icon: "activity" });
+	}
+	if (ids.sourceEventId) {
+		links.push({ label: "Source event", value: ids.sourceEventId, icon: "radio" });
+	}
+	return links;
+}
+
+function describeHandoffReview(handoff: HandoffReviewModel): string {
+	if (handoff.escalationReason) {
+		return `Escalation required: ${handoff.escalationReason}. Evidence: ${handoff.evidenceSummary ?? handoff.verificationState ?? "not recorded"}.`;
+	}
+	if (/released|approved|closed|complete/i.test(handoff.state)) {
+		return `Reviewed quietly${handoff.decision ? ` — ${formatHandoffState(handoff.decision)}` : ""}. Downstream/audit state is recorded without routine chat interruption.`;
+	}
+	if (/followup|waiting/i.test(handoff.state)) {
+		return `Safe follow-up or dependency wait is active${handoff.autoActions.length > 0 ? `: ${handoff.autoActions.join("; ")}` : "."}`;
+	}
+	return `Loop reviewer state: ${handoff.statusLabel}${handoff.reviewerSessionId ? ` in ${handoff.reviewerSessionId}` : ""}.`;
+}
+
+function inferHandoffState(event: string | undefined): string | null {
+	if (!event) return null;
+	if (/escalat|needs vaitheesh/i.test(event)) return "escalated";
+	if (/release/i.test(event)) return "released";
+	if (/approve|complete|closed/i.test(event)) return "approved";
+	if (/follow/i.test(event)) return "followup_created";
+	if (/review/i.test(event)) return "reviewing";
+	return "queued";
+}
+
+function inferHandoffKind(event: string | undefined): string | undefined {
+	if (!event) return undefined;
+	if (/block/i.test(event)) return "worker_blocked";
+	if (/complete|done/i.test(event)) return "worker_completed";
+	return undefined;
+}
+
+function formatHandoffKind(value: string): string {
+	return value.replace(/^worker[_-]/, "").replace(/[_-]+/g, " ");
+}
+
+function formatHandoffState(value: string): string {
+	const normalized = value.replace(/[_-]+/g, " ").trim();
+	return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Unknown";
+}
+
+function buildActivityRows(
+	comments: ReturnType<typeof parseHermesComment>[],
+	runs: string[],
+	events: string[],
+	handoff: HandoffReviewModel | null
+): ActivityRow[] {
 	return [
+		...(handoff
+			? [{ label: "Handoff review", text: describeHandoffReview(handoff), kind: "handoff" as const }]
+			: []),
 		...comments.map((comment) => ({ label: comment.title, text: comment.summary || comment.raw, kind: "comment" as const })),
 		...runs.filter((run) => !isLowSignal(run)).map((run) => ({ label: "Run", text: run, kind: "run" as const })),
 		...events.filter((event) => HIGH_SIGNAL_EVENT_PATTERN.test(event) && !isLowSignal(event)).map((event) => ({ label: "Event", text: event, kind: "event" as const })),
 	];
 }
 
-function buildVerificationRows(comments: ReturnType<typeof parseHermesComment>[], runs: string[]): Array<{ label: string; text: string }> {
+function buildVerificationRows(
+	comments: ReturnType<typeof parseHermesComment>[],
+	runs: string[],
+	handoff: HandoffReviewModel | null
+): Array<{ label: string; text: string }> {
 	const rows: Array<{ label: string; text: string }> = [];
+	if (handoff?.verificationState) {
+		rows.push({ label: "Handoff evidence", text: formatHandoffState(handoff.verificationState) });
+	}
+	if (handoff?.verificationStatus && handoff.verificationStatus !== handoff.verificationState) {
+		rows.push({ label: "Handoff verification", text: formatHandoffState(handoff.verificationStatus) });
+	}
+	if (handoff?.evidenceSummary) {
+		rows.push({ label: "Evidence summary", text: handoff.evidenceSummary });
+	}
 	for (const comment of comments) {
 		for (const chip of comment.chips) {
 			if (/test|typecheck|build|verify|lint|verification/i.test(chip.label)) {

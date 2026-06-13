@@ -31,6 +31,19 @@ function task(overrides: Partial<TaskInfo> = {}): TaskInfo {
 			],
 			hermesActivityRuns: ["Run 1110 — 3/3 tests passed"],
 			hermesActivityEvents: ["heartbeat", "commit pushed — abc123", "focused tests passed"],
+			hermesLoopHandoffId: "17",
+			hermesLoopHandoffKind: "worker_completed",
+			hermesLoopHandoffState: "reviewing",
+			hermesLoopVerificationState: "fresh_pass",
+			hermesLoopReviewBatchId: "loop-review:tenant:t_root:1770",
+			hermesLoopQueuePosition: "2",
+			hermesLoopPendingCount: "3",
+			hermesLoopActiveCount: "1",
+			hermesLoopTotalCount: "6",
+			hermesLoopReviewerSessionId: "20260613_review",
+			hermesLoopWorkerSessionId: "20260613_worker",
+			hermesLoopAuditLink: "Hermes/default/handoffs/17",
+			hermesLoopAutoActions: ["released t_child"],
 			...overrides.customProperties,
 		},
 		...overrides,
@@ -68,6 +81,21 @@ describe("HermesTaskReviewSurface", () => {
 		expect(container.textContent).toContain("Assignee peacock");
 		expect(container.textContent).toContain("Board default");
 		expect(container.textContent).toContain("Changed files");
+		expect(container.textContent).toContain("Composer status stack");
+		expect(container.textContent).toContain("Pending 3");
+		expect(container.textContent).toContain("Active 1");
+		expect(container.textContent).toContain("Total 6");
+		expect(container.textContent).toContain("Agents / Loop overlay");
+		expect(container.textContent).toContain("Handoff review");
+		expect(container.textContent).toContain("State Reviewing");
+		expect(container.textContent).toContain("Evidence Fresh pass");
+		expect(container.textContent).toContain("Queue #2");
+		expect(container.textContent).toContain("Open reviewer session");
+		expect(container.textContent).toContain("20260613_review");
+		expect(container.textContent).toContain("Open worker transcript");
+		expect(container.textContent).toContain("Open audit log");
+		expect(container.textContent).toContain("routine green-path decisions update live status and audit only");
+		expect(container.textContent).toContain("released t_child");
 		expect(container.textContent).toContain("src/editor/HermesTaskReviewSurface.ts");
 		expect(container.textContent).toContain("Comments");
 		expect(container.querySelector("textarea")?.getAttribute("placeholder")).toBe(
@@ -221,5 +249,35 @@ describe("HermesTaskReviewSurface", () => {
 		expect(container.textContent).toContain("HermesTaskReviewSurface.test.ts --runInBand passed");
 		expect(container.textContent).toContain("review handoff posted with verification evidence");
 		expect(container.textContent).not.toContain("[[TaskNotes/Activity");
+	});
+
+	it("does not infer Loop handoff state from normal Hermes task state properties", () => {
+		const container = createHermesTaskReviewSurface({
+			plugin: { app: {}, settings: {} } as any,
+			task: task({
+				status: "running",
+				customProperties: {
+					hermesLoopHandoffId: undefined,
+					hermesLoopHandoffKind: undefined,
+					hermesLoopHandoffState: undefined,
+					hermesLoopVerificationState: undefined,
+					hermesLoopReviewBatchId: undefined,
+					hermesLoopQueuePosition: undefined,
+					hermesLoopPendingCount: undefined,
+					hermesLoopActiveCount: undefined,
+					hermesLoopTotalCount: undefined,
+					hermesLoopReviewerSessionId: undefined,
+					hermesLoopWorkerSessionId: undefined,
+					hermesLoopAuditLink: undefined,
+					hermesLoopAutoActions: undefined,
+					state: "running",
+					decision: "none",
+				},
+			}),
+		});
+
+		expect(container.textContent).toContain("No Loop handoff has been recorded");
+		expect(container.textContent).not.toContain("State Running");
+		expect(container.textContent).not.toContain("Agents / Loop overlay");
 	});
 });
