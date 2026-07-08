@@ -9,6 +9,7 @@ jest.mock("../../../src/hermes/hermesGoalModeTaskNoteSync", () => {
 	};
 });
 
+import { TFile } from "../../helpers/obsidian-runtime";
 import {
 	selectReconciledTaskProperty,
 	TaskFileLifecycleReconciliationService,

@@ -1,5 +1,5 @@
 import type { App } from "obsidian";
-import { App as MockApp, MockObsidian } from "../../__mocks__/obsidian";
+import { App as MockApp, MockObsidian } from "../../helpers/obsidian-runtime";
 import { FieldMapper } from "../../../src/services/FieldMapper";
 import {
 	DEFAULT_FIELD_MAPPING,

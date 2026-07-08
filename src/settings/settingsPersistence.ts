@@ -1,7 +1,7 @@
 import { normalizePath } from "obsidian";
 import { DEFAULT_NLP_TRIGGERS, DEFAULT_SETTINGS, DEFAULT_STATUSES } from "./defaults";
 import { hasMissingMigratedSettings } from "./settingsMigration";
-import type { TaskNotesSettings } from "../types/settings";
+import type { TaskCreationDefaults, TaskNotesSettings } from "../types/settings";
 import { initializeFieldConfig } from "../utils/fieldConfigDefaults";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import {
@@ -50,6 +50,9 @@ const LEGACY_HERMES_ASSIGNEE_PROPERTY_IDS = new Set([
 	"user:assignee",
 	"user:hermes_assignee",
 ]);
+function hasOwnSetting<T extends object>(settings: T, key: PropertyKey): boolean {
+	return Object.prototype.hasOwnProperty.call(settings, key);
+}
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -226,6 +229,36 @@ function normalizeVisibleProperties(
 	};
 }
 
+function shouldMigrateParentNoteTaskCreationDefault(
+	loadedData: LoadedSettingsData | null
+): boolean {
+	const loadedDefaults = loadedData?.taskCreationDefaults;
+	return Boolean(
+		loadedDefaults &&
+			!hasOwnSetting(loadedDefaults, "useParentNoteForTaskCreation") &&
+			typeof loadedDefaults.useParentNoteAsProject === "boolean"
+	);
+}
+
+function buildTaskCreationDefaults(
+	loadedDefaults: LoadedSettingsData["taskCreationDefaults"] | undefined
+): TaskCreationDefaults {
+	const defaults: TaskCreationDefaults = {
+		...DEFAULT_SETTINGS.taskCreationDefaults,
+		...(loadedDefaults || {}),
+	};
+
+	if (
+		loadedDefaults &&
+		!hasOwnSetting(loadedDefaults, "useParentNoteForTaskCreation") &&
+		typeof loadedDefaults.useParentNoteAsProject === "boolean"
+	) {
+		defaults.useParentNoteForTaskCreation = loadedDefaults.useParentNoteAsProject;
+	}
+
+	return defaults;
+}
+
 export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): SettingsBuildResult {
 	const loadedData = migrateLoadedSettingsData(data);
 	const statusSettings = normalizeHermesKanbanStatusSettings(loadedData);
@@ -253,6 +286,8 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 		data?.taskFilenameFormat !== "custom" &&
 		data?.customFilenameTemplate === "{title}" &&
 		loadedData?.customFilenameTemplate === "{{title}}";
+	const migratedParentNoteTaskCreationDefault =
+		shouldMigrateParentNoteTaskCreationDefault(loadedData);
 
 	const settings: TaskNotesSettings = {
 		...DEFAULT_SETTINGS,
@@ -261,10 +296,7 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 			...DEFAULT_SETTINGS.fieldMapping,
 			...(loadedData?.fieldMapping || {}),
 		},
-		taskCreationDefaults: {
-			...DEFAULT_SETTINGS.taskCreationDefaults,
-			...(loadedData?.taskCreationDefaults || {}),
-		},
+		taskCreationDefaults: buildTaskCreationDefaults(loadedData?.taskCreationDefaults),
 		calendarViewSettings: {
 			...DEFAULT_SETTINGS.calendarViewSettings,
 			...(loadedData?.calendarViewSettings || {}),
@@ -292,14 +324,15 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 	return {
 		settings,
 		shouldPersistMigratedSettings:
-				hasMissingMigratedSettings(loadedData) ||
-				migratedLegacyCustomFilenameTemplate ||
-				statusSettings.changed ||
-				userFieldsSettings.changed ||
-				modalFieldsSettings.changed ||
-				nlpTriggerSettings.changed ||
-				defaultVisibleProperties.changed ||
-				inlineVisibleProperties.changed,
+			hasMissingMigratedSettings(loadedData) ||
+			migratedLegacyCustomFilenameTemplate ||
+			migratedParentNoteTaskCreationDefault ||
+			statusSettings.changed ||
+			userFieldsSettings.changed ||
+			modalFieldsSettings.changed ||
+			nlpTriggerSettings.changed ||
+			defaultVisibleProperties.changed ||
+			inlineVisibleProperties.changed,
 	};
 }
 

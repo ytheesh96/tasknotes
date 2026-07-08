@@ -1,4 +1,4 @@
-import { setIcon } from "obsidian";
+import { Menu, setIcon } from "obsidian";
 import TaskNotesPlugin from "../main";
 import { TaskInfo } from "../types";
 import {
@@ -12,11 +12,13 @@ import {
 	parseDateAsLocal,
 } from "../utils/dateUtils";
 import { generateRecurringInstances } from "../utils/helpers";
+import { openOrCreateOccurrenceNote } from "../ui/occurrenceNoteActions";
 
 interface TaskEditCompletionsOptions {
 	task: TaskInfo;
 	plugin: TaskNotesPlugin;
 	completedInstancesChanges: string[];
+	skippedInstancesChanges: string[];
 	translate: (key: string, params?: Record<string, string | number>) => string;
 }
 
@@ -103,20 +105,25 @@ function renderCalendarMonth(
 	const recurringDates = generateRecurringInstances(options.task, bufferStart, bufferEnd);
 	const recurringDateStrings = new Set(recurringDates.map((date) => formatDateForStorage(date)));
 	const completedInstances = getCurrentCompletedInstances(options);
-	const skippedInstances = new Set(options.task.skipped_instances || []);
+	const skippedInstances = getCurrentSkippedInstances(options);
 
 	allDays.forEach((day) => {
 		const dayStr = formatDateForStorage(day);
 		const isCurrentMonth = day.getUTCMonth() === displayDate.getUTCMonth();
+		const isOccurrenceDate = recurringDateStrings.has(dayStr);
+		const occurrenceDate = new Date(day);
 		const dayElement = grid.createDiv("recurring-calendar__day");
 		dayElement.textContent = String(day.getUTCDate());
 		dayElement.addClass("recurring-calendar__day--clickable");
+		dayElement.setAttribute("data-occurrence-date", dayStr);
 
 		if (!isCurrentMonth) {
 			dayElement.addClass("recurring-calendar__day--faded");
 		}
-		if (recurringDateStrings.has(dayStr)) {
+		if (isOccurrenceDate) {
 			dayElement.addClass("recurring-calendar__day--recurring");
+			dayElement.addClass("recurring-calendar__day--contextable");
+			dayElement.setAttribute("aria-label", `Occurrence ${dayStr}`);
 		}
 		if (completedInstances.has(dayStr)) {
 			dayElement.addClass("recurring-calendar__day--completed");
@@ -126,9 +133,15 @@ function renderCalendarMonth(
 		}
 
 		dayElement.addEventListener("click", () => {
-			toggleCompletedInstance(dayStr, options.completedInstancesChanges);
+			syncInstanceChangeState(options, dayStr, "complete");
 			renderCalendarMonth(container, displayDate, options);
 		});
+
+		if (isOccurrenceDate) {
+			dayElement.addEventListener("contextmenu", (event) => {
+				showOccurrenceContextMenu(event, container, displayDate, occurrenceDate, options);
+			});
+		}
 	});
 
 	prevButton.addEventListener("click", () => {
@@ -144,6 +157,60 @@ function renderCalendarMonth(
 	});
 }
 
+function showOccurrenceContextMenu(
+	event: MouseEvent,
+	container: HTMLElement,
+	displayDate: Date,
+	occurrenceDate: Date,
+	options: TaskEditCompletionsOptions
+): void {
+	event.preventDefault();
+	event.stopPropagation();
+
+	const dayStr = formatDateForStorage(occurrenceDate);
+	const completedInstances = getCurrentCompletedInstances(options);
+	const isCompleted = completedInstances.has(dayStr);
+	const menu = new Menu();
+
+	menu.addItem((item) => {
+		item.setTitle("Open or create occurrence note");
+		item.setIcon("file-plus");
+		item.onClick(async () => {
+			await openOrCreateOccurrenceNote({
+				plugin: options.plugin,
+				parentTask: options.task,
+				targetDate: occurrenceDate,
+				openInNewLeaf: true,
+			});
+		});
+	});
+
+	menu.addSeparator();
+
+	menu.addItem((item) => {
+		item.setTitle(isCompleted ? "Mark incomplete for this date" : "Mark complete for this date");
+		item.setIcon(isCompleted ? "x" : "check");
+		item.onClick(() => {
+			syncInstanceChangeState(options, dayStr, "complete");
+			renderCalendarMonth(container, displayDate, options);
+		});
+	});
+
+	const skippedInstances = getCurrentSkippedInstances(options);
+	const isSkipped = skippedInstances.has(dayStr);
+
+	menu.addItem((item) => {
+		item.setTitle(isSkipped ? "Unskip instance" : "Skip instance");
+		item.setIcon(isSkipped ? "undo" : "x-circle");
+		item.onClick(() => {
+			syncInstanceChangeState(options, dayStr, "skip");
+			renderCalendarMonth(container, displayDate, options);
+		});
+	});
+
+	menu.showAtMouseEvent(event);
+}
+
 function getCurrentCompletedInstances(options: TaskEditCompletionsOptions): Set<string> {
 	const completedInstances = new Set(options.task.complete_instances || []);
 	for (const dateStr of options.completedInstancesChanges) {
@@ -156,11 +223,64 @@ function getCurrentCompletedInstances(options: TaskEditCompletionsOptions): Set<
 	return completedInstances;
 }
 
-function toggleCompletedInstance(dateStr: string, changes: string[]): void {
-	const index = changes.indexOf(dateStr);
-	if (index !== -1) {
-		changes.splice(index, 1);
+function getCurrentSkippedInstances(options: TaskEditCompletionsOptions): Set<string> {
+	const skippedInstances = new Set(options.task.skipped_instances || []);
+	for (const dateStr of options.skippedInstancesChanges) {
+		if (skippedInstances.has(dateStr)) {
+			skippedInstances.delete(dateStr);
+		} else {
+			skippedInstances.add(dateStr);
+		}
+	}
+	return skippedInstances;
+}
+
+function syncInstanceChangeState(
+	options: TaskEditCompletionsOptions,
+	dateStr: string,
+	action: "complete" | "skip"
+): void {
+	const completedInstances = getCurrentCompletedInstances(options);
+	const skippedInstances = getCurrentSkippedInstances(options);
+
+	if (action === "complete") {
+		if (completedInstances.has(dateStr)) {
+			completedInstances.delete(dateStr);
+			skippedInstances.delete(dateStr);
+		} else {
+			completedInstances.add(dateStr);
+			skippedInstances.delete(dateStr);
+		}
+	} else if (skippedInstances.has(dateStr)) {
+		skippedInstances.delete(dateStr);
 	} else {
-		changes.push(dateStr);
+		skippedInstances.add(dateStr);
+		completedInstances.delete(dateStr);
+	}
+
+	replaceInstanceChanges(
+		options.completedInstancesChanges,
+		options.task.complete_instances || [],
+		completedInstances
+	);
+	replaceInstanceChanges(
+		options.skippedInstancesChanges,
+		options.task.skipped_instances || [],
+		skippedInstances
+	);
+}
+
+function replaceInstanceChanges(
+	changes: string[],
+	originalInstances: string[],
+	currentInstances: Set<string>
+): void {
+	changes.splice(0, changes.length);
+	const original = new Set(originalInstances);
+	const allDates = new Set([...original, ...currentInstances]);
+	for (const dateStr of allDates) {
+		if (original.has(dateStr) !== currentInstances.has(dateStr)) {
+			changes.push(dateStr);
+		}
 	}
 }

@@ -22,6 +22,14 @@ Example:
   - Thanks to @userhandle for reporting and help debugging
 ```
 
+When a change has user-facing documentation, include a canonical tasknotes.dev link:
+
+```
+## Added
+
+- Added materialized occurrence notes for recurring tasks. See [Recurring Tasks](https://tasknotes.dev/features/recurring-tasks/#materialized-occurrence-notes) for setup and calendar behavior.
+```
+
 -->
 
 ## Added

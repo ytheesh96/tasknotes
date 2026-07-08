@@ -14,6 +14,7 @@
 import type { TaskNotesSettings } from "../types/settings";
 import type TaskNotesPlugin from "../main";
 import type { FieldMapping } from "../types";
+import { parseExcludedFolders } from "../utils/pathExclusions";
 import { isTagsTaskIdentifierProperty } from "../utils/taskIdentificationFrontmatter";
 
 function escapeBasesStringLiteral(value: string): string {
@@ -81,6 +82,19 @@ function generateTaskFilterCondition(settings: TaskNotesSettings): string {
 			return `${propertyRef} && ${propertyRef} != "" && ${propertyRef} != null`;
 		}
 	}
+}
+
+function generateExcludedFolderFilterConditions(settings: TaskNotesSettings): string[] {
+	return parseExcludedFolders(settings.excludedFolders).map(
+		(folder) => `file.inFolder("${escapeBasesStringLiteral(folder)}") != true`
+	);
+}
+
+function generateTaskFilterConditions(settings: TaskNotesSettings): string[] {
+	return [
+		generateTaskFilterCondition(settings),
+		...generateExcludedFolderFilterConditions(settings),
+	];
 }
 
 /**
@@ -223,6 +237,25 @@ function generateOrderArray(plugin: TaskNotesPlugin): string[] {
  */
 function formatOrderArray(orderArray: string[]): string {
 	return orderArray.map(prop => `      - ${prop}`).join('\n');
+}
+
+function insertOrderPropertyAfterOrAppend(
+	orderArray: string[],
+	property: string,
+	afterProperty: string
+): string[] {
+	if (!property) {
+		return orderArray;
+	}
+
+	const updatedOrder = orderArray.filter((entry) => entry !== property);
+	const insertAfterIndex = updatedOrder.indexOf(afterProperty);
+	if (insertAfterIndex === -1) {
+		updatedOrder.push(property);
+	} else {
+		updatedOrder.splice(insertAfterIndex + 1, 0, property);
+	}
+	return updatedOrder;
 }
 
 /**
@@ -594,7 +627,8 @@ views:
  */
 export function generateBasesFileTemplate(commandId: string, plugin: TaskNotesPlugin): string {
 	const settings = plugin.settings;
-	const taskFilterCondition = generateTaskFilterCondition(settings);
+	const taskFilterConditions = generateTaskFilterConditions(settings);
+	const excludedFolderFilterConditions = generateExcludedFolderFilterConditions(settings);
 	const orderArray = generateOrderArray(plugin);
 	const orderYaml = formatOrderArray(orderArray);
 	const formulasSection = generateFormulasSection(plugin);
@@ -606,7 +640,7 @@ export function generateBasesFileTemplate(commandId: string, plugin: TaskNotesPl
 			return `# Mini Calendar
 # Generated with your TaskNotes settings
 
-${formatFilterAsYAML([taskFilterCondition])}
+${formatFilterAsYAML(taskFilterConditions)}
 
 ${formulasSection}
 
@@ -636,7 +670,7 @@ ${orderYaml}
 			const sortOrderProperty = mapPropertyToBasesProperty('sortOrder', plugin);
 			return `# Kanban Board
 
-${formatFilterAsYAML([taskFilterCondition])}
+${formatFilterAsYAML(taskFilterConditions)}
 
 ${formulasSection}
 
@@ -667,7 +701,7 @@ ${orderYaml}
 			const blockedByProperty = mapPropertyToBasesProperty('blockedBy', plugin);
 			return `# Agent Roster
 
-${formatFilterAsYAML([taskFilterCondition])}
+${formatFilterAsYAML(taskFilterConditions)}
 
 ${formulasSection}
 
@@ -720,7 +754,7 @@ views:
 			const contextsProperty = mapPropertyToBasesProperty('contexts', plugin);
 			return `# Hermes Boards
 
-${formatFilterAsYAML([taskFilterCondition])}
+${formatFilterAsYAML(taskFilterConditions)}
 
 ${formulasSection}
 
@@ -792,7 +826,7 @@ views:
 
 			return `# All Tasks
 
-${formatFilterAsYAML([taskFilterCondition])}
+${formatFilterAsYAML(taskFilterConditions)}
 
 ${formulasSection}
 
@@ -950,7 +984,7 @@ ${orderYaml}
 		case 'open-advanced-calendar-view':
 			return `# Calendar
 
-${formatFilterAsYAML([taskFilterCondition])}
+${formatFilterAsYAML(taskFilterConditions)}
 
 ${formulasSection}
 
@@ -987,7 +1021,7 @@ properties:
 
 			return `# Agenda
 
-${formatFilterAsYAML([taskFilterCondition])}
+${formatFilterAsYAML(taskFilterConditions)}
 
 ${formulasSection}
 ${agendaPropertiesYaml}
@@ -1015,8 +1049,23 @@ ${agendaOrderYaml}
 				// Extract just the property names (without prefixes) since the template controls the context
 				const projectsProperty = getPropertyName(mapPropertyToBasesProperty('projects', plugin));
 				const blockedByProperty = getPropertyName(mapPropertyToBasesProperty('blockedBy', plugin));
+				const recurrenceParentProperty = getPropertyName(mapPropertyToBasesProperty('recurrenceParent', plugin));
+				const occurrenceDateProperty = mapPropertyToBasesProperty('occurrenceDate', plugin);
+				const scheduledProperty = mapPropertyToBasesProperty('scheduled', plugin);
 				const statusProperty = getPropertyName(mapPropertyToBasesProperty('status', plugin));
 				const sortOrderProperty = mapPropertyToBasesProperty('sortOrder', plugin);
+				const occurrenceOrderYaml = formatOrderArray(
+					insertOrderPropertyAfterOrAppend(orderArray, occurrenceDateProperty, scheduledProperty)
+				);
+				const taskRelationshipFilterYaml = taskFilterConditions
+					.map((condition) => `        - ${condition}`)
+					.join('\n');
+				const projectRelationshipFilterYaml = excludedFolderFilterConditions
+					.map((condition) => `        - ${condition}`)
+					.join('\n');
+				const projectRelationshipFilterPrefix = projectRelationshipFilterYaml
+					? `${projectRelationshipFilterYaml}\n`
+					: '';
 
 			// Note: No top-level task filter here. Each view applies filters as needed:
 			// - Subtasks, Blocked By, Blocking: include task filter (these are tasks)
@@ -1033,7 +1082,7 @@ views:
     name: "Subtasks"
     filters:
       and:
-        - ${taskFilterCondition}
+${taskRelationshipFilterYaml}
         - file.hasLink(this.file) && list(note.${projectsProperty}).map(${formatProjectEntryLinkExpression("value")}).contains(this.file.asLink())
     order:
 ${orderYaml}
@@ -1044,17 +1093,28 @@ ${orderYaml}
       property: ${statusProperty}
       direction: ASC
   - type: tasknotesTaskList
+    name: "Occurrences"
+    filters:
+      and:
+${taskRelationshipFilterYaml}
+        - file.hasLink(this.file) && note.${recurrenceParentProperty} && ${formatProjectEntryLinkExpression(`note.${recurrenceParentProperty}`)} == this.file.asLink()
+    order:
+${occurrenceOrderYaml}
+    sort:
+      - column: ${occurrenceDateProperty}
+        direction: ASC
+  - type: tasknotesTaskList
     name: "Projects"
     filters:
       and:
-        - list(this.${projectsProperty}).map(${formatProjectEntryLinkExpression("value")}).contains(file.asLink())
+${projectRelationshipFilterPrefix}        - list(this.${projectsProperty}).map(${formatProjectEntryLinkExpression("value")}).contains(file.asLink())
     order:
 ${orderYaml}
   - type: tasknotesTaskList
     name: "Blocked By"
     filters:
       and:
-        - ${taskFilterCondition}
+${taskRelationshipFilterYaml}
         - list(this.note.${blockedByProperty}).map(${formatDependencyEntryLinkExpression("value")}).contains(file.asLink())
     order:
 ${orderYaml}
@@ -1065,7 +1125,7 @@ ${orderYaml}
     name: "Blocking"
     filters:
       and:
-        - ${taskFilterCondition}
+${taskRelationshipFilterYaml}
         - list(note.${blockedByProperty}).map(${formatDependencyEntryLinkExpression("value")}).contains(this.file.asLink())
     order:
 ${orderYaml}

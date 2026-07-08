@@ -132,6 +132,7 @@ export const DEFAULT_TASK_CREATION_DEFAULTS: TaskCreationDefaults = {
 	defaultContexts: "",
 	defaultTags: "",
 	defaultProjects: "",
+	useParentNoteForTaskCreation: false,
 	useParentNoteAsProject: false,
 	useParentHeaderAsProject: false,
 	inheritParentTaskProperties: false,
@@ -143,6 +144,8 @@ export const DEFAULT_TASK_CREATION_DEFAULTS: TaskCreationDefaults = {
 	defaultScheduledTime: "none",
 	bodyTemplate: "",
 	useBodyTemplate: false,
+	occurrenceBodyTemplate: "",
+	useOccurrenceBodyTemplate: false,
 	defaultReminders: [],
 };
 
@@ -207,6 +210,7 @@ export const DEFAULT_ICS_INTEGRATION_SETTINGS: ICSIntegrationSettings = {
 	requireScheduledDateForExport: false, // Preserve existing behavior: include tasks without scheduled dates
 	// Task creation defaults
 	useICSEndAsDue: false, // Preserve existing behavior: don't set due date from ICS events
+	recurringEventRelatedNotesMode: "series", // Preserve existing behavior: link recurring event notes across the series
 };
 
 export const DEFAULT_GOOGLE_CALENDAR_EXPORT: GoogleCalendarExportSettings = {
@@ -344,6 +348,9 @@ export const DEFAULT_SETTINGS: TaskNotesSettings = {
 	// Release notes defaults
 	lastSeenVersion: undefined,
 	showReleaseNotesOnUpdate: true,
+	checkForUpdatesOnStartup: true,
+	lastNotifiedReleaseVersion: undefined,
+	starterNoteCreated: false,
 	// Status bar defaults
 	showTrackedTasksInStatusBar: false,
 	// Time tracking defaults

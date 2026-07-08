@@ -16,7 +16,7 @@ import {
   ICSEvent,
   TimeBlock
 } from '../../src/types';
-import { MockObsidian, TFile } from '../__mocks__/obsidian';
+import { MockObsidian, TFile } from './obsidian-runtime';
 import { FieldMapper } from '../../src/services/FieldMapper';
 import { DEFAULT_FIELD_MAPPING } from '../../src/settings/defaults';
 
@@ -227,12 +227,28 @@ export const SettingsFactory = {
     dateCreated: 'dateCreated',
     dateModified: 'dateModified',
     recurrence: 'recurrence',
+    recurrenceAnchor: 'recurrence_anchor',
+    recurrenceParent: 'recurrence_parent',
+    occurrenceDate: 'occurrence_date',
+    occurrenceMaterialization: 'occurrence_materialization',
+    occurrenceNextTrigger: 'occurrence_next_trigger',
+    occurrenceTemplate: 'occurrence_template',
+    occurrencePastHorizon: 'occurrence_past_horizon',
+    occurrenceFutureHorizon: 'occurrence_future_horizon',
     archiveTag: 'archived',
     timeEntries: 'timeEntries',
     completeInstances: 'complete_instances',
+    skippedInstances: 'skipped_instances',
+    blockedBy: 'blockedBy',
     pomodoros: 'pomodoros',
     icsEventId: 'icsEventId',
+    icsEventTag: 'ics_event',
+    googleCalendarEventId: 'googleCalendarEventId',
+    googleCalendarExceptionEventId: 'googleCalendarExceptionEventId',
+    googleCalendarExceptionOriginalScheduled: 'googleCalendarExceptionOriginalScheduled',
+    googleCalendarMovedOriginalDates: 'googleCalendarMovedOriginalDates',
     reminders: 'reminders',
+    sortOrder: 'tasknotes_manual_order',
     ...overrides
   }),
 
@@ -432,7 +448,9 @@ export const PluginFactory = {
       taskCreationDefaults: {
         defaultFolder: '',
         useBodyTemplate: false,
-        bodyTemplate: ''
+        bodyTemplate: '',
+        useOccurrenceBodyTemplate: false,
+        occurrenceBodyTemplate: ''
       },
       fieldMapping: SettingsFactory.createFieldMapping(),
       customStatuses: [SettingsFactory.createStatusConfig()],

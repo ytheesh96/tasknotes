@@ -150,6 +150,9 @@ export class TaskListView extends BasesViewBase {
 		"inherit";
 	private currentVisibleTaskPaths = new Set<string>();
 	private currentVisibleTaskOrder = new Map<string, number>();
+	private expandedRelationshipTaskPaths = new Set<string>();
+	private expandedRelationshipTaskOrder = new Map<string, number>();
+	private hideTopLevelSubtasks = false;
 	private currentPrimaryGroupKeys: string[] = [];
 	private currentSubGroupKeysByParent = new Map<string, string[]>();
 	private initializedPrimaryGroupKeys = new Set<string>();
@@ -318,6 +321,7 @@ export class TaskListView extends BasesViewBase {
 			this.expandedRelationshipFilterMode = normalizeExpandedRelationshipFilterMode(
 				expandedRelationshipFilterModeValue
 			);
+			this.hideTopLevelSubtasks = this.config.get("hideTopLevelSubtasks") === true;
 			// Mark config as successfully loaded
 			this.configLoaded = true;
 		} catch (e) {
@@ -1463,7 +1467,9 @@ export class TaskListView extends BasesViewBase {
 
 		// Apply search filter
 		const filteredTasks = this.applySearchFilter(taskNotes);
-		this.setCurrentVisibleTaskPaths(filteredTasks);
+		this.setExpandedRelationshipTaskScope(filteredTasks);
+		const renderTasks = this.getTopLevelRenderTasks(filteredTasks);
+		this.setCurrentVisibleTaskPaths(renderTasks);
 
 		// Show "no results" if search returned empty but we had tasks
 		if (this.isSearchWithNoResults(filteredTasks, taskNotes.length)) {
@@ -1485,7 +1491,7 @@ export class TaskListView extends BasesViewBase {
 		const cardOptions = this.getCardOptions(targetDate);
 
 		// Decide whether to use virtual scrolling based on filtered task count
-		const shouldUseVirtualScrolling = filteredTasks.length >= this.VIRTUAL_SCROLL_THRESHOLD;
+		const shouldUseVirtualScrolling = renderTasks.length >= this.VIRTUAL_SCROLL_THRESHOLD;
 
 		if (shouldUseVirtualScrolling && !this.useVirtualScrolling) {
 			// Switch to virtual scrolling
@@ -1498,9 +1504,9 @@ export class TaskListView extends BasesViewBase {
 		}
 
 		if (this.useVirtualScrolling) {
-			await this.renderFlatVirtual(filteredTasks, visibleProperties, cardOptions);
+			await this.renderFlatVirtual(renderTasks, visibleProperties, cardOptions);
 		} else {
-			await this.renderFlatNormal(filteredTasks, visibleProperties, cardOptions);
+			await this.renderFlatNormal(renderTasks, visibleProperties, cardOptions);
 		}
 	}
 
@@ -1656,7 +1662,10 @@ export class TaskListView extends BasesViewBase {
 
 		// Apply search filter
 		const filteredTasks = this.applySearchFilter(taskNotes);
-		this.setCurrentVisibleTaskPaths(filteredTasks);
+		this.setExpandedRelationshipTaskScope(filteredTasks);
+		const renderTasks = this.getTopLevelRenderTasks(filteredTasks);
+		const candidateTasks = this.getTopLevelRenderTasks(taskNotes);
+		this.setCurrentVisibleTaskPaths(renderTasks);
 
 		// Show "no results" if search returned empty but we had tasks
 		if (this.isSearchWithNoResults(filteredTasks, taskNotes.length)) {
@@ -1676,12 +1685,12 @@ export class TaskListView extends BasesViewBase {
 		// Group tasks by sub-property
 		const pathToProps = buildTaskListPathProperties(this.dataAdapter.extractDataItems());
 		const groupedTasks = groupTasksByTaskListSubProperty(
-			filteredTasks,
+			renderTasks,
 			this.subGroupPropertyId!,
 			pathToProps
 		);
 		const allGroupedTasks = groupTasksByTaskListSubProperty(
-			taskNotes,
+			candidateTasks,
 			this.subGroupPropertyId!,
 			pathToProps
 		);
@@ -1731,7 +1740,10 @@ export class TaskListView extends BasesViewBase {
 
 		// Apply search filter
 		const filteredTasks = this.applySearchFilter(taskNotes);
-		this.setCurrentVisibleTaskPaths(filteredTasks);
+		this.setExpandedRelationshipTaskScope(filteredTasks);
+		const renderTasks = this.getTopLevelRenderTasks(filteredTasks);
+		const candidateTasks = this.getTopLevelRenderTasks(taskNotes);
+		this.setCurrentVisibleTaskPaths(renderTasks);
 
 		// Show "no results" if search returned empty but we had tasks
 		if (this.isSearchWithNoResults(filteredTasks, taskNotes.length)) {
@@ -1747,7 +1759,7 @@ export class TaskListView extends BasesViewBase {
 		const targetDate = createUTCDateFromLocalCalendarDate(new Date());
 		this.currentTargetDate = targetDate;
 		const cardOptions = this.getCardOptions(targetDate);
-		this.applyGroupingSnapshot(this.createGroupedHierarchySnapshot(groups, filteredTasks));
+		this.applyGroupingSnapshot(this.createGroupedHierarchySnapshot(groups, renderTasks));
 
 		// Build flattened list of items using shared method
 		const pathToProps = this.subGroupPropertyId
@@ -1755,7 +1767,7 @@ export class TaskListView extends BasesViewBase {
 			: new Map<string, Record<string, unknown>>();
 		const items = buildTaskListGroupedRenderItems({
 			groups,
-			taskNotes: filteredTasks,
+			taskNotes: renderTasks,
 			subGroupPropertyId: this.subGroupPropertyId,
 			pathToProps,
 			collapsedGroups: this.collapsedGroups,
@@ -1763,7 +1775,7 @@ export class TaskListView extends BasesViewBase {
 			convertGroupKeyToString: (key) => this.dataAdapter.convertGroupKeyToString(key),
 		});
 		this.setSortScopeCandidatePaths(
-			buildTaskListGroupedScopePaths(groups, taskNotes, (key) =>
+			buildTaskListGroupedScopePaths(groups, candidateTasks, (key) =>
 				this.dataAdapter.convertGroupKeyToString(key)
 			)
 		);
@@ -2129,7 +2141,11 @@ export class TaskListView extends BasesViewBase {
 	 * Saves scroll position, collapsed groups, and collapsed sub-groups.
 	 */
 	getEphemeralState(): unknown {
+		const baseState = super.getEphemeralState();
+		const baseStateObject = isRecord(baseState) ? baseState : {};
+
 		return {
+			...baseStateObject,
 			scrollTop: this.rootElement?.scrollTop || 0,
 			collapsedGroups: Array.from(this.collapsedGroups),
 			collapsedSubGroups: Array.from(this.collapsedSubGroups),
@@ -2142,6 +2158,7 @@ export class TaskListView extends BasesViewBase {
 	 */
 	setEphemeralState(state: unknown): void {
 		if (!isTaskListEphemeralState(state)) return;
+		super.setEphemeralState(state);
 
 		let restoredCollapsedState = false;
 
@@ -2190,6 +2207,8 @@ export class TaskListView extends BasesViewBase {
 		this.clearClickTimeouts();
 		this.taskGroupKeys.clear();
 		this.sortScopeTaskPaths.clear();
+		this.expandedRelationshipTaskPaths.clear();
+		this.expandedRelationshipTaskOrder.clear();
 	}
 
 	private getCardOptions(targetDate: Date): TaskCardOptions {
@@ -2200,8 +2219,21 @@ export class TaskListView extends BasesViewBase {
 				normalizeExpandedRelationshipFilterMode(
 					this.config?.get("expandedRelationshipFilterMode")
 				),
-			expandedRelationshipTaskPaths: this.currentVisibleTaskPaths,
-			expandedRelationshipTaskOrder: this.currentVisibleTaskOrder,
+			expandedRelationshipTaskPaths: this.expandedRelationshipTaskPaths,
+			expandedRelationshipTaskOrder: this.expandedRelationshipTaskOrder,
+		});
+	}
+
+	private getTopLevelRenderTasks(tasks: readonly TaskInfo[]): TaskInfo[] {
+		return this.hideTopLevelSubtasks ? this.filterTopLevelSubtasks(tasks) : [...tasks];
+	}
+
+	private setExpandedRelationshipTaskScope(tasks: readonly TaskInfo[]): void {
+		this.expandedRelationshipTaskPaths.clear();
+		this.expandedRelationshipTaskOrder.clear();
+		tasks.forEach((task, index) => {
+			this.expandedRelationshipTaskPaths.add(task.path);
+			this.expandedRelationshipTaskOrder.set(task.path, index);
 		});
 	}
 
@@ -2360,7 +2392,9 @@ export class TaskListView extends BasesViewBase {
 		computeBasesFormulas(this.data, dataItems);
 		const taskNotes = await identifyTaskNotesFromBasesData(dataItems, this.plugin);
 		const filteredTasks = this.applySearchFilter(taskNotes);
-		this.setCurrentVisibleTaskPaths(filteredTasks);
+		this.setExpandedRelationshipTaskScope(filteredTasks);
+		const renderTasks = this.getTopLevelRenderTasks(filteredTasks);
+		this.setCurrentVisibleTaskPaths(renderTasks);
 
 		const pathToProps = this.subGroupPropertyId
 			? buildTaskListPathProperties(dataItems)
@@ -2369,7 +2403,7 @@ export class TaskListView extends BasesViewBase {
 
 		if (!this.dataAdapter.isGrouped() && this.subGroupPropertyId) {
 			const groupedTasks = groupTasksByTaskListSubProperty(
-				filteredTasks,
+				renderTasks,
 				this.subGroupPropertyId,
 				pathToProps
 			);
@@ -2377,10 +2411,10 @@ export class TaskListView extends BasesViewBase {
 			items = buildTaskListSubPropertyRenderItems(groupedTasks, this.collapsedGroups);
 		} else {
 			const groups = this.dataAdapter.getGroupedData() as TaskListGroup[];
-			this.applyGroupingSnapshot(this.createGroupedHierarchySnapshot(groups, filteredTasks));
+			this.applyGroupingSnapshot(this.createGroupedHierarchySnapshot(groups, renderTasks));
 			items = buildTaskListGroupedRenderItems({
 				groups,
-				taskNotes: filteredTasks,
+				taskNotes: renderTasks,
 				subGroupPropertyId: this.subGroupPropertyId,
 				pathToProps,
 				collapsedGroups: this.collapsedGroups,

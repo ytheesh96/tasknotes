@@ -9,6 +9,8 @@ const createMockPlugin = (settingsOverride: Record<string, unknown> = {}) => {
 		projects: "projects",
 		contexts: "contexts",
 		recurrence: "recurrence",
+		recurrenceParent: "recurrence_parent",
+		occurrenceDate: "occurrence_date",
 		completeInstances: "complete_instances",
 		blockedBy: "blockedBy",
 		sortOrder: "tasknotes_manual_order",
@@ -94,10 +96,22 @@ describe("defaultBasesFiles", () => {
 		const template = generateBasesFileTemplate("relationships", createMockPlugin() as any);
 
 		expect(template).toContain('name: "Subtasks"');
+		expect(template).toContain('name: "Occurrences"');
 		expect(template).toContain('name: "Blocked By"');
 		expect(template).toContain('name: "Blocking"');
 		expect((template.match(/column: tasknotes_manual_order/g) ?? []).length).toBe(3);
 		expect(template).toContain('name: "Projects"');
+	});
+
+	it("adds materialized occurrence notes to the relationships template", () => {
+		const template = generateBasesFileTemplate("relationships", createMockPlugin() as any);
+
+		expect(template).toContain('name: "Occurrences"');
+		expect(template).toContain(
+			'file.hasLink(this.file) && note.recurrence_parent && file(note.recurrence_parent.replace(/^\\[[^\\]]+\\]\\((.*)\\)$/, "$1").replace(/%20/g, " ")).asLink() == this.file.asLink()'
+		);
+		expect(template).toContain("      - file.tasks\n      - occurrence_date");
+		expect(template).toContain("      - column: occurrence_date\n        direction: ASC");
 	});
 
 	it("normalizes dependency entries in generated Bases filters before comparing links", () => {
@@ -213,6 +227,68 @@ describe("defaultBasesFiles", () => {
 			'note["Task Type"] && note["Task Type"] != "" && note["Task Type"] != null'
 		);
 		expect(template).not.toContain("note.Task Type");
+	});
+
+	it("adds excluded folder filters to generated task Bases", () => {
+		const template = generateBasesFileTemplate(
+			"open-tasks-view",
+			createMockPlugin({
+				excludedFolders:
+					'Templates, 8 PKM organization/83 PKM templates/831 Full templates, Folder "Quoted", Templates',
+			}) as any
+		);
+
+		expect(template).toContain(
+			[
+				"filters:",
+				"  and:",
+				'    - file.inFolder("TaskNotes/Tasks")',
+				'    - file.inFolder("Templates") != true',
+				'    - file.inFolder("8 PKM organization/83 PKM templates/831 Full templates") != true',
+				'    - file.inFolder("Folder \\"Quoted\\"") != true',
+			].join("\n")
+		);
+		expect((template.match(/file\.inFolder\("Templates"\) != true/g) ?? []).length).toBe(1);
+	});
+
+	it("adds excluded folder filters to generated relationship views", () => {
+		const template = generateBasesFileTemplate(
+			"relationships",
+			createMockPlugin({
+				excludedFolders: "Templates",
+			}) as any
+		);
+
+		expect(template).toContain(
+			[
+				'name: "Subtasks"',
+				"    filters:",
+				"      and:",
+				'        - file.inFolder("TaskNotes/Tasks")',
+				'        - file.inFolder("Templates") != true',
+				"        - file.hasLink(this.file) && list(note.projects)",
+			].join("\n")
+		);
+		expect(template).toContain(
+			[
+				'name: "Projects"',
+				"    filters:",
+				"      and:",
+				'        - file.inFolder("Templates") != true',
+				"        - list(this.projects)",
+			].join("\n")
+		);
+		expect(template).toContain(
+			[
+				'name: "Occurrences"',
+				"    filters:",
+				"      and:",
+				'        - file.inFolder("TaskNotes/Tasks")',
+				'        - file.inFolder("Templates") != true',
+				"        - file.hasLink(this.file) && note.recurrence_parent",
+			].join("\n")
+		);
+		expect((template.match(/file\.inFolder\("Templates"\) != true/g) ?? []).length).toBe(5);
 	});
 
 	it("uses formatted day strings in view filters and formulas that compare against today()", () => {

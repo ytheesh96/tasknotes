@@ -7,8 +7,6 @@
 
 import { CalendarView } from "../../../src/bases/CalendarView";
 
-jest.mock("obsidian");
-
 type SignatureItem = {
 	path: string;
 	properties: Record<string, unknown>;
@@ -26,6 +24,9 @@ function createCalendarViewFixture(
 ) {
 	let items = initialItems;
 	let visiblePropertyIds = initialVisiblePropertyIds;
+	let configValues: Record<string, unknown> = {
+		options: {},
+	};
 	const rootElement = document.createElement("div");
 	const containerEl = document.createElement("div");
 	document.body.appendChild(rootElement);
@@ -34,7 +35,7 @@ function createCalendarViewFixture(
 	Object.assign(view, {
 		basesController: {},
 		config: {
-			get: jest.fn((key: string) => (key === "options" ? {} : undefined)),
+			get: jest.fn((key: string) => configValues[key]),
 		},
 		containerEl,
 		data: {
@@ -88,6 +89,9 @@ function createCalendarViewFixture(
 		},
 		setVisiblePropertyIds(nextVisiblePropertyIds: string[]) {
 			visiblePropertyIds = nextVisiblePropertyIds;
+		},
+		setConfigValues(nextConfigValues: Record<string, unknown>) {
+			configValues = nextConfigValues;
 		},
 	};
 }
@@ -209,5 +213,29 @@ describe("Issue #1179: Calendar unchanged data updates", () => {
 		view.onDataUpdated();
 
 		expect(view.renderPreservingEphemeralState).toHaveBeenCalledTimes(1);
+	});
+
+	it("preserves scroll state when a config refresh recreates the calendar", () => {
+		const { setConfigValues, view } = createCalendarViewFixture([
+			{
+				path: "Tasks/A.md",
+				properties: {
+					due: "2026-06-01",
+					status: "open",
+					title: "Stable task",
+				},
+			},
+		]);
+
+		setConfigValues({
+			options: {
+				showDue: false,
+			},
+		});
+
+		view.onDataUpdated();
+
+		expect(view.renderPreservingEphemeralState).toHaveBeenCalledTimes(1);
+		expect(view.render).not.toHaveBeenCalled();
 	});
 });

@@ -935,6 +935,7 @@ export class TaskEditModal extends TaskModal {
 	private editModalKeyboardHandler: ((e: KeyboardEvent) => void) | null = null;
 	// Changed from Set to array for consistency with other state management
 	private completedInstancesChanges: string[] = [];
+	private skippedInstancesChanges: string[] = [];
 	private initialBlockedBy: TaskDependency[] = [];
 	private initialBlockingPaths: string[] = [];
 	private pendingBlockingUpdates: BlockingUpdates = { added: [], removed: [], raw: {} };
@@ -1222,7 +1223,7 @@ export class TaskEditModal extends TaskModal {
 		readonlyTitleEl.textContent = this.title;
 		readonlyTitleEl.setAttribute("aria-label", "Task title");
 		titleInput.replaceWith(readonlyTitleEl);
-		this.titleInput = undefined;
+		this.titleInput = undefined as never;
 	}
 
 	protected createContextsField(container: HTMLElement): void {
@@ -1562,6 +1563,7 @@ export class TaskEditModal extends TaskModal {
 			task: this.task,
 			plugin: this.plugin,
 			completedInstancesChanges: this.completedInstancesChanges,
+			skippedInstancesChanges: this.skippedInstancesChanges,
 			translate: (key, params) => this.t(key, params),
 		});
 	}
@@ -3177,7 +3179,8 @@ export class TaskEditModal extends TaskModal {
 	private findHermesCommentChildTaskContainer(cardEl: HTMLElement): HTMLElement | null {
 		for (const child of Array.from(cardEl.children)) {
 			const isHTMLElement =
-				child.instanceOf?.(HTMLElement) ?? HTMLElement.prototype.isPrototypeOf(child);
+				child.instanceOf?.(HTMLElement) ??
+				Object.prototype.isPrototypeOf.call(HTMLElement.prototype, child);
 			if (
 				isHTMLElement &&
 				child.classList.contains("tn-task-modal__hermes-child-tasks")
@@ -4892,6 +4895,7 @@ export class TaskEditModal extends TaskModal {
 			details: this.details,
 			originalDetails: this.originalDetails,
 			completedInstancesChanges: this.completedInstancesChanges,
+			skippedInstancesChanges: this.skippedInstancesChanges,
 			userFields: this.userFields,
 			settings: {
 				userFields: this.plugin.settings?.userFields,

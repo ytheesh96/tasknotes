@@ -59,12 +59,14 @@ import {
 	cleanupBasesTaskUpdateListeners,
 	registerBasesTaskUpdateListeners,
 } from "./basesTaskUpdateListeners";
+import { filterTopLevelSubtasks } from "./topLevelSubtasks";
 import type { BasesTaskUpdateSource } from "./basesUpdateEvents";
 import { buildHermesTaskCreationOptions } from "../hermes/hermesTaskNotesIntegration";
 import { createTaskNotesLogger, type TaskNotesLogger } from "../utils/tasknotesLogger";
 
 type BasesEphemeralState = {
 	scrollTop?: unknown;
+	containerScrollTop?: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,10 +81,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export abstract class BasesViewBase extends Component {
 	// BasesView properties (provided by Bases when factory returns this instance)
 	// These match the BasesView interface from Obsidian's internal Bases API
-	app!: App;
-	config!: BasesViewConfig;
-	data!: BasesQueryResult;
-	allProperties!: BasesPropertyId[];
+	app: App = undefined as unknown as App;
+	config: BasesViewConfig = undefined as unknown as BasesViewConfig;
+	data: BasesQueryResult = undefined as unknown as BasesQueryResult;
+	allProperties: BasesPropertyId[] = [];
 	protected plugin: TaskNotesPlugin;
 	protected dataAdapter: BasesDataAdapter;
 	protected propertyMapper: PropertyMappingService;
@@ -185,7 +187,14 @@ export abstract class BasesViewBase extends Component {
 			scheduler: this.getTimeoutScheduler(),
 			isConnected: () => Boolean(this.rootElement?.isConnected),
 			beforeRender: () => this.updateRelevantPathsCache(),
-			render: () => this.render(),
+			render: async () => {
+				const savedState = this.getEphemeralState();
+				try {
+					await this.render();
+				} finally {
+					this.setEphemeralState(savedState);
+				}
+			},
 			onTimerCleared: () => {
 				this.dataUpdateDebounceTimer = null;
 			},
@@ -226,6 +235,7 @@ export abstract class BasesViewBase extends Component {
 	getEphemeralState(): unknown {
 		return {
 			scrollTop: this.rootElement?.scrollTop || 0,
+			containerScrollTop: this.containerEl.scrollTop || 0,
 		};
 	}
 
@@ -239,6 +249,9 @@ export abstract class BasesViewBase extends Component {
 			const ephemeralState: BasesEphemeralState = state;
 			if (typeof ephemeralState.scrollTop === "number") {
 				this.rootElement.scrollTop = ephemeralState.scrollTop;
+			}
+			if (typeof ephemeralState.containerScrollTop === "number") {
+				this.containerEl.scrollTop = ephemeralState.containerScrollTop;
 			}
 		} catch (e) {
 			this.logger.debug("Failed to restore ephemeral state", {
@@ -450,7 +463,14 @@ export abstract class BasesViewBase extends Component {
 		this.updateDebounceTimer = scheduleBasesDebouncedRefresh({
 			currentTimer: this.updateDebounceTimer,
 			scheduler: this.getTimeoutScheduler(),
-			render: () => this.render(),
+			render: async () => {
+				const savedState = this.getEphemeralState();
+				try {
+					await this.render();
+				} finally {
+					this.setEphemeralState(savedState);
+				}
+			},
 			onTimerCleared: () => {
 				this.updateDebounceTimer = null;
 			},
@@ -541,6 +561,12 @@ export abstract class BasesViewBase extends Component {
 			propertyLabels: this.getVisiblePropertyLabels(),
 			...options,
 		};
+	}
+
+	protected filterTopLevelSubtasks(tasks: readonly TaskInfo[]): TaskInfo[] {
+		return filterTopLevelSubtasks(tasks, (linkPath, sourcePath) =>
+			this.plugin.app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath)
+		);
 	}
 
 	/**

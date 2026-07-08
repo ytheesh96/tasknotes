@@ -5,7 +5,7 @@ import {
 	type HermesBoardSummary,
 	type HermesBoardsViewOptions,
 } from "../../../src/bases/HermesBoardsView";
-import { App, MockObsidian, TFile } from "obsidian";
+import { App, MockObsidian, TFile } from "../../helpers/obsidian-runtime";
 import type { TaskInfo } from "../../../src/types";
 import { HermesKanbanApiClient } from "../../../src/hermes/hermesApiClient";
 import { showConfirmationModal } from "../../../src/modals/ConfirmationModal";

@@ -13,6 +13,8 @@ Inline task settings control how aggressively TaskNotes turns plain note content
 
 Body template settings let you scaffold newly created tasks with consistent note content. When enabled, TaskNotes reads the configured template file and expands variables like `{{title}}`, `{{date}}`, `{{time}}`, `{{priority}}`, `{{status}}`, `{{contexts}}`, `{{tags}}`, and `{{projects}}`.
 
+Materialized occurrence notes can use a separate template. Set **Occurrence note template file** to provide a global fallback for occurrence notes; a recurring task's `occurrence_template` frontmatter field takes priority when it is set. If neither occurrence-specific template is configured, occurrence notes continue through the normal body template behavior.
+
 ## Natural Language Processing
 
 NLP settings define how text input is interpreted during task capture. **Enable natural language task input** activates date and metadata parsing, **Default to scheduled** changes ambiguous date handling, **NLP language** selects parsing patterns, and **Status suggestion trigger** controls optional status autocomplete activation.
@@ -38,6 +40,8 @@ Time tracking options handle completion behavior. You can automatically stop run
 ## Recurring Tasks
 
 Use **Maintain due date offset in recurring tasks** to keep due/scheduled spacing consistent when recurring tasks roll forward.
+
+Occurrence note behavior is configured per recurring task from the task context menu: open **Recurrence → Occurrence notes** to choose manual creation or automatic creation of the next materialized occurrence after completion. See [Recurring Tasks](../features/recurring-tasks.md#materialized-occurrence-notes) for the workflow and storage model.
 
 ## Timeblocking
 

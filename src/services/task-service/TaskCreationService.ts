@@ -32,8 +32,10 @@ interface TemplateApplicationResult {
 	body: string;
 }
 
+type Nullable<T> = T | null;
+
 interface TaskCreationWorkspace {
-	getActiveFile(): TFile | null;
+	getActiveFile(): Nullable<TFile>;
 }
 
 interface TaskCreationVault extends Vault {
@@ -100,6 +102,11 @@ export interface TaskCreationServiceDependencies {
 	sanitizeTitleForStorage(input: string): string;
 }
 
+export interface TaskCreationOptions {
+	applyDefaults?: boolean;
+	applyTemplate?: boolean;
+}
+
 export class TaskCreationService {
 	constructor(private deps: TaskCreationServiceDependencies) {}
 
@@ -109,9 +116,9 @@ export class TaskCreationService {
 
 	async createTask(
 		taskData: TaskCreationData,
-		options: { applyDefaults?: boolean } = {}
+		options: TaskCreationOptions = {}
 	): Promise<{ file: TFile; taskInfo: TaskInfo }> {
-		const { applyDefaults = true } = options;
+		const { applyDefaults = true, applyTemplate = true } = options;
 		const { runtime } = this.deps;
 
 		try {
@@ -190,10 +197,18 @@ export class TaskCreationService {
 				dateModified,
 				recurrence: taskData.recurrence || undefined,
 				recurrence_anchor: taskData.recurrence_anchor || undefined,
+				recurrence_parent: taskData.recurrence_parent || undefined,
+				occurrence_date: taskData.occurrence_date || undefined,
+				occurrence_materialization: taskData.occurrence_materialization || undefined,
+				occurrence_next_trigger: taskData.occurrence_next_trigger || undefined,
+				occurrence_template: taskData.occurrence_template || undefined,
+				occurrence_past_horizon: taskData.occurrence_past_horizon || undefined,
+				occurrence_future_horizon: taskData.occurrence_future_horizon || undefined,
 				reminders:
 					taskData.reminders && taskData.reminders.length > 0
 						? taskData.reminders
 						: undefined,
+				customProperties: taskData.customProperties || undefined,
 				icsEventId: taskData.icsEventId || undefined,
 				blockedBy:
 					taskData.blockedBy && taskData.blockedBy.length > 0
@@ -259,7 +274,9 @@ export class TaskCreationService {
 				frontmatter.tags = tagsArray;
 			}
 
-			const templateResult = await this.deps.applyTemplate(taskData);
+			const templateResult = applyTemplate
+				? await this.deps.applyTemplate(taskData)
+				: { frontmatter: {}, body: "" };
 			const normalizedBody = templateResult.body
 				? templateResult.body.replace(/\r\n/g, "\n").trimEnd()
 				: taskData.details

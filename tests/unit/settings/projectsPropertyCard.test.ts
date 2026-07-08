@@ -1,4 +1,4 @@
-import { App, MockObsidian, TFile } from "obsidian";
+import { App, MockObsidian, TFile } from "../../helpers/obsidian-runtime";
 import { renderProjectsPropertyCard } from "../../../src/settings/tabs/taskProperties/projectsPropertyCard";
 import { HermesKanbanApiClient } from "../../../src/hermes/hermesApiClient";
 import { showTextInputModal } from "../../../src/modals/TextInputModal";

@@ -22,7 +22,7 @@ If commands open empty or unexpected views, first confirm Bases is enabled and t
 
 ### View File Location
 
-When you use the "Open Tasks View" command or ribbon icon, TaskNotes opens the `.base` file configured under `Settings -> TaskNotes -> General` (`View Commands`) (initially `TaskNotes/Views/tasks-default.base`). The default file is created automatically the first time you use the command, and you can point the command to any other `.base` file if you maintain multiple task-list layouts.
+When you use the "Open Tasks View" command or ribbon icon, TaskNotes opens the `.base` file configured under `Settings -> TaskNotes -> General -> Views & base files` (initially `TaskNotes/Views/tasks-default.base`). TaskNotes creates missing default `.base` files automatically on startup when **Auto-create default files** is enabled, and you can point the command to any other `.base` file if you maintain multiple task-list layouts.
 
 ## Configuration
 
@@ -65,6 +65,8 @@ For existing `.base` files, add `file.tasks` in YAML manually; once present in `
 **`groupBy`**: Optional grouping configuration
 - `property`: Property to group by (e.g., `note.status`, `note.priority`)
 - `direction`: Sort direction for group headers
+
+**`hideTopLevelSubtasks`**: Optional boolean. When `true`, tasks whose Projects field links to another task in the current filtered result set are hidden as top-level rows and remain available through the parent task's expanded subtasks.
 
 **`filters`**: Optional filter conditions using Bases query syntax
 ```yaml

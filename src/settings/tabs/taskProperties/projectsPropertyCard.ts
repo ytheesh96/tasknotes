@@ -206,6 +206,31 @@ export function renderProjectsPropertyCard(
 				void createBoard();
 			})
 		);
+
+		const useParentNoteForTaskCreationToggle = createCardToggle(
+			plugin.settings.taskCreationDefaults.useParentNoteForTaskCreation,
+			(value) => {
+				plugin.settings.taskCreationDefaults.useParentNoteForTaskCreation = value;
+				save();
+			}
+		);
+
+		const useParentNoteToggle = createCardToggle(
+			plugin.settings.taskCreationDefaults.useParentNoteAsProject,
+			(value) => {
+				plugin.settings.taskCreationDefaults.useParentNoteAsProject = value;
+				save();
+			}
+		);
+
+		const useParentHeaderToggle = createCardToggle(
+			plugin.settings.taskCreationDefaults.useParentHeaderAsProject,
+			(value) => {
+				plugin.settings.taskCreationDefaults.useParentHeaderAsProject = value;
+				save();
+			}
+		);
+
 		const deleteButton = createBoardActionButton(
 			"trash",
 			"Delete",
@@ -246,6 +271,20 @@ export function renderProjectsPropertyCard(
 				label: translate("settings.taskProperties.projectsCard.defaultProjects"),
 				input: nestedContainer,
 				fullWidth: true,
+			},
+			{
+				label: translate(
+					"settings.taskProperties.projectsCard.useParentNoteForTaskCreation"
+				),
+				input: useParentNoteForTaskCreationToggle,
+			},
+			{
+				label: translate("settings.taskProperties.projectsCard.useParentNoteForInlineTasks"),
+				input: useParentNoteToggle,
+			},
+			{
+				label: translate("settings.taskProperties.projectsCard.useParentHeader"),
+				input: useParentHeaderToggle,
 			},
 			{
 				label: translate("settings.taskProperties.projectsCard.inheritParentTaskProperties"),

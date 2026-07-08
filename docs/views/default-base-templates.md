@@ -11,7 +11,7 @@ TaskNotes automatically generates [Bases](https://help.obsidian.md/Bases/Introdu
 This page shows the default templates as they would appear with TaskNotes' default settings. The actual templates generated in your vault may differ if you've customized your settings.
 This page documents generated defaults. It is reference material for understanding and editing `.base` files already created in your vault.
 
-Generated `.base` files are regular vault files. When you change task identification, field mapping, status, or priority settings, existing files keep their current content until you edit them. To replace the configured default files with templates generated from your current settings, use **Settings → TaskNotes → Views & base files → Update files**. This overwrites those `.base` files, including any manual edits.
+Generated `.base` files are regular vault files. When you change task identification, field mapping, status, or priority settings, existing files keep their current content until you edit them. To replace the configured default files with templates generated from your current settings, use **Settings → TaskNotes → Views & base files → Update files** or run the **TaskNotes: Update default base files** command. Automation clients can call `api.bases.updateDefaultFiles()` from the runtime API or `POST /api/bases/default-files/update` from the local HTTP API. These update actions overwrite the configured default `.base` files, including any manual edits in those files.
 
 ## Default settings assumptions
 
@@ -537,6 +537,21 @@ views:
 Used by the **Agenda** command to display tasks in a list-based agenda view.
 
 Note: Property-based events are disabled by default to avoid duplicate entries when tasks already have due/scheduled dates.
+To build an Agenda variant for completed tasks that do not have due or scheduled dates, enable property-based events and use the completed-date property as the event start date:
+
+```yaml
+    options:
+      showScheduled: false
+      showDue: false
+      showRecurring: false
+      showTimeEntries: false
+      showPropertyBasedEvents: true
+      createDailyNotesFromDateLinks: true
+    calendarView: "listWeek"
+    startDateProperty: completedDate
+    listDayCount: 7
+    titleProperty: file.basename
+```
 
 ```yaml
 # Agenda
@@ -674,13 +689,14 @@ views:
 
 ## Relationships
 
-Used by the **Relationships widget** to display task relationships (subtasks, projects, blocked by, blocking).
+Used by the **Relationships widget** to display task relationships (subtasks, materialized occurrences, projects, blocked by, blocking).
 
 This template uses the special `this` object to reference the current file's properties, enabling dynamic relationship queries.
 
 Note: Unlike other templates, this one does not have a top-level task filter. Each view applies filters as appropriate:
 
 - **Subtasks, Blocked By, Blocking**: Include the task filter and default to manual-order sorting so drag-to-reorder works immediately
+- **Occurrences**: Includes the task filter and sorts materialized occurrence notes by occurrence date
 - **Projects**: No task filter and no default manual-order sort (project files can be any file type, not just tasks)
 When debugging empty relationship tabs, check tab-specific filters first, then verify property values on linked notes.
 
@@ -718,6 +734,29 @@ views:
     groupBy:
       property: status
       direction: ASC
+  - type: tasknotesTaskList
+    name: "Occurrences"
+    filters:
+      and:
+        - file.hasTag("task")
+        - file.hasLink(this.file) && note.recurrence_parent && file(note.recurrence_parent.replace(/^\[[^\]]+\]\((.*)\)$/, "$1").replace(/%20/g, " ")).asLink() == this.file.asLink()
+    order:
+      - status
+      - priority
+      - due
+      - scheduled
+      - occurrence_date
+      - projects
+      - contexts
+      - tags
+      - blockedBy
+      - file.name
+      - recurrence
+      - complete_instances
+      - file.tasks
+    sort:
+      - column: occurrence_date
+        direction: ASC
   - type: tasknotesTaskList
     name: "Projects"
     filters:
@@ -793,6 +832,7 @@ If you've customized your TaskNotes settings (e.g., renamed properties, added cu
 - **Custom statuses**: The incomplete task filters will check against all your configured completed statuses
 - **Custom priorities**: The `priorityWeight` formula will include all your configured priorities with their weights
 - **Property-based identification**: If you identify tasks by a property instead of a tag, the filters will use that property
+- **Excluded folders**: If you've configured excluded folders, generated TaskNotes task views will add `file.inFolder(...) != true` filters for those folders
 - **Custom visible properties**: The `order` arrays will include your configured visible properties
 - **Essential card properties**: `file.name`, recurrence, `complete_instances`, and `file.tasks` are always included in generated `order` arrays for TaskNotes card rendering
 After major settings changes, regenerate default files and diff against customized versions to merge template updates.

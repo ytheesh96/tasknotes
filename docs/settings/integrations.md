@@ -46,6 +46,7 @@ Set **Kanban task creation transport** (`hermesKanbanTransport`) to `kanban-cli`
 For developer smoke-test steps and implementation notes, see [Hermes Kanban task creation transports](../development/hermes-kanban-transports.md).
 
 ## Bases Integration
+## Bases
 
 TaskNotes v4 uses Obsidian's Bases core plugin for its main views. For setup instructions, see [Core Concepts](../core-concepts.md#bases-integration).
 
@@ -53,7 +54,7 @@ TaskNotes v4 uses Obsidian's Bases core plugin for its main views. For setup ins
 
 View command settings map TaskNotes commands and ribbon actions to specific `.base` files. This is useful when you maintain custom variants of the default views and want first-class command access to those files.
 
-Access these settings in **Settings → TaskNotes → General → View Commands**.
+Access these settings in **Settings → TaskNotes → General → Views & base files**.
 
 Default mappings:
 
@@ -67,7 +68,9 @@ Default mappings:
 
 Each command allows you to specify a custom `.base` file path and includes a reset button to restore the default path.
 
-**Create Default Files**: Button to generate all default `.base` files in the `TaskNotes/Views/` directory. Existing files are not overwritten.
+**Auto-create default files**: When enabled, TaskNotes creates missing default `.base` files automatically on startup.
+
+**Create files**: Button to generate all default `.base` files in the `TaskNotes/Views/` directory. Existing files are not overwritten.
 
 The generated Pomodoro statistics Base reads Pomodoro sessions from daily notes frontmatter. If your Pomodoro history is still stored in plugin data, migrate it from **Settings → TaskNotes → Features** before using that Base file.
 
@@ -116,6 +119,8 @@ When connected, displays:
 ## Calendar subscriptions (ICS)
 
 ICS settings define how subscribed calendar events are represented in your vault. You can set a default template, destination folder, filename strategy, and custom filename template for generated notes. Use **Add Calendar Subscription** to register URLs or local files, and **Refresh all subscriptions** for manual synchronization.
+
+**Recurring event related notes** controls how notes linked from recurring external calendar events are matched. **Series-wide** keeps the current behavior: a note linked to one loaded recurrence can appear on the other loaded recurrences from the same Google, Microsoft, or ICS event series. **Selected instance only** limits related notes and counts to the exact recurrence instance that was linked.
 
 ## Automatic ICS export
 

@@ -1,4 +1,4 @@
-import { App, MockObsidian, TFile } from "obsidian";
+import { App, MockObsidian, TFile } from "../../helpers/obsidian-runtime";
 import {
 	buildHermesBoardKanbanBase,
 	buildHermesBoardKanbanBaseHeader,

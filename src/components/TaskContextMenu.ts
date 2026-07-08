@@ -1,4 +1,5 @@
 import { Menu, Notice, Platform, TFile, type MenuItem, type TAbstractFile } from "obsidian";
+import type { OccurrenceMaterializationMode, OccurrenceNextTrigger } from "@tasknotes/model";
 import TaskNotesPlugin from "../main";
 import { TaskDependency, TaskInfo } from "../types";
 import { formatDateForStorage } from "../utils/dateUtils";
@@ -11,6 +12,7 @@ import {
 import { renameVaultFile } from "../services/VaultMutationService";
 import { showConfirmationModal } from "../modals/ConfirmationModal";
 import { DateContextMenu } from "./DateContextMenu";
+import { DateTimePickerModal } from "../modals/DateTimePickerModal";
 import {
 	buildWeekdaysOnlyRecurrenceRule,
 	getPluginCalendarLocale,
@@ -38,9 +40,14 @@ import {
 	removeTagsFromList,
 } from "../utils/taskTagList";
 import { downloadTaskICSFile, openCalendarURL } from "../ui/calendarExportActions";
+import {
+	openMaterializedOccurrenceParent,
+	openOrCreateOccurrenceNote,
+} from "../ui/occurrenceNoteActions";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import { getAllTasksFromNoteFirst, getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { getHermesTaskIdentity } from "../hermes/hermesApiClient";
+import type { UserMappedField } from "../types/settings";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Components/TaskContextMenu" });
 
@@ -142,6 +149,7 @@ export interface TaskContextMenuOptions {
 	plugin: TaskNotesPlugin;
 	targetDate: Date;
 	onUpdate?: () => void;
+	promoteOccurrenceControls?: boolean;
 }
 
 export class TaskContextMenu {
@@ -165,6 +173,7 @@ export class TaskContextMenu {
 
 	private buildMenu(): void {
 		const { task, plugin } = this.options;
+		const hasPromotedOccurrenceControls = this.addPromotedOccurrenceControls(task, plugin);
 
 		// Status submenu
 		this.menu.addItem((item) => {
@@ -265,8 +274,14 @@ export class TaskContextMenu {
 			);
 		});
 
+		this.addCustomDateFieldMenuItems(task, plugin);
+
 		if (task.recurrence) {
 			this.addRecurringInstanceMenuItems(task, plugin);
+		}
+
+		if (!hasPromotedOccurrenceControls && task.recurrence_parent && task.occurrence_date) {
+			this.addMaterializedOccurrenceMenuItems(task, plugin);
 		}
 
 		// Reminders submenu
@@ -447,6 +462,17 @@ export class TaskContextMenu {
 		});
 
 		this.menu.addSeparator();
+
+		// Edit Task
+		this.menu.addItem((item) => {
+			item.setTitle(this.t("modals.taskEdit.title"));
+			item.setIcon("pencil");
+			item.onClick(() => {
+				void plugin.openTaskEditModal(task, () => {
+					this.options.onUpdate?.();
+				});
+			});
+		});
 
 		// Open Note
 		this.menu.addItem((item) => {
@@ -793,6 +819,10 @@ export class TaskContextMenu {
 				},
 				plugin
 			);
+
+			if (currentRecurrence) {
+				this.addOccurrencePolicyOptions(submenu, task, plugin);
+			}
 		});
 
 		this.menu.addSeparator();
@@ -898,6 +928,100 @@ export class TaskContextMenu {
 				}
 			});
 		});
+
+		if (!this.options.promoteOccurrenceControls) {
+			this.addOccurrenceNoteMenuItem(task, plugin);
+		}
+	}
+
+	private addPromotedOccurrenceControls(task: TaskInfo, plugin: TaskNotesPlugin): boolean {
+		if (!this.options.promoteOccurrenceControls) {
+			return false;
+		}
+
+		let added = false;
+		if (task.recurrence) {
+			this.addOccurrenceNoteMenuItem(task, plugin);
+			added = true;
+		}
+		if (task.recurrence_parent && task.occurrence_date) {
+			this.addMaterializedOccurrenceMenuItems(task, plugin);
+			added = true;
+		}
+
+		if (added) {
+			this.menu.addSeparator();
+		}
+		return added;
+	}
+
+	private addOccurrenceNoteMenuItem(task: TaskInfo, plugin: TaskNotesPlugin): void {
+		this.menu.addItem((item) => {
+			item.setTitle("Open or create occurrence note");
+			item.setIcon("file-plus");
+			item.onClick(async () => {
+				await openOrCreateOccurrenceNote({
+					plugin,
+					parentTask: task,
+					targetDate: this.options.targetDate,
+					onUpdate: this.options.onUpdate,
+				});
+			});
+		});
+	}
+
+	private addMaterializedOccurrenceMenuItems(task: TaskInfo, plugin: TaskNotesPlugin): void {
+		this.menu.addItem((item) => {
+			item.setTitle("Open recurring parent");
+			item.setIcon("refresh-ccw");
+			item.onClick(async () => {
+				await openMaterializedOccurrenceParent({
+					plugin,
+					occurrenceTask: task,
+				});
+			});
+		});
+
+		const skippedStatus = this.getSkippedStatusValue(plugin);
+		const isSkipped = this.isSkippedMaterializedOccurrence(task, plugin);
+		if (!skippedStatus && !isSkipped) {
+			return;
+		}
+
+		this.menu.addItem((item) => {
+			item.setTitle(isSkipped ? "Unskip occurrence" : "Skip occurrence");
+			item.setIcon(isSkipped ? "undo" : "x-circle");
+			item.onClick(async () => {
+				try {
+					const updatedTask = isSkipped
+						? await plugin.taskService.unskipMaterializedOccurrence(task)
+						: await plugin.taskService.skipMaterializedOccurrence(task, skippedStatus);
+					Object.assign(task, updatedTask);
+					this.options.onUpdate?.();
+				} catch (error) {
+					const errorMessage = error instanceof Error ? error.message : String(error);
+					tasknotesLogger.error("Error updating materialized occurrence skip state:", {
+						category: "persistence",
+						operation: "updating-materialized-occurrence-skip-state",
+						details: { taskPath: task.path, occurrenceDate: task.occurrence_date },
+						error: errorMessage,
+					});
+					new Notice(`Failed to update occurrence: ${errorMessage}`);
+				}
+			});
+		});
+	}
+
+	private getSkippedStatusValue(plugin: TaskNotesPlugin): string | undefined {
+		return plugin.settings.customStatuses?.find((status) => status.isSkipped)?.value;
+	}
+
+	private isSkippedMaterializedOccurrence(task: TaskInfo, plugin: TaskNotesPlugin): boolean {
+		return (
+			plugin.settings.customStatuses?.some(
+				(status) => status.isSkipped && status.value === task.status
+			) === true
+		);
 	}
 
 	private addDependencyMenuItems(menu: Menu, task: TaskInfo, plugin: TaskNotesPlugin): void {
@@ -1656,7 +1780,8 @@ export class TaskContextMenu {
 		submenu: Menu,
 		currentValue: string | undefined,
 		onSelect: (value: string | null) => Promise<void>,
-		onCustomDate: () => void
+		onCustomDate: () => void,
+		options: { pickDateTitle?: string } = {}
 	): void {
 		const dateContextMenu = new DateContextMenu({
 			currentValue: currentValue,
@@ -1725,7 +1850,7 @@ export class TaskContextMenu {
 		submenu.addSeparator();
 
 		submenu.addItem((item) => {
-			item.setTitle(this.t("contextMenus.date.pickDateTime"));
+			item.setTitle(options.pickDateTitle ?? this.t("contextMenus.date.pickDateTime"));
 			item.setIcon("calendar");
 			item.onClick(onCustomDate);
 		});
@@ -1738,6 +1863,113 @@ export class TaskContextMenu {
 					void onSelect(null);
 				});
 			});
+		}
+	}
+
+	private addCustomDateFieldMenuItems(task: TaskInfo, plugin: TaskNotesPlugin): void {
+		const dateFields = this.getCustomDateFields(plugin);
+		if (dateFields.length === 0) {
+			return;
+		}
+
+		this.menu.addItem((item) => {
+			item.setTitle(this.t("contextMenus.task.customDates"));
+			item.setIcon("calendar-days");
+
+			const submenu = getSubmenu(item);
+			dateFields.forEach((field) => {
+				submenu.addItem((fieldItem) => {
+					const fieldLabel = this.getCustomFieldLabel(field);
+					fieldItem.setTitle(fieldLabel);
+					fieldItem.setIcon("calendar");
+
+					const fieldSubmenu = getSubmenu(fieldItem);
+					const currentValue = this.getCustomDateFieldValue(task, field);
+					this.addDateOptions(
+						fieldSubmenu,
+						currentValue,
+						async (value) => {
+							await this.updateCustomDateField(task, plugin, field, value);
+						},
+						() => {
+							this.openCustomDateFieldPicker(task, plugin, field, currentValue);
+						},
+						{
+							pickDateTitle: this.t("modals.task.userFields.pickDate", {
+								field: fieldLabel,
+							}),
+						}
+					);
+				});
+			});
+		});
+	}
+
+	private getCustomDateFields(plugin: TaskNotesPlugin): UserMappedField[] {
+		return (plugin.settings.userFields || []).filter(
+			(field) => field.type === "date" && field.key.trim().length > 0
+		);
+	}
+
+	private getCustomFieldLabel(field: UserMappedField): string {
+		return field.displayName.trim() || field.key || field.id;
+	}
+
+	private getCustomDateFieldValue(task: TaskInfo, field: UserMappedField): string | undefined {
+		const taskRecord = task as unknown as Record<string, unknown>;
+		const value = taskRecord[field.key] ?? task.customProperties?.[field.key];
+		return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+	}
+
+	private openCustomDateFieldPicker(
+		task: TaskInfo,
+		plugin: TaskNotesPlugin,
+		field: UserMappedField,
+		currentValue: string | undefined
+	): void {
+		this.menu.hide();
+		const fieldLabel = this.getCustomFieldLabel(field);
+		const modal = new DateTimePickerModal(plugin.app, {
+			currentDate: currentValue || null,
+			title: this.t("modals.task.userFields.pickDate", { field: fieldLabel }),
+			showTime: false,
+			plugin,
+			onSelect: (date) => {
+				void this.updateCustomDateField(task, plugin, field, date);
+			},
+		});
+		modal.open();
+	}
+
+	private async updateCustomDateField(
+		task: TaskInfo,
+		plugin: TaskNotesPlugin,
+		field: UserMappedField,
+		value: string | null
+	): Promise<void> {
+		const fieldLabel = this.getCustomFieldLabel(field);
+		try {
+			const updatedTask = await plugin.updateTaskProperty(
+				task,
+				field.key as keyof TaskInfo,
+				value || undefined
+			);
+			Object.assign(task, updatedTask);
+			this.options.onUpdate?.();
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			tasknotesLogger.error("Error updating custom date field:", {
+				category: "persistence",
+				operation: "updating-custom-date-field",
+				details: { taskPath: task.path, field: field.key },
+				error: errorMessage,
+			});
+			new Notice(
+				this.t("contextMenus.task.notices.updateCustomDateFailure", {
+					field: fieldLabel,
+					message: errorMessage,
+				})
+			);
 		}
 	}
 
@@ -1869,6 +2101,153 @@ export class TaskContextMenu {
 					void onSelect(null);
 				});
 			});
+		}
+	}
+
+	private addOccurrencePolicyOptions(
+		submenu: Menu,
+		task: TaskInfo,
+		plugin: TaskNotesPlugin
+	): void {
+		const currentMode = task.occurrence_materialization || "manual";
+		const currentTrigger = task.occurrence_next_trigger || "completion";
+
+		submenu.addSeparator();
+		submenu.addItem((item) => {
+			item.setTitle("Occurrence notes");
+			item.setIcon("files");
+
+			const policyMenu = getSubmenu(item);
+			const addModeOption = (
+				mode: Exclude<OccurrenceMaterializationMode, "rolling">,
+				label: string,
+				icon: string
+			) => {
+				policyMenu.addItem((modeItem) => {
+					modeItem.setTitle(currentMode === mode ? `✓ ${label}` : label);
+					modeItem.setIcon(icon);
+					modeItem.onClick(async () => {
+						await this.updateOccurrenceMaterializationPolicy(task, plugin, mode);
+					});
+				});
+			};
+
+			addModeOption("manual", "Create manually", "file-plus");
+			addModeOption("on_completion", "Create next after completion", "check-circle");
+
+			policyMenu.addItem((modeItem) => {
+				modeItem.setTitle(
+					currentMode === "rolling"
+						? "✓ Rolling window (not automated yet)"
+						: "Rolling window (not automated yet)"
+				);
+				modeItem.setIcon("calendar-range");
+				modeItem.setDisabled(true);
+			});
+
+			if (currentMode !== "on_completion") {
+				return;
+			}
+
+			policyMenu.addSeparator();
+			const triggerOptions: Array<{
+				value: OccurrenceNextTrigger;
+				label: string;
+				icon: string;
+			}> = [
+				{
+					value: "completion",
+					label: "Completion only",
+					icon: "check",
+				},
+				{
+					value: "completion_or_skip",
+					label: "Completion or skip",
+					icon: "check-check",
+				},
+			];
+
+			triggerOptions.forEach((option) => {
+				policyMenu.addItem((triggerItem) => {
+					triggerItem.setTitle(
+						currentTrigger === option.value ? `✓ ${option.label}` : option.label
+					);
+					triggerItem.setIcon(option.icon);
+					triggerItem.onClick(async () => {
+						await this.updateOccurrenceNextTrigger(task, plugin, option.value);
+					});
+				});
+			});
+		});
+	}
+
+	private async updateOccurrenceMaterializationPolicy(
+		task: TaskInfo,
+		plugin: TaskNotesPlugin,
+		mode: Exclude<OccurrenceMaterializationMode, "rolling">
+	): Promise<void> {
+		try {
+			const updatedTask = await plugin.updateTaskProperty(
+				task,
+				"occurrence_materialization",
+				mode === "manual" ? undefined : mode
+			);
+			Object.assign(task, updatedTask);
+
+			if (mode !== "on_completion" && task.occurrence_next_trigger) {
+				const updatedWithoutTrigger = await plugin.updateTaskProperty(
+					task,
+					"occurrence_next_trigger",
+					undefined
+				);
+				Object.assign(task, updatedWithoutTrigger);
+			}
+
+			this.options.onUpdate?.();
+			new Notice(
+				mode === "manual"
+					? "Occurrence notes set to manual creation"
+					: "Occurrence notes will be created after completion"
+			);
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			tasknotesLogger.error("Error updating occurrence materialization policy:", {
+				category: "persistence",
+				operation: "updating-occurrence-materialization-policy",
+				details: { taskPath: task.path, mode },
+				error: errorMessage,
+			});
+			new Notice(`Failed to update occurrence notes setting: ${errorMessage}`);
+		}
+	}
+
+	private async updateOccurrenceNextTrigger(
+		task: TaskInfo,
+		plugin: TaskNotesPlugin,
+		trigger: OccurrenceNextTrigger
+	): Promise<void> {
+		try {
+			const updatedTask = await plugin.updateTaskProperty(
+				task,
+				"occurrence_next_trigger",
+				trigger === "completion" ? undefined : trigger
+			);
+			Object.assign(task, updatedTask);
+			this.options.onUpdate?.();
+			new Notice(
+				trigger === "completion"
+					? "Next occurrence note will be created after completion"
+					: "Next occurrence note will be created after completion or skip"
+			);
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			tasknotesLogger.error("Error updating occurrence next trigger:", {
+				category: "persistence",
+				operation: "updating-occurrence-next-trigger",
+				details: { taskPath: task.path, trigger },
+				error: errorMessage,
+			});
+			new Notice(`Failed to update occurrence trigger: ${errorMessage}`);
 		}
 	}
 

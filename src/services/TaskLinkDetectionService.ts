@@ -2,14 +2,24 @@ import { TFile, parseLinktext } from "obsidian";
 import { TaskInfo } from "../types";
 import TaskNotesPlugin from "../main";
 import { createTaskNotesLogger, type TaskNotesLogger } from "../utils/tasknotesLogger";
-import { resolveTaskLinkDisplayText } from "../editor/taskLinkDisplayText";
 import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
+import {
+	formatTaskLinkSubpathDisplayText,
+	resolveTaskLinkDisplayText,
+} from "../editor/taskLinkDisplayText";
 
 export interface TaskLinkInfo {
 	isValidTaskLink: boolean;
 	taskPath?: string;
 	taskInfo?: TaskInfo;
 	displayText?: string;
+}
+
+interface ParsedTaskLink {
+	linkPath: string;
+	displayText?: string;
+	subpath?: string;
+	hasExplicitAlias: boolean;
 }
 
 export class TaskLinkDetectionService {
@@ -76,10 +86,13 @@ export class TaskLinkDetectionService {
 		try {
 			const taskInfo = await getTaskInfoFromNoteFirst(this.plugin, resolvedPath);
 			if (taskInfo) {
-				const displayText =
-					linkType === "markdown"
-						? resolveTaskLinkDisplayText(parsedDisplayText, taskInfo.path, linkPath)
-						: parsedDisplayText;
+				const displayText = this.resolveDisplayText(
+					parsed,
+					linkType,
+					taskInfo,
+					linkPath,
+					parsedDisplayText
+				);
 				const result: TaskLinkInfo = {
 					isValidTaskLink: true,
 					taskPath: resolvedPath,
@@ -103,10 +116,31 @@ export class TaskLinkDetectionService {
 		return result;
 	}
 
+	private resolveDisplayText(
+		parsed: ParsedTaskLink,
+		linkType: "wikilink" | "markdown",
+		taskInfo: TaskInfo,
+		linkPath: string,
+		parsedDisplayText?: string
+	): string | undefined {
+		if (linkType === "markdown") {
+			if (parsedDisplayText) {
+				return resolveTaskLinkDisplayText(parsedDisplayText, taskInfo.path, linkPath);
+			}
+			return formatTaskLinkSubpathDisplayText(taskInfo.title, parsed.subpath);
+		}
+
+		if (parsed.hasExplicitAlias) {
+			return parsedDisplayText;
+		}
+
+		return formatTaskLinkSubpathDisplayText(taskInfo.title, parsed.subpath);
+	}
+
 	/**
 	 * Parse wikilink syntax to extract link path and display text
 	 */
-	private parseWikilink(wikilinkText: string): { linkPath: string; displayText?: string } | null {
+	private parseWikilink(wikilinkText: string): ParsedTaskLink | null {
 		// Remove the [[ and ]] brackets
 		const content = wikilinkText.slice(2, -2).trim();
 		if (!content) return null;
@@ -124,6 +158,8 @@ export class TaskLinkDetectionService {
 			return {
 				linkPath: parsed.path,
 				displayText: aliasPart,
+				subpath: parsed.subpath || undefined,
+				hasExplicitAlias: true,
 			};
 		}
 
@@ -131,7 +167,8 @@ export class TaskLinkDetectionService {
 		const parsed = parseLinktext(content);
 		return {
 			linkPath: parsed.path,
-			displayText: parsed.subpath || undefined,
+			subpath: parsed.subpath || undefined,
+			hasExplicitAlias: false,
 		};
 	}
 
@@ -140,7 +177,7 @@ export class TaskLinkDetectionService {
 	 */
 	private parseMarkdownLink(
 		markdownLinkText: string
-	): { linkPath: string; displayText?: string } | null {
+	): ParsedTaskLink | null {
 		// Parse markdown link: [text](path)
 		const match = markdownLinkText.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
 		if (!match) return null;
@@ -173,7 +210,9 @@ export class TaskLinkDetectionService {
 
 		return {
 			linkPath: parsed.path,
-			displayText: displayText || parsed.subpath || undefined,
+			displayText: displayText || undefined,
+			subpath: parsed.subpath || undefined,
+			hasExplicitAlias: Boolean(displayText),
 		};
 	}
 

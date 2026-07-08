@@ -15,7 +15,7 @@ import {
 import { TaskConversionOptions } from "../../../src/types/taskConversion";
 import { TaskInfo } from "../../../src/types";
 import { ParsedTaskData } from "../../../src/utils/TasksPluginParser";
-import { MockObsidian, Notice, TFile } from "../../__mocks__/obsidian";
+import { MockObsidian, Notice, TFile } from "../../helpers/obsidian-runtime";
 import type { App } from "obsidian";
 import {
 	HERMES_DASHBOARD_START_COMMAND,
@@ -33,7 +33,6 @@ import { RRule, Frequency } from "rrule";
 import * as yaml from "yaml";
 
 // Mock only essential external dependencies
-jest.mock("obsidian");
 
 // Mock helper functions with real implementations where possible
 // Note: Added sanitizeTags mock because TaskCreationModal uses it during save.

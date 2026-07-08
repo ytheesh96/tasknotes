@@ -11,6 +11,8 @@ const tasknotesLogger = createTaskNotesLogger({
 	tag: "Services/TaskFileLifecycleReconciliationService",
 });
 
+type Nullable<T> = T | null;
+
 type TaskUpdatePayload = {
 	path?: string;
 	task?: TaskInfo;
@@ -82,7 +84,7 @@ export function selectReconciledTaskProperty(
 
 export class TaskFileLifecycleReconciliationService {
 	private readonly taskSnapshots = new Map<string, TaskInfo>();
-	private taskUpdatedRef: EventRef | null = null;
+	private taskUpdatedRef: Nullable<EventRef> = null;
 	private readonly handlingPaths = new Set<string>();
 
 	constructor(private readonly plugin: TaskNotesPlugin) {}

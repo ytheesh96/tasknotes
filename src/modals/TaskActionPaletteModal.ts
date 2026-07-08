@@ -4,14 +4,21 @@ import {
 	FuzzyMatch,
 	setIcon,
 	Notice,
+	TAbstractFile,
 	TFile,
 	moment as obsidianMoment,
 } from "obsidian";
 import { TaskInfo } from "../types";
 import TaskNotesPlugin from "../main";
 import { getDatePart } from "../utils/dateUtils";
+import {
+	openMaterializedOccurrenceParent,
+	openOrCreateOccurrenceNote,
+} from "../ui/occurrenceNoteActions";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
+import { ProjectSelectModal } from "./ProjectSelectModal";
+import { addTaskToProject } from "../services/taskRelationshipActions";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskActionPaletteModal" });
 
@@ -222,21 +229,35 @@ export class TaskActionPaletteModal extends FuzzySuggestModal<TaskAction> {
 		}
 
 		// Organization actions
-		actions.push({
-			id: "toggle-archive",
-			title: this.task.archived ? "Unarchive task" : "Archive task",
-			description: this.task.archived
-				? "Move task back to active tasks"
-				: "Archive this task",
-			icon: this.task.archived ? "archive-restore" : "archive",
-			category: "organization",
-			keywords: ["archive", this.task.archived ? "unarchive" : "archive", "organize"],
-			isApplicable: () => true,
-			execute: async (task) => {
-				await this.plugin.toggleTaskArchive(task);
-				new Notice(task.archived ? "Task unarchived" : "Task archived");
+		actions.push(
+			{
+				id: "add-project",
+				title: "Add project",
+				description: "Select a project note and add it to this task",
+				icon: "folder-plus",
+				category: "organization",
+				keywords: ["project", "organization", "add", "link"],
+				isApplicable: () => true,
+				execute: async (task) => {
+					this.openProjectSelector(task);
+				},
 			},
-		});
+			{
+				id: "toggle-archive",
+				title: this.task.archived ? "Unarchive task" : "Archive task",
+				description: this.task.archived
+					? "Move task back to active tasks"
+					: "Archive this task",
+				icon: this.task.archived ? "archive-restore" : "archive",
+				category: "organization",
+				keywords: ["archive", this.task.archived ? "unarchive" : "archive", "organize"],
+				isApplicable: () => true,
+				execute: async (task) => {
+					await this.plugin.toggleTaskArchive(task);
+					new Notice(task.archived ? "Task unarchived" : "Task archived");
+				},
+			}
+		);
 
 		// Recurring task actions (only for recurring tasks)
 		if (this.task.recurrence) {
@@ -253,6 +274,51 @@ export class TaskActionPaletteModal extends FuzzySuggestModal<TaskAction> {
 				execute: async (task, plugin, targetDate) => {
 					await plugin.toggleRecurringTaskComplete(task, targetDate);
 					new Notice("Recurring task instance completed");
+				},
+			});
+
+			actions.push({
+				id: "open-or-create-occurrence-note",
+				title: "Open or create occurrence note",
+				description: "Open the note for this occurrence, creating it if needed",
+				icon: "file-plus",
+				category: "dates",
+				keywords: [
+					"open",
+					"create",
+					"materialize",
+					"note",
+					"recurring",
+					"instance",
+					"occurrence",
+				],
+				isApplicable: () => true,
+				execute: async (task, plugin, targetDate) => {
+					await openOrCreateOccurrenceNote({
+						plugin,
+						parentTask: task,
+						targetDate,
+						openInNewLeaf: true,
+					});
+				},
+			});
+		}
+
+		if (this.task.recurrence_parent && this.task.occurrence_date) {
+			actions.push({
+				id: "open-recurring-parent",
+				title: "Open recurring parent",
+				description: "Open the recurring task that generated this occurrence",
+				icon: "refresh-ccw",
+				category: "other",
+				keywords: ["open", "parent", "recurring", "materialized", "occurrence"],
+				isApplicable: () => true,
+				execute: async (task, plugin) => {
+					await openMaterializedOccurrenceParent({
+						plugin,
+						occurrenceTask: task,
+						openInNewLeaf: true,
+					});
 				},
 			});
 		}
@@ -415,6 +481,42 @@ export class TaskActionPaletteModal extends FuzzySuggestModal<TaskAction> {
 				},
 			});
 		});
+	}
+
+	private openProjectSelector(task: TaskInfo): void {
+		const selector = new ProjectSelectModal(this.plugin.app, this.plugin, (projectFile) => {
+			void this.addSelectedProjectToTask(task, projectFile);
+		});
+		this.close();
+		selector.open();
+	}
+
+	private async addSelectedProjectToTask(
+		task: TaskInfo,
+		projectFile: TAbstractFile
+	): Promise<void> {
+		try {
+			if (!(projectFile instanceof TFile)) {
+				new Notice(
+					this.plugin.i18n.translate(
+						"contextMenus.task.organization.notices.projectSelectFailed"
+					)
+				);
+				return;
+			}
+
+			await addTaskToProject(this.plugin, task, projectFile);
+		} catch (error) {
+			tasknotesLogger.error("Failed to add task to project:", {
+				category: "persistence",
+				operation: "add-task-project",
+				details: { taskPath: task.path },
+				error: error instanceof Error ? error.message : String(error),
+			});
+			new Notice(
+				this.plugin.i18n.translate("contextMenus.task.organization.notices.addToProjectFailed")
+			);
+		}
 	}
 
 	getItems(): TaskAction[] {

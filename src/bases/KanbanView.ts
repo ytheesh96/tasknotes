@@ -33,6 +33,7 @@ import { setElementDragImage } from "../utils/dragImage";
 import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import {
 	applyKanbanTaskDropFrontmatterPlan,
+	clearKanbanDropMarkers,
 	createKanbanDropTarget,
 	getKanbanCardDropTargetFromClientY,
 	getKanbanDraggedPaths,
@@ -44,6 +45,7 @@ import {
 	reconstructKanbanDropTargetFromContainer,
 	resolveKanbanContainerDropTarget,
 	resolveNestedTaskCardDragSource,
+	updateKanbanDropMarker,
 	type KanbanDropTarget,
 	type KanbanTaskDropUpdatePlan,
 	type KanbanTaskDragSource,
@@ -329,6 +331,9 @@ export class KanbanView extends BasesViewBase {
 	private currentVisibleTaskPaths = new Set<string>();
 	private currentVisibleTaskOrder = new Map<string, number>();
 	private scopeSelectionCheckboxPaths = new WeakMap<HTMLInputElement, string[]>();
+	private expandedRelationshipTaskPaths = new Set<string>();
+	private expandedRelationshipTaskOrder = new Map<string, number>();
+	private hideTopLevelSubtasks = false;
 	private suppressRenderUntil = 0;
 	private postDropTimer: number | null = null;
 	private pendingDataUpdateTimer: number | null = null;
@@ -535,6 +540,7 @@ export class KanbanView extends BasesViewBase {
 			this.expandedRelationshipFilterMode = normalizeExpandedRelationshipFilterMode(
 				expandedRelationshipFilterModeValue
 			);
+			this.hideTopLevelSubtasks = this.config.get("hideTopLevelSubtasks") === true;
 
 			// Mark config as successfully loaded
 			this.configLoaded = true;
@@ -553,6 +559,8 @@ export class KanbanView extends BasesViewBase {
 	 * This preserves scroll position when the view is re-rendered (e.g., after task updates).
 	 */
 	getEphemeralState(): unknown {
+		const baseState = super.getEphemeralState();
+		const baseStateObject = isRecord(baseState) ? baseState : {};
 		const columnScroll: Record<string, number> = {};
 
 		// Save scroll position for virtual scrolling columns (from VirtualScroller)
@@ -593,6 +601,7 @@ export class KanbanView extends BasesViewBase {
 		}
 
 		return {
+			...baseStateObject,
 			scrollTop: this.rootElement?.scrollTop || 0,
 			columnScroll,
 		};
@@ -603,6 +612,7 @@ export class KanbanView extends BasesViewBase {
 	 */
 	setEphemeralState(state: unknown): void {
 		if (!isKanbanEphemeralState(state)) return;
+		super.setEphemeralState(state);
 		const columnScroll = getColumnScrollState(state);
 
 		// Restore board-level horizontal scroll
@@ -719,7 +729,10 @@ export class KanbanView extends BasesViewBase {
 
 			// Apply search filter
 			const filteredTasks = this.applySearchFilter(archivedFilteredTasks);
-			this.setCurrentVisibleTaskPaths(filteredTasks);
+			this.setExpandedRelationshipTaskScope(filteredTasks);
+			const renderTasks = this.getTopLevelRenderTasks(filteredTasks);
+			const candidateTasks = this.getTopLevelRenderTasks(archivedFilteredTasks);
+			this.setCurrentVisibleTaskPaths(renderTasks);
 
 			// Clear board and cleanup scrollers
 			this.destroyColumnScrollers();
@@ -733,7 +746,7 @@ export class KanbanView extends BasesViewBase {
 			this.sortScopeTaskPaths.clear();
 			this.sortScopeCandidateTaskPaths.clear();
 
-			if (filteredTasks.length === 0) {
+			if (renderTasks.length === 0) {
 				// Show "no results" if search returned empty but we had tasks
 				if (this.isSearchWithNoResults(filteredTasks, taskNotes.length)) {
 					this.renderSearchNoResults(this.boardEl);
@@ -753,17 +766,17 @@ export class KanbanView extends BasesViewBase {
 			}
 
 			// Group tasks
-			const groups = this.groupTasks(filteredTasks, groupByPropertyId, pathToProps);
-			const allGroups = this.groupTasks(taskNotes, groupByPropertyId, pathToProps);
+			const groups = this.groupTasks(renderTasks, groupByPropertyId, pathToProps);
+			const allGroups = this.groupTasks(candidateTasks, groupByPropertyId, pathToProps);
 
 			// Render swimlanes if configured
 			if (this.swimLanePropertyId) {
 				this.clearFlatRenderSnapshot();
 				await this.renderWithSwimLanes(
 					groups,
-					filteredTasks,
+					renderTasks,
 					allGroups,
-					taskNotes,
+					candidateTasks,
 					pathToProps,
 					groupByPropertyId
 				);
@@ -1334,6 +1347,14 @@ export class KanbanView extends BasesViewBase {
 			this.currentVisibleTaskPaths.add(path);
 			this.currentVisibleTaskOrder.set(path, index);
 		});
+		if (!this.hideTopLevelSubtasks) {
+			this.expandedRelationshipTaskPaths.clear();
+			this.expandedRelationshipTaskOrder.clear();
+			paths.forEach((path, index) => {
+				this.expandedRelationshipTaskPaths.add(path);
+				this.expandedRelationshipTaskOrder.set(path, index);
+			});
+		}
 	}
 
 	private applyOptimisticSortOrderResult(
@@ -3755,6 +3776,7 @@ export class KanbanView extends BasesViewBase {
 								i >= insertionIndex
 							);
 						}
+						updateKanbanDropMarker(container, siblings, insertionIndex);
 					}
 				});
 			}
@@ -4145,6 +4167,7 @@ export class KanbanView extends BasesViewBase {
 				"tn-static-overflow-y-auto-03df744e",
 				"tn-static-overflow-y-clip-c5043043"
 			);
+			clearKanbanDropMarkers(this.dragContainer);
 			this.dragContainer.style.removeProperty("overflow-y");
 			this.dragContainer.style.removeProperty("padding-bottom");
 			const wrappers = this.dragContainer.querySelectorAll<HTMLElement>(
@@ -4170,6 +4193,9 @@ export class KanbanView extends BasesViewBase {
 		}
 
 		// Also clean any wrappers on the entire board (safety net for cross-column)
+		if (this.boardEl) {
+			clearKanbanDropMarkers(this.boardEl);
+		}
 		this.boardEl
 			?.querySelectorAll<HTMLElement>(
 				".kanban-view__card-wrapper--drag-shift, .kanban-view__card-wrapper--shift-down"
@@ -5130,8 +5156,21 @@ export class KanbanView extends BasesViewBase {
 				normalizeExpandedRelationshipFilterMode(
 					this.config?.get("expandedRelationshipFilterMode")
 				),
-			expandedRelationshipTaskPaths: this.currentVisibleTaskPaths,
-			expandedRelationshipTaskOrder: this.currentVisibleTaskOrder,
+			expandedRelationshipTaskPaths: this.expandedRelationshipTaskPaths,
+			expandedRelationshipTaskOrder: this.expandedRelationshipTaskOrder,
+		});
+	}
+
+	private getTopLevelRenderTasks(tasks: readonly TaskInfo[]): TaskInfo[] {
+		return this.hideTopLevelSubtasks ? this.filterTopLevelSubtasks(tasks) : [...tasks];
+	}
+
+	private setExpandedRelationshipTaskScope(tasks: readonly TaskInfo[]): void {
+		this.expandedRelationshipTaskPaths.clear();
+		this.expandedRelationshipTaskOrder.clear();
+		tasks.forEach((task, index) => {
+			this.expandedRelationshipTaskPaths.add(task.path);
+			this.expandedRelationshipTaskOrder.set(task.path, index);
 		});
 	}
 
