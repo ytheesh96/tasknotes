@@ -20,19 +20,19 @@ function archivedQuery(operator: "is-checked" | "is-not-checked"): FilterQuery {
 }
 
 describe("BasesFilterConverter Hermes archived handling", () => {
-	it("uses hermesArchived before falling back to the archive tag", () => {
+	it("uses hermesArchived before falling back to native archived frontmatter", () => {
 		const converter = new BasesFilterConverter(PluginFactory.createMockPlugin());
 
 		expect(converter.convertToBasesFilter(archivedQuery("is-checked"))).toBe(
-			'((note.hermesArchived == true || note.hermesArchived == "true") || (!(note.hermesArchived == false || note.hermesArchived == "false") && file.tags.contains("archived")))'
+			'((note.hermesArchived == true || note.hermesArchived == "true") || (!(note.hermesArchived == false || note.hermesArchived == "false") && (note.archived == true || note.archived == "true")))'
 		);
 	});
 
-	it("negates the combined Hermes/archive-tag expression for not archived filters", () => {
+	it("negates the combined Hermes/native archived expression for not archived filters", () => {
 		const converter = new BasesFilterConverter(PluginFactory.createMockPlugin());
 
 		expect(converter.convertToBasesFilter(archivedQuery("is-not-checked"))).toBe(
-			'!(((note.hermesArchived == true || note.hermesArchived == "true") || (!(note.hermesArchived == false || note.hermesArchived == "false") && file.tags.contains("archived"))))'
+			'!(((note.hermesArchived == true || note.hermesArchived == "true") || (!(note.hermesArchived == false || note.hermesArchived == "false") && (note.archived == true || note.archived == "true"))))'
 		);
 	});
 });

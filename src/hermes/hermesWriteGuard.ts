@@ -104,7 +104,7 @@ export class HermesWriteGuard {
 	}
 
 	private checkOptions(board: string): HermesAvailabilityCheckOptions {
-		return this.deps.transport ? { board, transport: this.deps.transport } : { board };
+		return { board, transport: this.deps.transport ?? "kanban-cli" };
 	}
 }
 

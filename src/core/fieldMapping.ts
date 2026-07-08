@@ -55,6 +55,16 @@ function normalizeStringValue(value: unknown): string | undefined {
 	return undefined;
 }
 
+function normalizeBooleanValue(value: unknown): boolean | undefined {
+	if (typeof value === "boolean") return value;
+	if (typeof value === "string") {
+		const normalized = value.trim().toLocaleLowerCase();
+		if (normalized === "true") return true;
+		if (normalized === "false") return false;
+	}
+	return undefined;
+}
+
 type ConfiguredValue = {
 	value: string;
 	label: string;
@@ -310,6 +320,11 @@ export function mapTaskFromFrontmatter(
 		mapped.archived = tags.includes(normalizeTagForComparison(mapping.archiveTag));
 	}
 
+	const nativeArchived = normalizeBooleanValue(frontmatter[mapping.archiveTag]);
+	if (nativeArchived !== undefined) {
+		mapped.archived = nativeArchived;
+	}
+
 	const hermesArchived = readHermesArchivedFrontmatter(frontmatter);
 	if (hermesArchived !== null) {
 		mapped.archived = hermesArchived;
@@ -478,16 +493,13 @@ export function mapTaskToFrontmatter(
 
 	let tags = getFrontmatterTags(taskData.tags);
 	const taskTagValue = taskTag ? normalizeTagForComparison(taskTag) : "";
-	const archiveTag = normalizeTagForComparison(mapping.archiveTag);
 
 	if (taskTagValue && !tags.includes(taskTagValue)) {
 		tags.push(taskTagValue);
 	}
 
-	if (taskData.archived === true && !tags.includes(archiveTag)) {
-		tags.push(archiveTag);
-	} else if (taskData.archived === false) {
-		tags = tags.filter((tag) => tag !== archiveTag);
+	if (taskData.archived !== undefined) {
+		frontmatter[mapping.archiveTag] = taskData.archived;
 	}
 
 	if (tags.length > 0) {

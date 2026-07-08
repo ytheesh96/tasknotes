@@ -9,6 +9,12 @@ import {
 } from "../../components/CardComponent";
 import { showConfirmationModal } from "../../../modals/ConfirmationModal";
 import { showTextInputModal } from "../../../modals/TextInputModal";
+import {
+	archiveHermesBoardRegistryRecord,
+	createOrUpdateHermesBoardRegistryRecord,
+	importHermesBoardsIntoRegistry,
+	readHermesBoardRegistry,
+} from "../../../hermes/hermesBoardRegistry";
 import { HermesKanbanApiClient } from "../../../hermes/hermesApiClient";
 import {
 	canonicalHermesBoardProjects,
@@ -20,6 +26,10 @@ import {
 	provisionHermesBoardSurfaces,
 	summarizeHermesBoardProvisionResult,
 } from "../../../hermes/hermesBoardProvisioning";
+import {
+	deleteLocalHermesMirrorsForBoard,
+	formatDeletedBoardNotice,
+} from "../../../bases/hermesBoardMirrors";
 import { createPropertyDescription, TranslateFn } from "./helpers";
 
 const HERMES_BOARD_SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -51,7 +61,7 @@ export function renderProjectsPropertyCard(
 		renderCard();
 
 		try {
-			const syncedBoards = await loadHermesBoards();
+			const syncedBoards = await loadHermesBoards(plugin);
 			boardOptions = syncedBoards.length > 0 ? syncedBoards : defaultHermesBoards();
 			reconcileDefaultBoardWithSyncedBoards(plugin, boardOptions, saveAndRefresh);
 			const provisionResult = await provisionHermesBoardSurfaces(plugin, boardOptions);
@@ -94,15 +104,20 @@ export function renderProjectsPropertyCard(
 		}
 
 		try {
-			await new HermesKanbanApiClient().createBoard({
+			await createOrUpdateHermesBoardRegistryRecord(plugin, {
 				slug,
-				name: input.trim() === slug ? undefined : input.trim(),
+				name: input.trim(),
+				archived: false,
 			});
+			boardOptions = uniqueBoardOptions([...boardOptions, slug]);
+			const provisionResult = await provisionHermesBoardSurfaces(plugin, boardOptions);
 			plugin.settings.taskCreationDefaults.defaultProjects =
 				canonicalHermesBoardProjects(slug);
 			saveAndRefresh();
-			await syncBoards(false);
-			new Notice(`Created Hermes board "${slug}"`);
+			renderCard();
+			new Notice(
+				`Created Hermes board "${slug}". ${summarizeHermesBoardProvisionResult(provisionResult)}`
+			);
 		} catch (error) {
 			new Notice(`Could not create Hermes board: ${getErrorMessage(error)}`);
 		}
@@ -121,7 +136,7 @@ export function renderProjectsPropertyCard(
 
 		const confirmed = await showConfirmationModal(plugin.app, {
 			title: "Delete Hermes board",
-			message: `Delete "${board}" from active Hermes boards? Hermes archives the board so its task history can be recovered.`,
+			message: `Delete "${board}" from active Hermes boards? TaskNotes archives the board record so it can be recovered. Local TaskNotes mirror notes for this board will be removed.`,
 			confirmText: "Delete board",
 			isDestructive: true,
 		});
@@ -130,11 +145,13 @@ export function renderProjectsPropertyCard(
 		}
 
 		try {
-			await new HermesKanbanApiClient().deleteBoard(board);
+			await archiveHermesBoardRegistryRecord(plugin, board);
+			const deletedMirrors = await deleteLocalHermesMirrorsForBoard(plugin, board);
 			plugin.settings.taskCreationDefaults.defaultProjects = "";
+			boardOptions = boardOptions.filter((option) => option !== board);
 			saveAndRefresh();
-			await syncBoards(false);
-			new Notice(`Deleted Hermes board "${board}"`);
+			renderCard();
+			new Notice(formatDeletedBoardNotice(board, deletedMirrors));
 		} catch (error) {
 			new Notice(`Could not delete Hermes board: ${getErrorMessage(error)}`);
 		}
@@ -260,9 +277,19 @@ export function renderProjectsPropertyCard(
 	}
 }
 
-async function loadHermesBoards(): Promise<string[]> {
-	const boards = await new HermesKanbanApiClient().listBoards();
-	return uniqueBoardOptions(boards.filter((board) => !board.archived).map((board) => board.slug));
+async function loadHermesBoards(plugin: TaskNotesPlugin): Promise<string[]> {
+	const registry = await readHermesBoardRegistry(plugin);
+	try {
+		const boards = await new HermesKanbanApiClient().listBoards();
+		await importHermesBoardsIntoRegistry(plugin, boards);
+		return uniqueBoardOptions([
+			...registry.map((board) => board.slug),
+			...boards.filter((board) => !board.archived).map((board) => board.slug),
+		]);
+	} catch {
+		const refreshedRegistry = await readHermesBoardRegistry(plugin);
+		return uniqueBoardOptions(refreshedRegistry.map((board) => board.slug));
+	}
 }
 
 function buildBoardSelectOptions(

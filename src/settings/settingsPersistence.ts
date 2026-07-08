@@ -282,8 +282,7 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 		modalFieldsConfig: modalFieldsSettings.config,
 		defaultVisibleProperties: defaultVisibleProperties.properties,
 		inlineVisibleProperties: inlineVisibleProperties.properties,
-		hermesKanbanTransport:
-			loadedData?.hermesKanbanTransport === "kanban-cli" ? "kanban-cli" : "dashboard-api",
+		hermesKanbanTransport: normalizeHermesKanbanTransport(loadedData?.hermesKanbanTransport),
 		defaultTaskStatus: statusSettings.defaultTaskStatus,
 		customStatuses: statusSettings.customStatuses,
 		customPriorities: loadedData?.customPriorities || DEFAULT_SETTINGS.customPriorities,
@@ -302,6 +301,14 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 				defaultVisibleProperties.changed ||
 				inlineVisibleProperties.changed,
 	};
+}
+
+function normalizeHermesKanbanTransport(
+	value: unknown
+): TaskNotesSettings["hermesKanbanTransport"] {
+	return value === "dashboard-api" || value === "kanban-cli"
+		? value
+		: DEFAULT_SETTINGS.hermesKanbanTransport;
 }
 
 export function buildSettingsDataForSave(

@@ -112,7 +112,7 @@ export class HermesKanbanCliClient implements HermesKanbanTaskCreator {
 }
 
 export function createHermesKanbanClient(
-	mode: HermesKanbanTransportMode = "dashboard-api"
+	mode: HermesKanbanTransportMode = "kanban-cli"
 ): HermesKanbanTaskCreator {
 	return mode === "kanban-cli" ? new HermesKanbanCliClient() : new HermesKanbanApiClient();
 }

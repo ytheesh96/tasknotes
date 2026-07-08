@@ -329,7 +329,7 @@ custom frontmatter semantics, and assemble the returned `TaskInfo` before
 `TaskUpdateService` performs vault writes and side effects.
 
 Archive state and archive move planning belongs in
-`src/services/task-service/taskArchivePlanning.ts` so archive tag toggling,
+`src/services/task-service/taskArchivePlanning.ts` so archived field toggling,
 date-modified writes, and archive/tasks destination path construction stay
 tested outside the Obsidian file-move side effects.
 

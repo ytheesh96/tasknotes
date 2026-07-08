@@ -210,16 +210,15 @@ export class BasesFilterConverter {
 
 	/**
 	 * Convert archived property to Bases expression.
-	 * Hermes-managed tasks use hermesArchived when present; other tasks keep the
-	 * configured archive tag behavior.
+	 * Hermes-managed tasks use hermesArchived when present; other tasks use the
+	 * native archived frontmatter boolean.
 	 */
 	private convertArchivedCondition(operator: FilterOperator): string {
-		const fm = this.plugin.fieldMapper;
-		const archiveTag = fm.toUserField("archiveTag");
-		const archiveTagExpression = `file.tags.contains("${this.escapeString(archiveTag)}")`;
+		const archiveField = this.plugin.fieldMapper.toUserField("archiveTag");
 		const hermesArchivedExpression = `(note.hermesArchived == true || note.hermesArchived == "true")`;
 		const hermesUnarchivedExpression = `(note.hermesArchived == false || note.hermesArchived == "false")`;
-		const archivedExpression = `(${hermesArchivedExpression} || (!${hermesUnarchivedExpression} && ${archiveTagExpression}))`;
+		const nativeArchivedExpression = `(note.${archiveField} == true || note.${archiveField} == "true")`;
+		const archivedExpression = `(${hermesArchivedExpression} || (!${hermesUnarchivedExpression} && ${nativeArchivedExpression}))`;
 
 		// Handle operator - is-checked/is means archived, is-not-checked/is-not means not archived
 		if (operator == "is-not-checked" || operator == "is-not") {

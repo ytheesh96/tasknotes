@@ -2,6 +2,7 @@ import type { FieldMapping, FieldMappingKey, TaskInfo } from "../types";
 import type { UserMappedField } from "../types/settings";
 import { normalizeDependencyList } from "../utils/dependencyUtils";
 import { stringifyUnknown } from "../utils/stringUtils";
+import { getFrontmatterTags } from "../utils/taskIdentificationFrontmatter";
 
 export type BasesCreateFileFrontmatter = Record<string, unknown>;
 
@@ -42,6 +43,16 @@ function getFrontmatterValue(
 
 function toTaskCreationString(value: unknown): string {
 	return stringifyUnknown(value);
+}
+
+function toTaskCreationBoolean(value: unknown): boolean | undefined {
+	if (typeof value === "boolean") return value;
+	if (typeof value === "string") {
+		const normalized = value.trim().toLocaleLowerCase();
+		if (normalized === "true") return true;
+		if (normalized === "false") return false;
+	}
+	return undefined;
 }
 
 function buildMappedKeySet(
@@ -100,13 +111,17 @@ export function buildTaskCreationDataFromFrontmatter(
 	}
 
 	if (frontmatter.tags !== undefined) {
-		prePopulatedValues.tags = toStringArray(frontmatter.tags);
+		const tags = getFrontmatterTags(frontmatter.tags);
+		prePopulatedValues.tags = tags;
+		prePopulatedValues.archived = tags.includes(
+			getFrontmatterTags(fieldMapper.toUserField("archiveTag"))[0] ?? ""
+		);
 	}
 
-	if (Array.isArray(frontmatter.tags)) {
-		prePopulatedValues.archived = frontmatter.tags.includes(
-			fieldMapper.toUserField("archiveTag")
-		);
+	const archived = getFrontmatterValue(frontmatter, fieldMapper, "archiveTag");
+	const normalizedArchived = toTaskCreationBoolean(archived);
+	if (normalizedArchived !== undefined) {
+		prePopulatedValues.archived = normalizedArchived;
 	}
 
 	const timeEstimate = getFrontmatterValue(frontmatter, fieldMapper, "timeEstimate");

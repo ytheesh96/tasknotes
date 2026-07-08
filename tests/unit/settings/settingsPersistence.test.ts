@@ -133,6 +133,18 @@ describe("settings persistence helpers", () => {
 		expect(shouldPersistMigratedSettings).toBe(true);
 	});
 
+	it("defaults Hermes Kanban transport to CLI unless dashboard API is explicitly selected", () => {
+		expect(buildSettingsFromLoadedData({}).settings.hermesKanbanTransport).toBe("kanban-cli");
+		expect(
+			buildSettingsFromLoadedData({ hermesKanbanTransport: "invalid" }).settings
+				.hermesKanbanTransport
+		).toBe("kanban-cli");
+		expect(
+			buildSettingsFromLoadedData({ hermesKanbanTransport: "dashboard-api" }).settings
+				.hermesKanbanTransport
+		).toBe("dashboard-api");
+	});
+
 	it("normalizes persisted statuses to the Hermes Kanban vocabulary", () => {
 		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData({
 			defaultTaskStatus: "open",

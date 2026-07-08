@@ -17,6 +17,7 @@ describe("core/fieldMapping", () => {
 				recurrence_anchor: "completion",
 				complete_instances: ["2026-03-01", 123, "2026-03-02"],
 				tags: ["task", "archived"],
+				archived: true,
 			},
 			"Tasks/Mapped title.md",
 			true
@@ -100,7 +101,8 @@ describe("core/fieldMapping", () => {
 		expect(frontmatter.status).toBe("open");
 		expect(frontmatter.recurrence_anchor).toBe("scheduled");
 		expect(frontmatter.blockedBy).toEqual([{ uid: "[[Other Task]]", reltype: "FINISHTOSTART" }]);
-		expect(frontmatter.tags).toEqual(expect.arrayContaining(["alpha", "task", "archived"]));
+		expect(frontmatter.tags).toEqual(expect.arrayContaining(["alpha", "task"]));
+		expect(frontmatter.archived).toBe(true);
 	});
 
 	it("validates duplicate mapping values as invalid", () => {

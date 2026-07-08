@@ -247,6 +247,7 @@ async function ensureSharedHermesKanbanBase(
 	let nextContent = normalizeRootHermesArchivedExclusionFilters(existingContent);
 	nextContent = normalizeGeneratedSharedHermesKanbanBaseHeader(nextContent, host.settings);
 	nextContent = ensureHermesBoardBaseProperties(nextContent);
+	nextContent = removeGeneratedFixtureHermesBoardViews(nextContent);
 
 	if (boards.some((board) => isGeneratedHermesBoardStandaloneFile(nextContent, board))) {
 		nextContent = desiredContent;
@@ -416,8 +417,32 @@ function upsertHermesBoardView(
 
 type HermesBoardViewBlock = { start: number; end: number; block: string };
 
+function removeGeneratedFixtureHermesBoardViews(content: string): string {
+	const generatedFixtureBlocks = findAllHermesBoardViewBlocks(content).filter((block) => {
+		const board = getHermesBoardSlugFromViewBlock(block.block);
+		return Boolean(board && isHermesBoardFixtureSlug(board) && isGeneratedHermesBoardView(block.block, board));
+	});
+
+	if (generatedFixtureBlocks.length === 0) {
+		return content;
+	}
+
+	let nextContent = content;
+	for (const block of generatedFixtureBlocks.slice().reverse()) {
+		nextContent = `${nextContent.slice(0, block.start)}${nextContent.slice(block.end)}`;
+	}
+	return nextContent;
+}
+
 function findHermesBoardViewBlocks(content: string, board: string): HermesBoardViewBlock[] {
 	const title = formatBoardTitle(board);
+	return findAllHermesBoardViewBlocks(content).filter((block) => {
+		const blockName = getHermesBoardViewBlockName(block.block);
+		return blockName === title || blockName === `${title} Runs` || blockName === `${title} Archive`;
+	});
+}
+
+function findAllHermesBoardViewBlocks(content: string): HermesBoardViewBlock[] {
 	const lines = content.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 	const blocks: HermesBoardViewBlock[] = [];
 	let offset = 0;
@@ -438,16 +463,29 @@ function findHermesBoardViewBlocks(content: string, board: string): HermesBoardV
 		}
 
 		const block = content.slice(start, end).trimEnd();
-		const blockName = getHermesBoardViewBlockName(block);
-		if (blockName === title || blockName === `${title} Runs` || blockName === `${title} Archive`) {
-			blocks.push({ start, end, block });
-		}
+		blocks.push({ start, end, block });
 
 		offset = end;
 		index = nextIndex - 1;
 	}
 
 	return blocks;
+}
+
+function getHermesBoardSlugFromViewBlock(block: string): string | null {
+	const boardFilterMatch = block.match(/^\s*-?\s*(?:hermesBoard|hermes_board)\s*==\s*(.+?)\s*$/m);
+	const boardFromFilter = boardFilterMatch ? normalizeBoardSlug(parseBasesYamlScalar(boardFilterMatch[1])) : null;
+	if (boardFromFilter) {
+		return boardFromFilter;
+	}
+
+	const hermesProjectMatch = block.match(/Hermes\/([a-z0-9][a-z0-9_-]{0,63})/);
+	if (hermesProjectMatch) {
+		return normalizeBoardSlug(hermesProjectMatch[1]);
+	}
+
+	const folderMatch = block.match(/file\.inFolder\("TaskNotes\/([a-z0-9][a-z0-9_-]{0,63})"\)/);
+	return folderMatch ? normalizeBoardSlug(folderMatch[1]) : null;
 }
 
 function getHermesBoardViewBlockName(block: string): string | null {
@@ -618,6 +656,10 @@ function hasHermesBoardFilter(content: string, board: string): boolean {
 		content.includes(`hermesBoard == "${escapeBasesStringLiteral(board)}"`) ||
 		content.includes(`file.inFolder("${TASKNOTES_ROOT}/Tasks")`)
 	);
+}
+
+function isHermesBoardFixtureSlug(slug: string): boolean {
+	return /(?:^e2e[-_]|[-_]e2e[-_]|[-_]e2e$|[-_]fixture$|^fixture[-_])/.test(slug);
 }
 
 function isPresent(value: string | null): value is string {

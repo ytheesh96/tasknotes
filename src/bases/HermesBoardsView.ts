@@ -10,6 +10,13 @@ import {
 	type HermesBoardRecord,
 } from "../hermes/hermesApiClient";
 import {
+	archiveHermesBoardRegistryRecord,
+	createOrUpdateHermesBoardRegistryRecord,
+	importHermesBoardsIntoRegistry,
+	readHermesBoardRegistry,
+	type HermesBoardRegistryRecord,
+} from "../hermes/hermesBoardRegistry";
+import {
 	getHermesBoardKanbanViewPath,
 	getHermesBoardKanbanViewName,
 	provisionHermesBoardSurfaces,
@@ -57,6 +64,10 @@ export type HermesBoardSummary = {
 	blockedCount: number;
 	mirrorCount: number;
 	agents: string[];
+};
+
+type HermesBoardSummarySourceRecord = Pick<HermesBoardRecord, "slug" | "archived"> & {
+	source?: "live" | "registry";
 };
 
 function parseCsvSet(value: unknown, fallback: string[]): Set<string> {
@@ -190,18 +201,44 @@ function mergeSource(
 	return left === right ? left : "both";
 }
 
+function isHermesBoardFixtureSlug(slug: string): boolean {
+	return /(?:^e2e[-_]|[-_]e2e[-_]|[-_]e2e$|[-_]fixture$|^fixture[-_])/.test(slug);
+}
+
 export function buildHermesBoardSummaries(
 	tasks: readonly TaskInfo[],
-	liveBoards: readonly Pick<HermesBoardRecord, "slug" | "archived">[],
+	boardRecords: readonly HermesBoardSummarySourceRecord[],
 	options: HermesBoardsViewOptions
 ): HermesBoardSummary[] {
 	const summaries = new Map<string, HermesBoardSummary>();
+	const archivedRegistryBoards = new Set<string>();
 
-	for (const board of liveBoards) {
+	for (const board of boardRecords) {
+		if (isHermesBoardFixtureSlug(board.slug)) {
+			continue;
+		}
+		if (board.source === "registry" && board.archived) {
+			archivedRegistryBoards.add(board.slug);
+		}
+	}
+
+	for (const board of boardRecords) {
+		if (isHermesBoardFixtureSlug(board.slug)) {
+			continue;
+		}
 		if (board.archived) {
 			continue;
 		}
-		summaries.set(board.slug, emptySummary(board.slug, "live"));
+		if (board.source !== "registry" && archivedRegistryBoards.has(board.slug)) {
+			continue;
+		}
+		const source: HermesBoardSummary["source"] = board.source === "registry" ? "local" : "live";
+		const existing = summaries.get(board.slug);
+		if (existing) {
+			existing.source = mergeSource(existing.source, source);
+		} else {
+			summaries.set(board.slug, emptySummary(board.slug, source));
+		}
 	}
 
 	for (const task of tasks) {
@@ -216,6 +253,12 @@ export function buildHermesBoardSummaries(
 		const agents = getTaskAgents(task, options);
 
 		for (const board of getTaskBoards(task, options)) {
+			if (isHermesBoardFixtureSlug(board)) {
+				continue;
+			}
+			if (archivedRegistryBoards.has(board)) {
+				continue;
+			}
 			let summary = summaries.get(board);
 			if (!summary) {
 				summary = emptySummary(board, "local");
@@ -316,9 +359,15 @@ export class HermesBoardsView extends BasesViewBase {
 		}
 		this.contentEl.empty();
 
+		let registry = await this.loadBoardRegistry();
 		const live = await this.loadLiveBoards();
+		registry = await this.backfillLiveBoardsToRegistry(live.boards, registry);
 		const tasks = await this.resolveTasks();
-		const summaries = buildHermesBoardSummaries(tasks, live.boards, this.options);
+		const summaries = buildHermesBoardSummaries(
+			tasks,
+			[...registry, ...live.boards.map((board) => ({ ...board, source: "live" as const }))],
+			this.options
+		);
 
 		this.renderToolbar(live.error);
 		this.renderSummary(summaries, tasks.length);
@@ -348,12 +397,35 @@ export class HermesBoardsView extends BasesViewBase {
 		return [];
 	}
 
+	private async loadBoardRegistry(): Promise<HermesBoardRegistryRecord[]> {
+		try {
+			return await readHermesBoardRegistry(this.plugin, { includeArchived: true });
+		} catch {
+			return [];
+		}
+	}
+
 	private async loadLiveBoards(): Promise<{ boards: HermesBoardRecord[]; error: string | null }> {
 		try {
 			const boards = await new HermesKanbanApiClient().listBoards();
 			return { boards, error: null };
 		} catch (error) {
 			return { boards: [], error: getErrorMessage(error) };
+		}
+	}
+
+	private async backfillLiveBoardsToRegistry(
+		boards: HermesBoardRecord[],
+		fallback: HermesBoardRegistryRecord[]
+	): Promise<HermesBoardRegistryRecord[]> {
+		if (boards.length === 0) {
+			return fallback;
+		}
+		try {
+			await importHermesBoardsIntoRegistry(this.plugin, boards);
+			return await readHermesBoardRegistry(this.plugin, { includeArchived: true });
+		} catch {
+			return fallback;
 		}
 	}
 
@@ -364,7 +436,9 @@ export class HermesBoardsView extends BasesViewBase {
 		title.createDiv({ cls: "hermes-boards-view__heading", text: "Hermes boards" });
 		title.createDiv({
 			cls: "hermes-boards-view__subheading",
-			text: error ? "Live board list unavailable; showing local mirrors." : "Live board list synced.",
+			text: error
+				? "Live board list unavailable; showing TaskNotes board registry."
+				: "TaskNotes board registry with optional live sync.",
 		});
 
 		const actions = toolbar.createDiv({ cls: "hermes-boards-view__toolbar-actions" });
@@ -554,9 +628,10 @@ export class HermesBoardsView extends BasesViewBase {
 		}
 
 		try {
-			await new HermesKanbanApiClient().createBoard({
+			await createOrUpdateHermesBoardRegistryRecord(this.plugin, {
 				slug,
-				name: input.trim() === slug ? undefined : input.trim(),
+				name: input.trim(),
+				archived: false,
 			});
 			const provisionResult = await provisionHermesBoardSurfaces(this.plugin, [slug]);
 			this.plugin.app.workspace.trigger("tasknotes:refresh-views");
@@ -598,7 +673,7 @@ export class HermesBoardsView extends BasesViewBase {
 
 		const confirmed = await showConfirmationModal(this.plugin.app, {
 			title: "Delete Hermes board",
-			message: `Delete "${board}" from active Hermes boards? Hermes archives the board so its history can be recovered. Local TaskNotes mirror notes for this board will be removed.`,
+			message: `Delete "${board}" from active Hermes boards? TaskNotes archives the board record so it can be recovered. Local TaskNotes mirror notes for this board will be removed.`,
 			confirmText: "Delete board",
 			isDestructive: true,
 		});
@@ -607,7 +682,7 @@ export class HermesBoardsView extends BasesViewBase {
 		}
 
 		try {
-			await new HermesKanbanApiClient().deleteBoard(board);
+			await archiveHermesBoardRegistryRecord(this.plugin, board);
 			const deletedMirrors = await deleteLocalHermesMirrorsForBoard(this.plugin, board);
 			this.plugin.app.workspace.trigger("tasknotes:refresh-views");
 			this.refresh();

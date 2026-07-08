@@ -1056,7 +1056,7 @@ describe("TaskService", () => {
 			const result = await taskService.toggleArchive(task);
 
 			expect(result.archived).toBe(true);
-			expect(result.tags).toContain("archived");
+			expect(result.tags).toEqual(["task"]);
 		});
 
 		it("should unarchive an archived task", async () => {
@@ -1068,7 +1068,7 @@ describe("TaskService", () => {
 			const result = await taskService.toggleArchive(archivedTask);
 
 			expect(result.archived).toBe(false);
-			expect(result.tags).not.toContain("archived");
+			expect(result.tags).toEqual(["task", "archived"]);
 		});
 
 		it("should process task folder template variables when unarchiving a moved task", async () => {
@@ -1115,7 +1115,7 @@ describe("TaskService", () => {
 			);
 			expect(result.path).toBe(restoredPath);
 			expect(result.archived).toBe(false);
-			expect(result.tags).not.toContain("archived");
+			expect(result.tags).toEqual(["task", "archived"]);
 		});
 
 		it("should handle tasks without existing tags", async () => {
@@ -1123,23 +1123,28 @@ describe("TaskService", () => {
 
 			const result = await taskService.toggleArchive(taskWithoutTags);
 
-			expect(result.tags).toEqual(["archived"]);
+			expect(result.tags).toEqual([]);
 		});
 
-		it("should use custom archive tag from field mapping", async () => {
-			// Update the fieldMapper to use a custom archive tag
+		it("should use custom archive frontmatter field from field mapping", async () => {
 			const customMapping = {
 				...mockPlugin.fieldMapper.getMapping(),
 				archiveTag: "custom-archived",
 			};
+			const frontmatter: Record<string, unknown> = {};
 			mockPlugin.fieldMapper.updateMapping(customMapping);
+			mockPlugin.app.fileManager.processFrontMatter.mockImplementation(async (_file, fn) => {
+				fn(frontmatter);
+			});
 
 			const result = await taskService.toggleArchive(task);
 
-			expect(result.tags).toContain("custom-archived");
+			expect(result.archived).toBe(true);
+			expect(result.tags).toEqual(["task"]);
+			expect(frontmatter["custom-archived"]).toBe(true);
 		});
 
-		it("should toggle hermesArchived instead of archive tags for Hermes-managed tasks", async () => {
+		it("should toggle hermesArchived instead of native archived field for Hermes-managed tasks", async () => {
 			const hermesTask = TaskFactory.createTask({
 				path: "TaskNotes/Tasks/default--t_1234abcd.md",
 				status: "done",

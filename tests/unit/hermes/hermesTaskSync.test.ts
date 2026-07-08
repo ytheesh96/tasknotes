@@ -518,7 +518,7 @@ describe("Hermes managed task sync", () => {
 		});
 	});
 
-	it("treats Hermes archived tasks as done tasks with the native archive tag", async () => {
+	it("treats Hermes archived tasks as done tasks with native archived state", async () => {
 		const localTask = createTask({
 			status: "done",
 			priority: "normal",

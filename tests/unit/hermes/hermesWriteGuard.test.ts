@@ -68,7 +68,10 @@ describe("HermesWriteGuard", () => {
 			taskId: "t_abc123",
 			health: { transport: "kanban-cli", writeStatus: "writable-via-cli" },
 		});
-		expect(service.recheckHealth).toHaveBeenCalledWith({ board: "default" });
+		expect(service.recheckHealth).toHaveBeenCalledWith({
+			board: "default",
+			transport: "kanban-cli",
+		});
 	});
 
 	it("passes the selected transport into availability rechecks", async () => {

@@ -478,6 +478,68 @@ views:
 		expect(content).toContain('name: "Default"');
 	});
 
+	it("removes stale generated fixture board views from the shared Kanban base", async () => {
+		const app = new App();
+		const path = "TaskNotes/Views/kanban-default.base";
+		await app.vault.create(
+			path,
+			`${buildHermesBoardKanbanBaseHeader()}${buildHermesBoardKanbanBase("default")}
+  - type: table
+    name: "Manual Fixture Audit"
+    filters:
+      and:
+        - hermesBoard == "e2e-archive-mq2ymeh9"
+  - type: tasknotesKanban
+    name: "E2e Archive Mq2ymeh9"
+    filters:
+      and:
+        - hermesTaskId.isEmpty() == false
+        - hermesBoard == "e2e-archive-mq2ymeh9"
+    groupBy:
+      property: status
+      direction: ASC
+    sort:
+      - property: tasknotes_manual_order
+        direction: DESC
+    options:
+      columnWidth: 280
+      hideEmptyColumns: false
+      showHermesArchivedTasks: false
+    hideEmptyColumns: false
+    pinnedColumns: triage,todo,ready,running,blocked,done
+  - type: tasknotesKanban
+    name: "Tasknotes Dashboardless E2e Fixture"
+    filters:
+      and:
+        - hermesTaskId.isEmpty() == false
+        - hermesBoard == "tasknotes-dashboardless-e2e-fixture"
+    groupBy:
+      property: status
+      direction: ASC
+    sort:
+      - property: tasknotes_manual_order
+        direction: DESC
+    options:
+      columnWidth: 280
+      hideEmptyColumns: false
+      showHermesArchivedTasks: false
+    hideEmptyColumns: false
+    pinnedColumns: triage,todo,ready,running,blocked,done
+`
+		);
+
+		const result = await provisionHermesBoardSurfaces({ app }, ["default"]);
+
+		expect(result.viewsUpdated).toEqual([path]);
+		const existing = app.vault.getAbstractFileByPath(path) as TFile;
+		const content = await app.vault.read(existing);
+		expect(content).toContain('name: "Default"');
+		expect(content).toContain('hermesBoard == "default"');
+		expect(content).toContain('name: "Manual Fixture Audit"');
+		expect(content).not.toContain('name: "E2e Archive Mq2ymeh9"');
+		expect(content).not.toContain('name: "Tasknotes Dashboardless E2e Fixture"');
+	});
+
 	it("updates stale generated board views and removes legacy generated board views", async () => {
 		const app = new App();
 		const staleView = `# Job Hunt Kanban

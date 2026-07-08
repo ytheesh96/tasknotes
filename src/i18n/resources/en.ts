@@ -1102,9 +1102,9 @@ export const en: TranslationTree = {
 						"Timestamp when the task was marked complete. Set automatically when status changes to a completed state.",
 				},
 				archiveTag: {
-					name: "Archive tag",
+					name: "Archived field",
 					description:
-						"Tag added to tasks when archived. Used to identify archived tasks and can trigger file movement to archive folder.",
+						"Frontmatter field used to store whether a task is archived. Archived tasks can move to the archive folder.",
 				},
 				timeEntries: {
 					name: "Time entries",
@@ -1295,7 +1295,7 @@ export const en: TranslationTree = {
 					dateCreated: "Created date",
 					completedDate: "Completed date",
 					dateModified: "Modified date",
-					archiveTag: "Archive tag",
+					archiveTag: "Archived field",
 					timeEntries: "Time entries",
 					completeInstances: "Complete instances",
 					blockedBy: "Blocked by",

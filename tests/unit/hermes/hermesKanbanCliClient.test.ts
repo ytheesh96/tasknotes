@@ -209,4 +209,10 @@ describe("HermesKanbanCliClient", () => {
 
 		expect(client.constructor.name).toBe("HermesKanbanApiClient");
 	});
+
+	it("uses the CLI transport by default", () => {
+		const client = createHermesKanbanClient();
+
+		expect(client.constructor.name).toBe("HermesKanbanCliClient");
+	});
 });

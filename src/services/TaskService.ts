@@ -554,7 +554,7 @@ export class TaskService {
 		const movePlan = buildTaskArchiveMovePlan({
 			isCurrentlyArchived,
 			moveArchivedTasks:
-				archivePlan.stateSource === "archive-tag" && this.plugin.settings.moveArchivedTasks,
+				archivePlan.stateSource === "archive-field" && this.plugin.settings.moveArchivedTasks,
 			archiveFolderTemplate: this.plugin.settings.archiveFolder,
 			tasksFolderTemplate: this.plugin.settings.tasksFolder,
 			fileName: file.name,

@@ -9,7 +9,7 @@ import {
 
 export type TaskArchiveOperation = "archiving" | "unarchiving";
 export type TaskArchiveDestinationKind = "archive" | "tasks";
-export type TaskArchiveStateSource = "archive-tag" | "hermes-archived";
+export type TaskArchiveStateSource = "archive-field" | "hermes-archived";
 
 export interface TaskArchiveStatePlan {
 	updatedTask: TaskInfo;
@@ -82,12 +82,8 @@ export function buildTaskArchiveState(
 		} else if (updatedTask.customProperties[HERMES_LIST_FRONTMATTER] === "archived") {
 			updatedTask.customProperties[HERMES_LIST_FRONTMATTER] = task.status || "done";
 		}
-	} else if (isCurrentlyArchived) {
-		updatedTask.tags = tags.filter((tag) => tag !== archiveTag);
-	} else if (tags.includes(archiveTag)) {
-		updatedTask.tags = [...tags];
 	} else {
-		updatedTask.tags = [...tags, archiveTag];
+		updatedTask.tags = [...tags];
 	}
 
 	return {
@@ -106,7 +102,7 @@ export function applyTaskArchiveFrontmatterChange({
 	isCurrentlyArchived,
 	dateModified,
 	dateModifiedField,
-	stateSource = "archive-tag",
+	stateSource = "archive-field",
 	hermesListOnUnarchive = "done",
 }: ApplyTaskArchiveFrontmatterChangeInput): void {
 	if (stateSource === "hermes-archived") {
@@ -118,26 +114,8 @@ export function applyTaskArchiveFrontmatterChange({
 		} else if (frontmatter[HERMES_LIST_FRONTMATTER] === "archived") {
 			frontmatter[HERMES_LIST_FRONTMATTER] = hermesListOnUnarchive;
 		}
-	} else if (isCurrentlyArchived) {
-		const tags = frontmatter.tags;
-		if (Array.isArray(tags)) {
-			const updatedTags = tags.filter((tag: string) => tag !== archiveTag);
-			if (updatedTags.length === 0) {
-				delete frontmatter.tags;
-			} else {
-				frontmatter.tags = updatedTags;
-			}
-		}
 	} else {
-		if (!frontmatter.tags) {
-			frontmatter.tags = [];
-		} else if (!Array.isArray(frontmatter.tags)) {
-			frontmatter.tags = [frontmatter.tags];
-		}
-
-		if (!(frontmatter.tags as unknown[]).includes(archiveTag)) {
-			(frontmatter.tags as unknown[]).push(archiveTag);
-		}
+		frontmatter[archiveTag] = !isCurrentlyArchived;
 	}
 
 	frontmatter[dateModifiedField] = dateModified;
@@ -147,7 +125,7 @@ function getArchiveStateSource(task: TaskInfo): TaskArchiveStateSource {
 	return getHermesTaskIdentity(task) !== null ||
 		readHermesArchivedFrontmatter(task.customProperties) !== null
 		? "hermes-archived"
-		: "archive-tag";
+		: "archive-field";
 }
 
 export function buildTaskArchiveMovePlan({

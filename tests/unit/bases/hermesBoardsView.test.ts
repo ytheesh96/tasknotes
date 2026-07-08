@@ -5,8 +5,20 @@ import {
 	type HermesBoardSummary,
 	type HermesBoardsViewOptions,
 } from "../../../src/bases/HermesBoardsView";
-import { TFile } from "obsidian";
+import { App, MockObsidian, TFile } from "obsidian";
 import type { TaskInfo } from "../../../src/types";
+import { HermesKanbanApiClient } from "../../../src/hermes/hermesApiClient";
+import { showConfirmationModal } from "../../../src/modals/ConfirmationModal";
+import { showTextInputModal } from "../../../src/modals/TextInputModal";
+import { readHermesBoardRegistry } from "../../../src/hermes/hermesBoardRegistry";
+
+jest.mock("../../../src/modals/ConfirmationModal", () => ({
+	showConfirmationModal: jest.fn(),
+}));
+
+jest.mock("../../../src/modals/TextInputModal", () => ({
+	showTextInputModal: jest.fn(),
+}));
 
 const options: HermesBoardsViewOptions = {
 	boardProperty: "projects",
@@ -29,7 +41,18 @@ function task(overrides: Partial<TaskInfo>): TaskInfo {
 	};
 }
 
+function readFrontmatterValue(content: string, key: string): string | undefined {
+	return content.match(new RegExp(`^${key}: (.+)$`, "m"))?.[1];
+}
+
 describe("HermesBoardsView", () => {
+	beforeEach(() => {
+		MockObsidian.reset();
+		jest.restoreAllMocks();
+		(showConfirmationModal as jest.Mock).mockReset();
+		(showTextInputModal as jest.Mock).mockReset();
+	});
+
 	afterEach(() => {
 		document.body.innerHTML = "";
 	});
@@ -101,6 +124,326 @@ describe("HermesBoardsView", () => {
 			mirrorCount: 0,
 		});
 		expect(summaries.some((summary) => summary.slug === "archived-live")).toBe(false);
+	});
+
+	it("shows TaskNotes-native board records even when they have zero tasks", () => {
+		const summaries = buildHermesBoardSummaries(
+			[],
+			[
+				{ slug: "empty-local", archived: false, source: "registry" },
+				{ slug: "archived-local", archived: true, source: "registry" },
+			] as any,
+			options
+		);
+
+		expect(summaries).toHaveLength(1);
+		expect(summaries[0]).toMatchObject({
+			slug: "empty-local",
+			source: "local",
+			taskCount: 0,
+			mirrorCount: 0,
+		});
+	});
+
+	it("imports live Hermes boards into TaskNotes-native board records", async () => {
+		const app = new App();
+		jest.spyOn(HermesKanbanApiClient.prototype, "listBoards").mockResolvedValue([
+			{ slug: "live-only", name: "Live Only", archived: false },
+			{ slug: "archived-live", name: "Archived Live", archived: true },
+		] as any);
+		const container = document.createElement("div");
+		const view = new HermesBoardsView({}, container, {
+			app,
+			settings: { enableDebugLogging: false },
+			fieldMapper: {},
+		} as any);
+		(view as any).rootElement = container;
+		(view as any).contentEl = container;
+
+		await view.render();
+
+		const registry = await readHermesBoardRegistry({ app } as any, { includeArchived: true });
+		expect(registry).toMatchObject([
+			{ slug: "archived-live", archived: true, source: "registry" },
+			{ slug: "live-only", archived: false, source: "registry" },
+		]);
+		expect(app.vault.getAbstractFileByPath("TaskNotes/Boards/live-only.md")).toBeInstanceOf(TFile);
+		expect(container.textContent).toContain("live-only");
+		expect(container.textContent).not.toContain("archived-live");
+	});
+
+	it("does not rewrite TaskNotes-native board records on unchanged live board renders", async () => {
+		jest.useFakeTimers();
+		try {
+			const app = new App();
+			const listBoards = jest
+				.spyOn(HermesKanbanApiClient.prototype, "listBoards")
+				.mockResolvedValue([{ slug: "live-only", name: "Live Only", archived: false }] as any);
+			const container = document.createElement("div");
+			const view = new HermesBoardsView({}, container, {
+				app,
+				settings: { enableDebugLogging: false },
+				fieldMapper: {},
+			} as any);
+			(view as any).rootElement = container;
+			(view as any).contentEl = container;
+
+			jest.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+			await view.render();
+			const boardFile = app.vault.getAbstractFileByPath("TaskNotes/Boards/live-only.md") as TFile;
+			const firstContent = await app.vault.read(boardFile);
+			const firstDateModified = readFrontmatterValue(firstContent, "dateModified");
+			const modifySpy = jest.spyOn(app.vault, "modify");
+
+			jest.setSystemTime(new Date("2026-01-01T00:01:00.000Z"));
+			await view.render();
+
+			expect(listBoards).toHaveBeenCalledTimes(2);
+			expect(modifySpy).not.toHaveBeenCalled();
+			expect(await app.vault.read(boardFile)).toBe(firstContent);
+			expect(readFrontmatterValue(firstContent, "dateModified")).toBe(firstDateModified);
+
+			listBoards.mockResolvedValue([
+				{ slug: "live-only", name: "Live Renamed", archived: false },
+			] as any);
+			jest.setSystemTime(new Date("2026-01-01T00:02:00.000Z"));
+			await view.render();
+
+			expect(modifySpy).toHaveBeenCalledTimes(1);
+			const updatedContent = await app.vault.read(boardFile);
+			expect(readFrontmatterValue(updatedContent, "hermesBoardName")).toBe("Live Renamed");
+			expect(readFrontmatterValue(updatedContent, "dateModified")).not.toBe(firstDateModified);
+		} finally {
+			jest.useRealTimers();
+		}
+	});
+
+	it("ignores stale E2E fixture live boards in user-facing summaries", () => {
+		const summaries = buildHermesBoardSummaries(
+			[],
+			[
+				{ slug: "tasknotes-dashboardless-e2e-fixture", archived: false, source: "live" },
+				{ slug: "default", archived: false, source: "live" },
+			] as any,
+			options
+		);
+
+		expect(summaries.map((summary) => summary.slug)).toEqual(["default"]);
+	});
+
+	it("ignores stale E2E fixture board records in user-facing board reads", async () => {
+		const app = new App();
+		await app.vault.create(
+			"TaskNotes/Boards/tasknotes-dashboardless-e2e-fixture.md",
+			`---
+type: hermes-board
+hermesBoard: tasknotes-dashboardless-e2e-fixture
+hermesBoardName: TaskNotes Dashboardless E2E Fixture
+hermesBoardArchived: false
+---
+
+# Hermes/tasknotes-dashboardless-e2e-fixture
+`
+		);
+		await app.vault.create(
+			"TaskNotes/Boards/default.md",
+			`---
+type: hermes-board
+hermesBoard: default
+hermesBoardName: Default
+hermesBoardArchived: false
+---
+
+# Hermes/default
+`
+		);
+
+		const registry = await readHermesBoardRegistry({ app } as any);
+
+		expect(registry.map((record) => record.slug)).toEqual(["default"]);
+	});
+
+	it("skips vanished E2E fixture board files left in Obsidian's file cache", async () => {
+		const app = new App();
+		await app.vault.create(
+			"TaskNotes/Boards/default.md",
+			`---
+type: hermes-board
+hermesBoard: default
+hermesBoardName: Default
+hermesBoardArchived: false
+---
+
+# Hermes/default
+`
+		);
+		const defaultFile = app.vault.getAbstractFileByPath("TaskNotes/Boards/default.md") as TFile;
+		jest.spyOn(app.vault, "getFiles").mockReturnValue([
+			new TFile("TaskNotes/Boards/e2e-archive-vanished.md"),
+			defaultFile,
+		]);
+
+		const registry = await readHermesBoardRegistry({ app } as any);
+
+		expect(registry.map((record) => record.slug)).toEqual(["default"]);
+	});
+
+	it("renders TaskNotes-native boards when the Hermes dashboard is unavailable", async () => {
+		const app = new App();
+		await app.vault.create(
+			"TaskNotes/Boards/offline-board.md",
+			`---
+type: hermes-board
+hermesBoard: offline-board
+hermesBoardName: Offline Board
+hermesBoardArchived: false
+---
+
+# Hermes/offline-board
+`
+		);
+		jest.spyOn(HermesKanbanApiClient.prototype, "listBoards").mockRejectedValue(
+			new Error("dashboard offline")
+		);
+		const container = document.createElement("div");
+		const view = new HermesBoardsView({}, container, {
+			app,
+			settings: { enableDebugLogging: false },
+			fieldMapper: {},
+		} as any);
+		(view as any).rootElement = container;
+		(view as any).contentEl = container;
+
+		await view.render();
+
+		expect(container.textContent).toContain("offline-board");
+		expect(container.textContent).toContain("Local only");
+		expect(container.textContent).toContain("Live board list unavailable");
+	});
+
+	it("keeps archived TaskNotes-native board tombstones from reappearing via live or task-derived boards", async () => {
+		const app = new App();
+		await app.vault.create(
+			"TaskNotes/Boards/old-board.md",
+			`---
+type: hermes-board
+hermesBoard: old-board
+hermesBoardArchived: true
+---
+
+# Hermes/old-board
+`
+		);
+		jest.spyOn(HermesKanbanApiClient.prototype, "listBoards").mockResolvedValue([
+			{ slug: "old-board", name: "Old Board", archived: false },
+		] as any);
+		const container = document.createElement("div");
+		const view = new HermesBoardsView({}, container, {
+			app,
+			settings: { enableDebugLogging: false },
+			fieldMapper: {},
+		} as any);
+		(view as any).rootElement = container;
+		(view as any).contentEl = container;
+		(view as any).resolveTasks = jest.fn(async () => [
+			task({
+				title: "Archived board should stay hidden",
+				path: "TaskNotes/Tasks/old-board--t_hidden.md",
+				projects: ["Hermes/old-board"],
+				customProperties: { hermesBoard: "old-board" },
+			}),
+		]);
+
+		await view.render();
+
+		expect(container.textContent).not.toContain("old-board");
+		expect(container.textContent).toContain("No Hermes boards found");
+	});
+
+	it("creates a TaskNotes-native board object and shared Kanban view without dashboard access", async () => {
+		const app = new App();
+		(showTextInputModal as jest.Mock).mockResolvedValue("Empty Board");
+		const createBoard = jest
+			.spyOn(HermesKanbanApiClient.prototype, "createBoard")
+			.mockRejectedValue(new Error("dashboard offline"));
+		const container = document.createElement("div");
+		const view = new HermesBoardsView({}, container, {
+			app,
+			settings: { enableDebugLogging: false },
+			fieldMapper: {},
+		} as any);
+		(view as any).rootElement = container;
+		(view as any).contentEl = container;
+		(view as any).refresh = jest.fn();
+
+		await (view as any).createBoard();
+
+		expect(createBoard).not.toHaveBeenCalled();
+		const boardFile = app.vault.getAbstractFileByPath("TaskNotes/Boards/empty-board.md");
+		expect(boardFile).toBeInstanceOf(TFile);
+		const registry = await readHermesBoardRegistry({ app } as any);
+		expect(registry).toMatchObject([
+			{ slug: "empty-board", archived: false, source: "registry" },
+		]);
+		const base = app.vault.getAbstractFileByPath("TaskNotes/Views/kanban-default.base") as TFile;
+		expect(await app.vault.read(base)).toContain('name: "Empty Board"');
+	});
+
+	it("archives the TaskNotes-native board object and keeps local cleanup explicit on delete", async () => {
+		const app = new App();
+		await app.vault.create(
+			"TaskNotes/Boards/old-board.md",
+			`---
+type: hermes-board
+hermesBoard: old-board
+hermesBoardArchived: false
+---
+
+# Hermes/old-board
+`
+		);
+		await app.vault.create(
+			"TaskNotes/Tasks/old-board--t_cleanup.md",
+			`---
+title: Mirror to remove
+hermesTaskId: t_cleanup
+hermesBoard: old-board
+---
+`
+		);
+		(showConfirmationModal as jest.Mock).mockResolvedValue(true);
+		const deleteBoard = jest
+			.spyOn(HermesKanbanApiClient.prototype, "deleteBoard")
+			.mockRejectedValue(new Error("dashboard offline"));
+		const clearCacheEntry = jest.fn();
+		const trigger = jest.fn();
+		const container = document.createElement("div");
+		const view = new HermesBoardsView({}, container, {
+			app,
+			settings: { enableDebugLogging: false },
+			fieldMapper: {},
+			cacheManager: {
+				// Simulate the live TaskNotes cache lagging behind a freshly-written
+				// Hermes mirror; board deletion should still scan canonical mirror paths.
+				getAllTasks: jest.fn(async () => []),
+				clearCacheEntry,
+			},
+			emitter: { trigger },
+		} as any);
+		(view as any).rootElement = container;
+		(view as any).contentEl = container;
+		(view as any).refresh = jest.fn();
+
+		await (view as any).deleteBoard("old-board");
+
+		expect(deleteBoard).not.toHaveBeenCalled();
+		const registry = await readHermesBoardRegistry({ app } as any, { includeArchived: true });
+		expect(registry).toMatchObject([
+			{ slug: "old-board", archived: true, source: "registry" },
+		]);
+		expect(app.vault.getAbstractFileByPath("TaskNotes/Tasks/old-board--t_cleanup.md")).toBeNull();
+		expect(clearCacheEntry).toHaveBeenCalledWith("TaskNotes/Tasks/old-board--t_cleanup.md");
+		expect(trigger).toHaveBeenCalledWith("task-deleted", expect.any(Object));
 	});
 
 	it("opens the board Kanban target path for a board slug", () => {

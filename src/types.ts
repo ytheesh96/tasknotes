@@ -689,7 +689,7 @@ export interface FieldMapping {
 	dateModified: string;
 	recurrence: string; // RFC 5545 recurrence rule string
 	recurrenceAnchor: string; // User-configurable property name for recurrence_anchor field
-	archiveTag: string; // For the archive tag in the tags array
+	archiveTag: string; // Frontmatter field used for the native archived boolean
 	timeEntries: string;
 	completeInstances: string;
 	skippedInstances: string; // User-configurable property name for skipped instances

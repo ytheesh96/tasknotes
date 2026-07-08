@@ -80,6 +80,7 @@ Example:
 
 ## Fixed
 
+- Fixed TaskNotes archived state defaults so empty or non-archive `tags` frontmatter maps to `archived: false` while explicit native/Hermes archived fields still take precedence.
 - Fixed Hermes Loop handoff review detection so generic TaskNotes/Hermes `state` or `decision` properties do not create a fake handoff review when no explicit Loop handoff marker or event has been recorded.
 
 - Fixed Hermes Boards live-board backfill so unchanged board records preserve their existing `dateModified` value and are not rewritten during repeated renders, reducing Bases refresh flicker while still updating records when board names or archive state change.

@@ -100,7 +100,7 @@ export async function syncGoalModeTaskNoteToHermes(
 	}
 
 	const board = getGoalModeTaskNoteBoard(task);
-	const transportMode = plugin.settings?.hermesKanbanTransport ?? "dashboard-api";
+	const transportMode = plugin.settings?.hermesKanbanTransport ?? "kanban-cli";
 	await (options.writeGuard ?? new HermesWriteGuard({ transport: transportMode })).assertCanCreateHermesTask(board);
 	const api = options.api ?? new HermesKanbanApiClient();
 	const taskCreator = options.taskCreator ?? options.api ?? createHermesKanbanClient(transportMode);
