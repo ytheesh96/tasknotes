@@ -12,8 +12,21 @@ import {
 } from "../../components/CardComponent";
 import { createFilterSettingsInputs } from "../../components/FilterSettingsComponent";
 import { initializeFieldConfig } from "../../../utils/fieldConfigDefaults";
-import { createNLPTriggerRows, TranslateFn } from "./helpers";
+import { createNLPTriggerRows, createPropertyDescription, TranslateFn } from "./helpers";
 import { UserMappedField } from "../../../types/settings";
+
+type UserFieldEntry = {
+	field: UserMappedField;
+	index: number;
+};
+
+type UserFieldListOptions = {
+	allowDelete?: boolean;
+	description?: string;
+	emptyState?: boolean;
+	filterField?: (field: UserMappedField) => boolean;
+	onRerender?: (expandedFieldId?: string) => void;
+};
 
 /**
  * Creates the appropriate default value input based on field type
@@ -227,7 +240,8 @@ function renderUserFieldsList(
 	plugin: TaskNotesPlugin,
 	save: () => void,
 	translate: TranslateFn,
-	expandedFieldId?: string
+	expandedFieldId?: string,
+	options: UserFieldListOptions = {}
 ): void {
 	container.empty();
 
@@ -235,7 +249,14 @@ function renderUserFieldsList(
 		plugin.settings.userFields = [];
 	}
 
-	if (plugin.settings.userFields.length === 0) {
+	const entries: UserFieldEntry[] = plugin.settings.userFields
+		.map((field, index) => ({ field, index }))
+		.filter(({ field }) => (options.filterField ? options.filterField(field) : true));
+
+	if (entries.length === 0) {
+		if (options.emptyState === false) {
+			return;
+		}
 		showCardEmptyState(
 			container,
 			translate("settings.taskProperties.customUserFields.emptyState"),
@@ -252,7 +273,15 @@ function renderUserFieldsList(
 		return;
 	}
 
-	plugin.settings.userFields.forEach((field, index) => {
+	const rerender = (fieldId?: string) => {
+		if (options.onRerender) {
+			options.onRerender(fieldId);
+			return;
+		}
+		renderUserFieldsList(container, plugin, save, translate, fieldId);
+	};
+
+	entries.forEach(({ field, index }) => {
 		const nameInput = createCardInput(
 			"text",
 			translate("settings.taskProperties.customUserFields.placeholders.displayName"),
@@ -343,7 +372,7 @@ function renderUserFieldsList(
 			field.defaultValue = field.type === "boolean" ? false : undefined;
 			save();
 			// Need to re-render to update the default value input type
-			renderUserFieldsList(container, plugin, save, translate, field.id);
+			rerender(field.id);
 		});
 
 		// Default value input based on field type
@@ -359,7 +388,7 @@ function renderUserFieldsList(
 			`${field.id}:`,
 			save,
 			translate,
-			() => renderUserFieldsList(container, plugin, save, translate)
+			() => rerender()
 		);
 
 		// Create collapsible filter settings section
@@ -461,6 +490,31 @@ function renderUserFieldsList(
 			}
 		});
 
+		const rows: CardRow[] = [
+			{
+				label: translate("settings.taskProperties.customUserFields.fields.displayName"),
+				input: nameInput,
+			},
+			{
+				label: translate("settings.taskProperties.customUserFields.fields.propertyKey"),
+				input: keyInput,
+			},
+			{
+				label: translate("settings.taskProperties.customUserFields.fields.type"),
+				input: typeSelect,
+			},
+			defaultValueRow,
+			...nlpRows,
+		];
+
+		if (options.description) {
+			rows.unshift({
+				label: "",
+				input: createPropertyDescription(options.description),
+				fullWidth: true,
+			});
+		}
+
 		createCard(container, {
 			id: field.id,
 			collapsible: true,
@@ -478,51 +532,33 @@ function renderUserFieldsList(
 						"default"
 					),
 				],
-				actions: [
-					createDeleteHeaderButton(() => {
-						if (plugin.settings.userFields) {
-							const fieldId = plugin.settings.userFields[index]?.id;
-							plugin.settings.userFields.splice(index, 1);
+				actions:
+					options.allowDelete === false
+						? []
+						: [
+								createDeleteHeaderButton(() => {
+									if (plugin.settings.userFields) {
+										const fieldId = plugin.settings.userFields[index]?.id;
+										plugin.settings.userFields.splice(index, 1);
 
-							// Also remove from modal fields config
-							if (plugin.settings.modalFieldsConfig && fieldId) {
-								plugin.settings.modalFieldsConfig.fields =
-									plugin.settings.modalFieldsConfig.fields.filter(
-										(f) => f.id !== fieldId
-									);
-							}
+										// Also remove from modal fields config
+										if (plugin.settings.modalFieldsConfig && fieldId) {
+											plugin.settings.modalFieldsConfig.fields =
+												plugin.settings.modalFieldsConfig.fields.filter(
+													(f) => f.id !== fieldId
+												);
+										}
 
-							save();
-							renderUserFieldsList(container, plugin, save, translate);
-						}
-					}, translate("settings.taskProperties.customUserFields.deleteTooltip")),
-				],
+										save();
+										rerender();
+									}
+								}, translate("settings.taskProperties.customUserFields.deleteTooltip")),
+							],
 			},
 			content: {
 				sections: [
 					{
-						rows: [
-							{
-								label: translate(
-									"settings.taskProperties.customUserFields.fields.displayName"
-								),
-								input: nameInput,
-							},
-							{
-								label: translate(
-									"settings.taskProperties.customUserFields.fields.propertyKey"
-								),
-								input: keyInput,
-							},
-							{
-								label: translate(
-									"settings.taskProperties.customUserFields.fields.type"
-								),
-								input: typeSelect,
-							},
-							defaultValueRow,
-							...nlpRows,
-						],
+						rows,
 					},
 					{
 						rows: [

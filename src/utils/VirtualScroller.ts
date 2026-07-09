@@ -503,7 +503,7 @@ export class VirtualScroller<T> {
 		if (containerHeight === 0) {
 			// Fall back to window height as last resort
 			containerHeight = window.innerHeight;
-			tasknotesLogger.warn("[VirtualScroller] Using window height as fallback:", {
+			tasknotesLogger.debug("[VirtualScroller] Using window height as fallback:", {
 				category: "configuration",
 				operation: "using-window-height-as-fallback",
 				details: { value: containerHeight },

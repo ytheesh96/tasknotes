@@ -2,6 +2,7 @@ import { Menu } from "obsidian";
 import type { MenuItem } from "obsidian";
 import { FilterOptions, FilterQuery, TaskGroupKey } from "../types";
 import type TaskNotesPlugin from "../main";
+import { isHermesAssigneePropertyId } from "../hermes/hermesAssignee";
 
 /**
  * Builder for the SUBGROUP section of the sort/group context menu.
@@ -66,9 +67,14 @@ export class SubgroupMenuBuilder {
 			options[k] = builtIn[k];
 		});
 
-		// Add user properties (id starts with 'user:') except if equal to primary
+		// Add promoted organization user properties first, then generic user properties.
 		const userProps = filterOptions.userProperties || [];
-		for (const p of userProps) {
+		const orderedUserProps = [
+			...userProps.filter((p) => isHermesAssigneePropertyId(p?.id)),
+			...userProps.filter((p) => !isHermesAssigneePropertyId(p?.id)),
+		];
+
+		for (const p of orderedUserProps) {
 			const id = p?.id as TaskGroupKey | undefined;
 			if (!id || typeof id !== "string") continue;
 			if (!id.startsWith("user:")) continue;

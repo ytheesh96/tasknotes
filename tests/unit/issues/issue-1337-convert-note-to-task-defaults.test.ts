@@ -3,8 +3,8 @@
  *
  * Bug Description:
  * The hotkey "Convert current note to task" is not applying default values from settings.
- * When the user configures default status/priority as "none" (empty string), the command
- * still shows "Open" for status and "Normal" for priority in the task edit modal.
+ * When the user configures a default status/priority, the command should not fall back to
+ * the built-in defaults in the task edit modal.
  *
  * Additionally, the command does not respect the template preset YAML property ordering.
  *
@@ -14,14 +14,10 @@
  *   priority: frontmatter.priority || this.settings.defaultTaskPriority,
  *
  * When user sets defaults to "" (none), the || operator falls back to the settings values,
- * which themselves might be set to "none" but if the user wants truly empty values,
+ * which themselves might be explicitly configured, but if the user wants truly empty values,
  * the logic doesn't respect that.
  *
- * The deeper issue is that when user sets defaultTaskStatus to "none" in settings,
- * the value stored is "none" (not empty string), but the UI/user expectation is that
- * "none" means no value should be pre-selected.
- *
- * Fix: Either use nullish coalescing (??) or check for "none" as a special value.
+ * Fix: Use nullish coalescing (??) so explicit user settings are preserved.
  *
  * @see https://github.com/calluma/tasknotes/issues/1337
  */
@@ -30,9 +26,9 @@ import { DEFAULT_SETTINGS } from "../../../src/settings/defaults";
 
 describe("Issue #1337: Convert note to task should respect default values", () => {
 	describe("Default settings configuration", () => {
-		it("should have defaultTaskStatus in settings with value 'open'", () => {
-			// The default in settings/defaults.ts is "open"
-			expect(DEFAULT_SETTINGS.defaultTaskStatus).toBe("open");
+		it("should have defaultTaskStatus in settings with value 'triage'", () => {
+			// The Hermes Kanban default in settings/defaults.ts is "triage"
+			expect(DEFAULT_SETTINGS.defaultTaskStatus).toBe("triage");
 		});
 
 		it("should have defaultTaskPriority in settings with value 'normal'", () => {
@@ -40,11 +36,10 @@ describe("Issue #1337: Convert note to task should respect default values", () =
 			expect(DEFAULT_SETTINGS.defaultTaskPriority).toBe("normal");
 		});
 
-		it("should allow 'none' as a valid value for defaultTaskStatus", () => {
-			// Users should be able to set "none" as their default to have no status
+		it("should allow Hermes board statuses as valid values for defaultTaskStatus", () => {
 			const userSettings = { ...DEFAULT_SETTINGS };
-			userSettings.defaultTaskStatus = "none";
-			expect(userSettings.defaultTaskStatus).toBe("none");
+			userSettings.defaultTaskStatus = "ready";
+			expect(userSettings.defaultTaskStatus).toBe("ready");
 		});
 
 		it("should allow 'none' as a valid value for defaultTaskPriority", () => {
@@ -75,7 +70,7 @@ describe("Issue #1337: Convert note to task should respect default values", () =
 		/**
 		 * Simulates the expected FIXED behavior
 		 * Should use nullish coalescing or explicit undefined checks
-		 * AND should treat "none" as a valid value to use (not fall through)
+		 * AND should treat "none" priority as a valid value to use (not fall through)
 		 */
 		function simulateFixedBehavior(
 			frontmatter: { status?: string; priority?: string },
@@ -83,25 +78,24 @@ describe("Issue #1337: Convert note to task should respect default values", () =
 		) {
 			return {
 				// Fixed implementation should use ?? to handle undefined/null properly
-				// and respect "none" as a valid user choice
+				// and respect explicit user choices
 				status: frontmatter.status ?? settings.defaultTaskStatus,
 				priority: frontmatter.priority ?? settings.defaultTaskPriority,
 			};
 		}
 
-		describe("When user has default status/priority set to 'none'", () => {
+		describe("When user has default status set to a Hermes state and priority set to 'none'", () => {
 			const userSettingsWithNone = {
-				defaultTaskStatus: "none",
+				defaultTaskStatus: "ready",
 				defaultTaskPriority: "none",
 			};
 
-			it("should use 'none' for status when frontmatter has no status", () => {
+			it("should use the configured Hermes status when frontmatter has no status", () => {
 				const frontmatter = {}; // No existing status in note
 
 				const result = simulateFixedBehavior(frontmatter, userSettingsWithNone);
 
-				// User configured "none" as default, so it should be used
-				expect(result.status).toBe("none");
+				expect(result.status).toBe("ready");
 			});
 
 			it("should use 'none' for priority when frontmatter has no priority", () => {
@@ -114,12 +108,12 @@ describe("Issue #1337: Convert note to task should respect default values", () =
 			});
 
 			it("should preserve existing status from frontmatter", () => {
-				const frontmatter = { status: "in-progress" };
+				const frontmatter = { status: "running" };
 
 				const result = simulateFixedBehavior(frontmatter, userSettingsWithNone);
 
 				// Existing frontmatter value should be preserved
-				expect(result.status).toBe("in-progress");
+				expect(result.status).toBe("running");
 			});
 
 			it("should preserve existing priority from frontmatter", () => {
@@ -132,18 +126,18 @@ describe("Issue #1337: Convert note to task should respect default values", () =
 			});
 		});
 
-		describe("When user has default status/priority set to 'open'/'normal' (defaults)", () => {
+		describe("When user has default status/priority set to 'triage'/'normal' (defaults)", () => {
 			const defaultSettings = {
-				defaultTaskStatus: "open",
+				defaultTaskStatus: "triage",
 				defaultTaskPriority: "normal",
 			};
 
-			it("should use 'open' for status when frontmatter has no status", () => {
+			it("should use 'triage' for status when frontmatter has no status", () => {
 				const frontmatter = {};
 
 				const result = simulateFixedBehavior(frontmatter, defaultSettings);
 
-				expect(result.status).toBe("open");
+				expect(result.status).toBe("triage");
 			});
 
 			it("should use 'normal' for priority when frontmatter has no priority", () => {
@@ -162,11 +156,11 @@ describe("Issue #1337: Convert note to task should respect default values", () =
 		 */
 		describe("BUG: Current behavior with empty string defaults", () => {
 			const userSettingsWithEmptyDefaults = {
-				defaultTaskStatus: "", // User wants no default status
+				defaultTaskStatus: "", // Historical non-Hermes example
 				defaultTaskPriority: "", // User wants no default priority
 			};
 
-			it("FAILING: should use empty string for status when user sets default to empty", () => {
+			it("FAILING: should use empty string for status when explicitly configured", () => {
 				const frontmatter = {};
 
 				// Current behavior (buggy)
@@ -176,13 +170,13 @@ describe("Issue #1337: Convert note to task should respect default values", () =
 				);
 
 				// BUG: || treats "" as falsy and uses... also ""
-				// Actually in real code, the settings default is "open", not ""
+				// Actually in real code, the settings default is "triage", not ""
 				// So this tests that if user could set "" it would work
 				// In practice the bug is more nuanced - see below test
 
 				// With the || operator, empty string is treated as falsy
 				// If settings.defaultTaskStatus is also "", then we get ""
-				// But if settings.defaultTaskStatus in DEFAULT_SETTINGS is "open",
+				// But if settings.defaultTaskStatus in DEFAULT_SETTINGS is "triage",
 				// the user's "" preference gets ignored
 				expect(currentResult.status).toBe("");
 			});
@@ -190,30 +184,30 @@ describe("Issue #1337: Convert note to task should respect default values", () =
 
 		/**
 		 * This test demonstrates the REAL bug scenario
-		 * User sets defaultTaskStatus to "none" in UI
-		 * But the || operator in main.ts still works because "none" is truthy
+		 * User sets defaultTaskStatus to a supported Hermes board state in UI
+		 * But the || operator in main.ts still works because values like "ready" are truthy
 		 *
 		 * However, the ACTUAL bug per the issue is that:
-		 * - User sets default to "none" in settings
-		 * - The value "none" is saved in settings
+		 * - User sets default to "ready" in settings
+		 * - The value "ready" is saved in settings
 		 * - In convertCurrentNoteToTask, when frontmatter.status is undefined:
-		 *   - undefined || "none" = "none" ✓ (this works)
+		 *   - undefined || "ready" = "ready" (this works)
 		 *
 		 * Wait - re-reading the issue more carefully:
-		 * The bug is that when converting, it shows "Open" and "Normal" in the modal,
-		 * not the user's configured defaults ("None").
+		 * The bug is that when converting, it shows the built-in defaults in the modal,
+		 * not the user's configured defaults.
 		 *
 		 * This means the settings are NOT being read correctly,
 		 * OR the hardcoded defaults in DEFAULT_SETTINGS override user settings.
 		 */
 		describe("ACTUAL BUG: Settings not being applied correctly", () => {
-			it("FAILING: should apply user's configured 'none' default instead of hardcoded 'open'", () => {
-				// The issue describes that user has set defaults to "none" in settings UI
-				// But the command shows "Open" and "Normal" instead
+			it("FAILING: should apply user's configured status default instead of the built-in default", () => {
+				// The issue describes that user has set defaults in settings UI
+				// But the command shows built-in defaults instead
 
 				// This simulates what should happen:
 				const userSettings = {
-					defaultTaskStatus: "none", // User configured this
+					defaultTaskStatus: "ready", // User configured this
 					defaultTaskPriority: "none", // User configured this
 				};
 
@@ -222,16 +216,16 @@ describe("Issue #1337: Convert note to task should respect default values", () =
 				const result = simulateFixedBehavior(frontmatter, userSettings);
 
 				// User's settings should be respected
-				expect(result.status).toBe("none");
+				expect(result.status).toBe("ready");
 				expect(result.priority).toBe("none");
 
 				// The bug is likely in HOW the settings are loaded/merged
 				// Somewhere the DEFAULT_SETTINGS values are being used instead of user values
 			});
 
-			it("documents that DEFAULT_SETTINGS has hardcoded 'open' and 'normal'", () => {
+			it("documents the built-in default status and priority", () => {
 				// This shows the hardcoded defaults that may be overriding user preferences
-				expect(DEFAULT_SETTINGS.defaultTaskStatus).toBe("open");
+				expect(DEFAULT_SETTINGS.defaultTaskStatus).toBe("triage");
 				expect(DEFAULT_SETTINGS.defaultTaskPriority).toBe("normal");
 
 				// If the bug is that these defaults are used instead of user settings,
@@ -271,17 +265,17 @@ describe("Regression prevention: convertCurrentNoteToTask defaults", () => {
 	 */
 
 	it("should still work with standard status values", () => {
-		const frontmatter = { status: "open" };
-		const settings = { defaultTaskStatus: "none", defaultTaskPriority: "none" };
+		const frontmatter = { status: "running" };
+		const settings = { defaultTaskStatus: "triage", defaultTaskPriority: "none" };
 
 		// Frontmatter value should take precedence
 		const status = frontmatter.status ?? settings.defaultTaskStatus;
-		expect(status).toBe("open");
+		expect(status).toBe("running");
 	});
 
 	it("should still work with standard priority values", () => {
 		const frontmatter = { priority: "high" };
-		const settings = { defaultTaskStatus: "none", defaultTaskPriority: "none" };
+		const settings = { defaultTaskStatus: "triage", defaultTaskPriority: "none" };
 
 		// Frontmatter value should take precedence
 		const priority = frontmatter.priority ?? settings.defaultTaskPriority;
@@ -290,12 +284,12 @@ describe("Regression prevention: convertCurrentNoteToTask defaults", () => {
 
 	it("should handle undefined frontmatter values correctly with nullish coalescing", () => {
 		const frontmatter: { status?: string; priority?: string } = {};
-		const settings = { defaultTaskStatus: "open", defaultTaskPriority: "normal" };
+		const settings = { defaultTaskStatus: "triage", defaultTaskPriority: "normal" };
 
 		const status = frontmatter.status ?? settings.defaultTaskStatus;
 		const priority = frontmatter.priority ?? settings.defaultTaskPriority;
 
-		expect(status).toBe("open");
+		expect(status).toBe("triage");
 		expect(priority).toBe("normal");
 	});
 });

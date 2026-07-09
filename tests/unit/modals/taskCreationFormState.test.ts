@@ -191,4 +191,34 @@ describe("taskCreationFormState", () => {
 			})
 		);
 	});
+
+	it("uses ordinary list defaults when user fields are present", () => {
+		const state = buildTaskCreationFormState({
+			defaultPriority: "normal",
+			defaultStatus: "open",
+			taskTag: "task",
+			taskCreationDefaults: defaults(),
+			userFields: [
+				userField({
+					id: "worker",
+					key: "worker",
+					displayName: "Worker",
+					type: "list",
+					defaultValue: ["orchestrator", "human"],
+				}),
+				userField({
+					id: "labels",
+					key: "labels",
+					displayName: "Labels",
+					type: "list",
+					defaultValue: ["alpha", "beta"],
+				}),
+			],
+		});
+
+		expect(state.userFields).toEqual({
+			worker: ["orchestrator", "human"],
+			labels: ["alpha", "beta"],
+		});
+	});
 });

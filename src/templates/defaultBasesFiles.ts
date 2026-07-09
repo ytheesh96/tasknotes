@@ -21,6 +21,11 @@ function escapeBasesStringLiteral(value: string): string {
 	return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function getTaskFolderFilterCondition(settings: TaskNotesSettings): string {
+	const tasksFolder = settings.tasksFolder?.trim() || "TaskNotes/Tasks";
+	return `file.inFolder("${escapeBasesStringLiteral(tasksFolder)}")`;
+}
+
 function formatNotePropertyReference(propertyName: string): string {
 	return `note["${escapeBasesStringLiteral(propertyName)}"]`;
 }
@@ -43,23 +48,23 @@ function formatProjectEntryLinkExpression(entryExpression: string): string {
  */
 function generateTaskFilterCondition(settings: TaskNotesSettings): string {
 	if (settings.taskIdentificationMethod === "tag") {
-		// Filter by tag using hasTag method
-		const taskTag = settings.taskTag || "task";
-		return `file.hasTag("${taskTag}")`;
+		// The generated Bases views should discover TaskNotes by their storage
+		// location.  The default #task tag is intentionally generic and can be
+		// used by unrelated notes as a label/routing signal.
+		return getTaskFolderFilterCondition(settings);
 	} else {
 		// Filter by property
 		const propertyName = settings.taskPropertyName;
 		const propertyValue = settings.taskPropertyValue;
 
 		if (!propertyName) {
-			// No property name specified, fall back to tag-based filtering
-			const taskTag = settings.taskTag || "task";
-			return `file.hasTag("${taskTag}")`;
+			// No property name specified, fall back to folder-based task discovery.
+			return getTaskFolderFilterCondition(settings);
 		}
 
 		if (propertyValue) {
 			if (isTagsTaskIdentifierProperty(propertyName)) {
-				return `file.hasTag("${escapeBasesStringLiteral(propertyValue)}")`;
+				return getTaskFolderFilterCondition(settings);
 			}
 			// Check property has specific value
 			// Boolean values must not be quoted — Obsidian stores checkbox/boolean
@@ -683,6 +688,103 @@ ${orderYaml}
     options:
       columnWidth: 280
       hideEmptyColumns: false
+`;
+		}
+
+		case 'open-agent-roster-view': {
+			const statusProperty = mapPropertyToBasesProperty('status', plugin);
+			const priorityProperty = mapPropertyToBasesProperty('priority', plugin);
+			const projectsProperty = mapPropertyToBasesProperty('projects', plugin);
+			const contextsProperty = mapPropertyToBasesProperty('contexts', plugin);
+			const dueProperty = mapPropertyToBasesProperty('due', plugin);
+			const scheduledProperty = mapPropertyToBasesProperty('scheduled', plugin);
+			const blockedByProperty = mapPropertyToBasesProperty('blockedBy', plugin);
+			return `# Agent Roster
+
+${formatFilterAsYAML(taskFilterConditions)}
+
+${formulasSection}
+
+properties:
+  assignee:
+    displayName: Agent
+  hermes_board:
+    displayName: Hermes Board
+  hermes_submit:
+    displayName: Hermes Submit
+
+views:
+  - type: tasknotesAgentRoster
+    name: "Agent Roster"
+    order:
+      - ${statusProperty}
+      - ${priorityProperty}
+      - file.name
+      - assignee
+      - ${contextsProperty}
+      - ${projectsProperty}
+      - hermes_board
+      - ${dueProperty}
+      - ${scheduledProperty}
+      - ${blockedByProperty}
+      - file.tags
+    sort:
+      - column: ${statusProperty}
+        direction: ASC
+    options:
+      agentProperty: assignee
+      agentFallbackProperty: ${contextsProperty}
+      boardProperty: ${projectsProperty}
+      statusProperty: ${statusProperty}
+      defaultBoard: default
+      submitStatus: triage
+      submitTag: hermes-submit
+      maxTasksPerAgent: 4
+      readyStatuses: triage,todo,scheduled,ready
+      busyStatuses: running
+      reviewStatuses: review
+      doneStatuses: done,completed
+      ignoredAgentValues: hermes-kanban
+`;
+		}
+
+		case 'open-hermes-boards-view': {
+			const statusProperty = mapPropertyToBasesProperty('status', plugin);
+			const projectsProperty = mapPropertyToBasesProperty('projects', plugin);
+			const contextsProperty = mapPropertyToBasesProperty('contexts', plugin);
+			return `# Hermes Boards
+
+${formatFilterAsYAML(taskFilterConditions)}
+
+${formulasSection}
+
+properties:
+  hermes_board:
+    displayName: Hermes Board
+
+views:
+  - type: tasknotesHermesBoards
+    name: "Hermes Boards"
+    order:
+      - ${projectsProperty}
+      - ${statusProperty}
+      - ${contextsProperty}
+      - hermes_board
+      - file.tags
+      - file.name
+    sort:
+      - column: ${projectsProperty}
+        direction: ASC
+      - column: ${statusProperty}
+        direction: ASC
+    options:
+      boardProperty: ${projectsProperty}
+      statusProperty: ${statusProperty}
+      agentProperty: ${contextsProperty}
+      defaultBoard: default
+      doneStatuses: done,completed
+      busyStatuses: running
+      reviewStatuses: review
 `;
 		}
 

@@ -17,6 +17,7 @@ import {
 } from "../components/settingHelpers";
 import { showConfirmationModal } from "../../modals/ConfirmationModal";
 import { isCalendarIntegrationDisabledOnMobile } from "../../utils/calendarIntegration";
+import { HERMES_DASHBOARD_START_COMMAND } from "../../hermes/hermesAvailabilityService";
 import {
 	createCard,
 	createStatusBadge,
@@ -178,6 +179,80 @@ export function renderIntegrationsTab(
 		plugin.i18n.translate(key, params);
 	const calendarIntegrationDisabledOnMobile = isCalendarIntegrationDisabledOnMobile(
 		plugin.settings
+	);
+
+	createSettingGroup(
+		container,
+		{
+			heading: translate("settings.integrations.hermes.header"),
+			description: translate("settings.integrations.hermes.description"),
+		},
+		(group) => {
+			group.addSetting(
+				(setting) =>
+					void configureTextSetting(setting, {
+						name: translate("settings.integrations.hermes.startCommand.name"),
+						desc: translate("settings.integrations.hermes.startCommand.description"),
+						placeholder: HERMES_DASHBOARD_START_COMMAND,
+						getValue: () =>
+							plugin.settings.hermesStartCommand || HERMES_DASHBOARD_START_COMMAND,
+						setValue: async (value: string) => {
+							plugin.settings.hermesStartCommand =
+								value.trim() || HERMES_DASHBOARD_START_COMMAND;
+							save();
+						},
+					})
+			);
+
+			group.addSetting(
+				(setting) =>
+					void configureToggleSetting(setting, {
+						name: translate("settings.integrations.hermes.autoStart.name"),
+						desc: translate("settings.integrations.hermes.autoStart.description"),
+						getValue: () => plugin.settings.hermesAutoStartOnTaskChange,
+						setValue: async (value: boolean) => {
+							plugin.settings.hermesAutoStartOnTaskChange = value;
+							save();
+						},
+					})
+			);
+
+			group.addSetting(
+				(setting) =>
+					void configureDropdownSetting(setting, {
+						name: translate("settings.integrations.hermes.kanbanTransport.name"),
+						desc: translate("settings.integrations.hermes.kanbanTransport.description"),
+						options: [
+							{
+								value: "dashboard-api",
+								label: translate("settings.integrations.hermes.kanbanTransport.options.dashboardApi"),
+							},
+							{
+								value: "kanban-cli",
+								label: translate("settings.integrations.hermes.kanbanTransport.options.kanbanCli"),
+							},
+						],
+						getValue: () => plugin.settings.hermesKanbanTransport,
+						setValue: async (value: string) => {
+							plugin.settings.hermesKanbanTransport =
+								value === "kanban-cli" ? "kanban-cli" : "dashboard-api";
+							save();
+						},
+					})
+			);
+
+			group.addSetting(
+				(setting) =>
+					void configureButtonSetting(setting, {
+						name: translate("settings.integrations.hermes.startNow.name"),
+						desc: translate("settings.integrations.hermes.startNow.description"),
+						buttonText: translate("settings.integrations.hermes.startNow.buttonText"),
+						onClick: async () => {
+							await plugin.startHermesDashboard();
+						},
+					})
+			);
+		}
 	);
 
 	// mdbase-spec Section

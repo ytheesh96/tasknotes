@@ -1,9 +1,13 @@
 import { normalizePath } from "obsidian";
-import { DEFAULT_NLP_TRIGGERS, DEFAULT_SETTINGS } from "./defaults";
+import { DEFAULT_NLP_TRIGGERS, DEFAULT_SETTINGS, DEFAULT_STATUSES } from "./defaults";
 import { hasMissingMigratedSettings } from "./settingsMigration";
 import type { TaskCreationDefaults, TaskNotesSettings } from "../types/settings";
 import { initializeFieldConfig } from "../utils/fieldConfigDefaults";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import {
+	normalizeHermesModalFieldsConfig,
+	normalizeHermesUserFields,
+} from "../hermes/hermesAssignee";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Settings/SettingsPersistence" });
 
@@ -39,6 +43,13 @@ export type SettingsBuildResult = {
 	shouldPersistMigratedSettings: boolean;
 };
 
+const HERMES_KANBAN_STATUS_VALUES = new Set(DEFAULT_STATUSES.map((status) => status.value));
+const LEGACY_HERMES_ASSIGNEE_PROPERTY_IDS = new Set([
+	"assignee",
+	"hermes_assignee",
+	"user:assignee",
+	"user:hermes_assignee",
+]);
 function hasOwnSetting<T extends object>(settings: T, key: PropertyKey): boolean {
 	return Object.prototype.hasOwnProperty.call(settings, key);
 }
@@ -163,6 +174,61 @@ function migrateLoadedSettingsData(data: LoadedSettingsData | null): LoadedSetti
 	return migratedData;
 }
 
+function normalizeHermesKanbanStatusSettings(
+	data: LoadedSettingsData | null
+): { customStatuses: TaskNotesSettings["customStatuses"]; defaultTaskStatus: string; changed: boolean } {
+	const loadedStatuses = data?.customStatuses;
+	const loadedStatusValues = Array.isArray(loadedStatuses)
+		? loadedStatuses.map((status) => status?.value)
+		: [];
+	const defaultStatus =
+		typeof data?.defaultTaskStatus === "string" &&
+		HERMES_KANBAN_STATUS_VALUES.has(data.defaultTaskStatus)
+			? data.defaultTaskStatus
+			: DEFAULT_SETTINGS.defaultTaskStatus;
+	const hasCanonicalStatuses =
+		loadedStatusValues.length === DEFAULT_STATUSES.length &&
+		DEFAULT_STATUSES.every((status, index) => loadedStatusValues[index] === status.value);
+
+	return {
+		customStatuses: DEFAULT_STATUSES,
+		defaultTaskStatus: defaultStatus,
+		changed:
+			!hasCanonicalStatuses ||
+			(data?.defaultTaskStatus !== undefined && data.defaultTaskStatus !== defaultStatus),
+	};
+}
+
+function isLegacyHermesAssigneePropertyId(value: unknown): boolean {
+	return typeof value === "string" && LEGACY_HERMES_ASSIGNEE_PROPERTY_IDS.has(value);
+}
+
+function normalizeLegacyAssigneeNlpTriggers(
+	config: TaskNotesSettings["nlpTriggers"],
+	loadedConfig: TaskNotesSettings["nlpTriggers"] | undefined
+): { config: TaskNotesSettings["nlpTriggers"]; changed: boolean } {
+	const triggers = config.triggers.filter(
+		(trigger) => !isLegacyHermesAssigneePropertyId(trigger.propertyId)
+	);
+	return {
+		config: { ...config, triggers },
+		changed:
+			Array.isArray(loadedConfig?.triggers) && triggers.length !== loadedConfig.triggers.length,
+	};
+}
+
+function normalizeVisibleProperties(
+	properties: readonly string[] | undefined,
+	fallback: readonly string[]
+): { properties: string[]; changed: boolean } {
+	const source = Array.isArray(properties) ? properties : fallback;
+	const next = source.filter((property) => !isLegacyHermesAssigneePropertyId(property));
+	return {
+		properties: next,
+		changed: Array.isArray(properties) && next.length !== properties.length,
+	};
+}
+
 function shouldMigrateParentNoteTaskCreationDefault(
 	loadedData: LoadedSettingsData | null
 ): boolean {
@@ -195,6 +261,27 @@ function buildTaskCreationDefaults(
 
 export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): SettingsBuildResult {
 	const loadedData = migrateLoadedSettingsData(data);
+	const statusSettings = normalizeHermesKanbanStatusSettings(loadedData);
+	const userFieldsSettings = normalizeHermesUserFields(loadedData?.userFields);
+	const nlpTriggerSettings = normalizeLegacyAssigneeNlpTriggers(
+		{
+			...DEFAULT_SETTINGS.nlpTriggers,
+			...(loadedData?.nlpTriggers || {}),
+			triggers: loadedData?.nlpTriggers?.triggers || DEFAULT_SETTINGS.nlpTriggers.triggers,
+		},
+		loadedData?.nlpTriggers
+	);
+	const defaultVisibleProperties = normalizeVisibleProperties(
+		loadedData?.defaultVisibleProperties,
+		DEFAULT_SETTINGS.defaultVisibleProperties ?? []
+	);
+	const inlineVisibleProperties = normalizeVisibleProperties(
+		loadedData?.inlineVisibleProperties,
+		DEFAULT_SETTINGS.inlineVisibleProperties ?? []
+	);
+	const modalFieldsSettings = normalizeHermesModalFieldsConfig(
+		initializeFieldConfig(loadedData?.modalFieldsConfig, userFieldsSettings.fields)
+	);
 	const migratedLegacyCustomFilenameTemplate =
 		data?.taskFilenameFormat !== "custom" &&
 		data?.customFilenameTemplate === "{title}" &&
@@ -222,16 +309,14 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 			...DEFAULT_SETTINGS.icsIntegration,
 			...(loadedData?.icsIntegration || {}),
 		},
-		nlpTriggers: {
-			...DEFAULT_SETTINGS.nlpTriggers,
-			...(loadedData?.nlpTriggers || {}),
-			triggers: loadedData?.nlpTriggers?.triggers || DEFAULT_SETTINGS.nlpTriggers.triggers,
-		},
-		modalFieldsConfig: initializeFieldConfig(
-			loadedData?.modalFieldsConfig,
-			loadedData?.userFields
-		),
-		customStatuses: loadedData?.customStatuses || DEFAULT_SETTINGS.customStatuses,
+		nlpTriggers: nlpTriggerSettings.config,
+		userFields: userFieldsSettings.fields,
+		modalFieldsConfig: modalFieldsSettings.config,
+		defaultVisibleProperties: defaultVisibleProperties.properties,
+		inlineVisibleProperties: inlineVisibleProperties.properties,
+		hermesKanbanTransport: normalizeHermesKanbanTransport(loadedData?.hermesKanbanTransport),
+		defaultTaskStatus: statusSettings.defaultTaskStatus,
+		customStatuses: statusSettings.customStatuses,
 		customPriorities: loadedData?.customPriorities || DEFAULT_SETTINGS.customPriorities,
 		savedViews: loadedData?.savedViews || DEFAULT_SETTINGS.savedViews,
 	};
@@ -241,8 +326,22 @@ export function buildSettingsFromLoadedData(data: LoadedSettingsData | null): Se
 		shouldPersistMigratedSettings:
 			hasMissingMigratedSettings(loadedData) ||
 			migratedLegacyCustomFilenameTemplate ||
-			migratedParentNoteTaskCreationDefault,
+			migratedParentNoteTaskCreationDefault ||
+			statusSettings.changed ||
+			userFieldsSettings.changed ||
+			modalFieldsSettings.changed ||
+			nlpTriggerSettings.changed ||
+			defaultVisibleProperties.changed ||
+			inlineVisibleProperties.changed,
 	};
+}
+
+function normalizeHermesKanbanTransport(
+	value: unknown
+): TaskNotesSettings["hermesKanbanTransport"] {
+	return value === "dashboard-api" || value === "kanban-cli"
+		? value
+		: DEFAULT_SETTINGS.hermesKanbanTransport;
 }
 
 export function buildSettingsDataForSave(

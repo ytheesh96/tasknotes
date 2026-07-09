@@ -10,7 +10,7 @@ export interface RenderTaskModalSubtasksListOptions {
 	listEl: HTMLElement | undefined;
 	files: readonly TAbstractFile[];
 	sourcePath: string;
-	getCachedTaskInfo: (path: string) => Promise<TaskInfo | null | undefined>;
+	getTaskInfo: (path: string) => Promise<TaskInfo | null | undefined>;
 	createTaskCard: (task: TaskInfo) => HTMLElement;
 	translate: (key: string, params?: Record<string, string | number>) => string;
 	onRemove: (file: TFile) => void;
@@ -58,7 +58,7 @@ export async function renderTaskModalSubtasksList({
 	listEl,
 	files,
 	sourcePath,
-	getCachedTaskInfo,
+	getTaskInfo,
 	createTaskCard,
 	translate,
 	onRemove,
@@ -87,7 +87,7 @@ export async function renderTaskModalSubtasksList({
 		});
 		const cardHost = subtaskItem.createDiv({ cls: "task-project-card-host" });
 
-		const taskInfo = await getCachedTaskInfo(file.path);
+		const taskInfo = await getTaskInfo(file.path);
 		if (taskInfo) {
 			cardHost.appendChild(createTaskCard(taskInfo));
 		} else {

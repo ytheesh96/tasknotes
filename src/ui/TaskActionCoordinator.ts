@@ -8,6 +8,7 @@ import { openTaskSelector } from "../modals/TaskSelectorWithCreateModal";
 import { getCurrentDateString } from "../core/date";
 import { getActiveTimeEntry } from "../utils/helpers";
 import { getOverdueScheduledRolloverCandidates } from "../utils/scheduledRollover";
+import { getAllTasksFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import { showNotice } from "../ui/notifications";
 
@@ -120,7 +121,7 @@ export class TaskActionCoordinator {
 	async openTaskSelectorForTimeTracking(): Promise<void> {
 		try {
 			const targetDate = new Date();
-			const allTasks = await this.plugin.cacheManager.getAllTasks();
+			const allTasks = await getAllTasksFromNoteFirst(this.plugin);
 			const availableTasks = allTasks
 				.filter((task) => !task.archived)
 				.filter((task) => !getActiveTimeEntry(task.timeEntries || []));
@@ -172,7 +173,7 @@ export class TaskActionCoordinator {
 
 	async openTaskSelectorForTimeEntryEditor(): Promise<void> {
 		try {
-			const allTasks = await this.plugin.cacheManager.getAllTasks();
+			const allTasks = await getAllTasksFromNoteFirst(this.plugin);
 			const tasksWithEntries = allTasks
 				.filter((task) => !task.archived)
 				.filter((task) => task.timeEntries && task.timeEntries.length > 0);
@@ -200,7 +201,7 @@ export class TaskActionCoordinator {
 	async rolloverOverdueScheduledTasks(): Promise<void> {
 		try {
 			const today = getCurrentDateString();
-			const allTasks = await this.plugin.cacheManager.getAllTasks();
+			const allTasks = await getAllTasksFromNoteFirst(this.plugin);
 			const candidates = getOverdueScheduledRolloverCandidates(
 				allTasks,
 				(status) => this.plugin.statusManager.isCompletedStatus(status),

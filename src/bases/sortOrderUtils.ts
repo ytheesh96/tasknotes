@@ -501,7 +501,12 @@ export function getGroupTasks(
 		}
 
 		const rawSortOrder = frontmatter[sortOrderField];
-		const sortOrder = rawSortOrder !== undefined ? String(rawSortOrder) : undefined;
+		const sortOrder =
+			typeof rawSortOrder === "string" ||
+			typeof rawSortOrder === "number" ||
+			typeof rawSortOrder === "boolean"
+				? String(rawSortOrder)
+				: undefined;
 		const cached = options.taskInfoCache?.get(file.path);
 		if (cached) {
 			cached.sortOrder = sortOrder;

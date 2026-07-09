@@ -16,6 +16,7 @@ import {
 	openOrCreateOccurrenceNote,
 } from "../ui/occurrenceNoteActions";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { ProjectSelectModal } from "./ProjectSelectModal";
 import { addTaskToProject } from "../services/taskRelationshipActions";
 
@@ -591,7 +592,7 @@ export class TaskActionPaletteModal extends FuzzySuggestModal<TaskAction> {
 	): Promise<void> {
 		try {
 			// Refresh task data to ensure we have the latest information
-			const freshTask = await this.plugin.cacheManager.getTaskInfo(this.task.path);
+			const freshTask = await getTaskInfoFromNoteFirst(this.plugin, this.task.path);
 			if (!freshTask) {
 				new Notice("Task not found");
 				return;

@@ -64,6 +64,7 @@ const vaultWriteAllowedPatterns = [
 	/^src\/bases\/.*\.ts$/,
 	/^src\/bootstrap\/.*\.ts$/,
 	/^src\/core\/VaultMutationService\.ts$/,
+	/^src\/hermes\/hermesMirror\.ts$/,
 	/^src\/main\.ts$/,
 	/^src\/services\/(?:AutoArchiveService|ICSNoteService|MdbaseSpecService|TaskService|VaultMutationService|ViewStateManager)\.ts$/,
 	/^src\/services\/task-service\/(?:TaskCreationService|TaskUpdateService|taskPropertyChangeSideEffects)\.ts$/,
@@ -73,6 +74,7 @@ const vaultWriteAllowedPatterns = [
 
 const networkAllowedPatterns = [
 	/^src\/api\/.*\.ts$/,
+	/^src\/hermes\/hermesApiClient\.ts$/,
 	/^src\/services\/(?:GoogleCalendarService|HTTPAPIService|ICSSubscriptionService|MCPService|MicrosoftCalendarService|OAuthService)\.ts$/,
 ];
 

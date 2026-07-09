@@ -50,6 +50,7 @@ describe("Bases task creation assembly", () => {
 				contexts: "writing",
 				projects: ["[[Project Alpha]]"],
 				tags: ["task", "archived"],
+				archived: true,
 				timeEstimate: "45",
 				recurrence: "FREQ=WEEKLY",
 				completedDate: "2026-05-19",

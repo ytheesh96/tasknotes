@@ -30,6 +30,7 @@ import {
 import { getKanbanTaskActionDate, handleKanbanCardAction } from "./kanbanCardActions";
 import { clearStaticStyleClasses } from "../utils/staticStyleClasses";
 import { setElementDragImage } from "../utils/dragImage";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import {
 	applyKanbanTaskDropFrontmatterPlan,
 	clearKanbanDropMarkers,
@@ -77,6 +78,29 @@ import {
 	normalizePinnedColumnConfig,
 	shouldRenderKanbanColumn,
 } from "./kanbanGrouping";
+import {
+	planKanbanIncrementalUpdate,
+	type KanbanIncrementalScopeSnapshot,
+} from "./kanbanIncrementalReconcile";
+import {
+	HERMES_NO_RUN_LANE_ID,
+	HERMES_UNKNOWN_RUN_LANE_ID,
+	HERMES_RUN_REASSIGNMENT_EXPLICIT_ONLY_COPY,
+	buildHermesRunLaneCollapseStorageKey,
+	getDefaultHermesRunLaneExpanded,
+	getHermesRunLaneAccessibleCopy,
+	getHermesRunLaneDisplayTitle,
+	getHermesRunLaneStatus,
+	isHermesRunLaneDropRejected,
+	type HermesRunLaneLike,
+} from "./kanbanRunSwimlanes";
+import {
+	HERMES_ROOT_RUN_ID_FRONTMATTER,
+	HERMES_RUN_ID_FRONTMATTER,
+	HERMES_RUN_TITLE_FRONTMATTER,
+	HERMES_RUN_TYPE_FRONTMATTER,
+	readHermesArchivedFrontmatter,
+} from "../hermes/hermesCanonicalTaskNotes";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Bases/KanbanView" });
@@ -125,6 +149,25 @@ type SuccessfulKanbanDropLocalPatchInput = {
 	sortOrderPlan: SortOrderPlan | null;
 	updatedTask?: TaskInfo | null;
 	optimisticReorderApplied: boolean;
+};
+
+type KanbanFlatRenderState = {
+	taskNotes: TaskInfo[];
+	filteredTasks: TaskInfo[];
+	groups: Map<string, TaskInfo[]>;
+	allGroups: Map<string, TaskInfo[]>;
+	groupByPropertyId: string;
+	orderedKeys: string[];
+	visibleProperties: string[];
+	cardOptions: TaskCardOptions;
+	cardRenderSignature: string;
+	structuralSignature: string;
+	scopes: KanbanIncrementalScopeSnapshot[];
+};
+
+type KanbanFlatRenderSnapshot = {
+	structuralSignature: string;
+	scopes: KanbanIncrementalScopeSnapshot[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -177,6 +220,20 @@ function normalizeExpandedRelationshipFilterMode(value: unknown): "inherit" | "s
 type TouchDetectionNavigator = Pick<Navigator, "maxTouchPoints">;
 type TouchDetectionWindow = Pick<Window, "matchMedia">;
 
+type KanbanIncrementalDebugStats = {
+	removedCards: number;
+	reusedCards: number;
+	replacedCards: number;
+	virtualScrollerUpdates: number;
+};
+
+type KanbanSignatureDiff = {
+	addedCards: number;
+	removedCards: number;
+	changedCards: number;
+	unchangedCards: number;
+};
+
 export function shouldEnableKanbanTouchDrag(
 	isMobile: boolean,
 	navigatorLike: TouchDetectionNavigator | null | undefined = navigator,
@@ -198,6 +255,38 @@ export function shouldEnableKanbanTouchDrag(
 
 function normalizeKanbanCardLayout(value: unknown): TaskCardOptions["layout"] {
 	return value === "compact" ? "compact" : "default";
+}
+
+interface KanbanViewConfigLike {
+	get(key: string): unknown;
+}
+
+export function getKanbanViewConfigOption(
+	config: KanbanViewConfigLike,
+	key: string
+): unknown {
+	const directValue = config.get(key);
+	if (directValue !== undefined && directValue !== null) {
+		return directValue;
+	}
+	const options = config.get("options");
+	return options && typeof options === "object"
+		? (options as Record<string, unknown>)[key]
+		: undefined;
+}
+
+export function isHermesArchivedTask(task: TaskInfo): boolean {
+	return readHermesArchivedFrontmatter(task.customProperties) === true;
+}
+
+export function filterKanbanTasksByHermesArchivedVisibility(
+	tasks: TaskInfo[],
+	showHermesArchivedTasks: boolean
+): TaskInfo[] {
+	if (showHermesArchivedTasks) {
+		return tasks;
+	}
+	return tasks.filter((task) => !isHermesArchivedTask(task));
 }
 
 export class KanbanView extends BasesViewBase {
@@ -232,20 +321,28 @@ export class KanbanView extends BasesViewBase {
 	private taskInfoCache = new Map<string, TaskInfo>();
 	private sortScopeTaskPaths = new Map<string, string[]>();
 	private sortScopeCandidateTaskPaths = new Map<string, string[]>();
+	private lastFlatRenderSnapshot: KanbanFlatRenderSnapshot | null = null;
+	private lastTaskSignatures = new Map<string, string>();
+	private lastCardRenderSignature = "";
 	private containerListenersRegistered = false;
 	private columnScrollers = new Map<string, VirtualScroller<TaskInfo>>(); // columnKey -> scroller
 	private expandedRelationshipFilterMode: TaskCardOptions["expandedRelationshipFilterMode"] =
 		"inherit";
 	private currentVisibleTaskPaths = new Set<string>();
 	private currentVisibleTaskOrder = new Map<string, number>();
+	private scopeSelectionCheckboxPaths = new WeakMap<HTMLInputElement, string[]>();
 	private expandedRelationshipTaskPaths = new Set<string>();
 	private expandedRelationshipTaskOrder = new Map<string, number>();
 	private hideTopLevelSubtasks = false;
 	private suppressRenderUntil = 0;
 	private postDropTimer: number | null = null;
+	private pendingDataUpdateTimer: number | null = null;
+	private pendingDataUpdateSavedState: unknown = null;
+	private readonly DATA_UPDATE_RENDER_DEBOUNCE_MS = 50;
 	private dropQueue = new DropOperationQueue();
 	private activeDropCount = 0;
 	private postDropRefreshRequested = false;
+	private renderDebugSequence = 0;
 
 	// Touch drag state for mobile
 	private touchDragActive = false;
@@ -270,7 +367,6 @@ export class KanbanView extends BasesViewBase {
 	// View options (accessed via BasesViewConfig)
 	private swimLanePropertyId: string | null = null;
 	private columnWidth = 280;
-	private maxSwimlaneHeight = 600;
 	private hideEmptyColumns = false;
 	private explodeListColumns = true; // Show items with list properties in multiple columns
 	private consolidateStatusIcon = false; // Show status icon in header only when grouped by status
@@ -280,10 +376,12 @@ export class KanbanView extends BasesViewBase {
 	private swimLaneOrders: Record<string, string[]> = {};
 	private hideEmptySwimLanes = false;
 	private cardLayout: TaskCardOptions["layout"] = "default";
+	private showHermesArchivedTasks = false;
+	private hermesRunLaneExpandedOverrides = new Map<string, boolean>();
 	private configLoaded = false; // Track if we've successfully loaded config
 	/**
-	 * Threshold for enabling virtual scrolling in kanban columns/swimlane cells.
-	 * Virtual scrolling activates when a column or cell has >= 15 cards.
+	 * Threshold for enabling virtual scrolling in kanban columns.
+	 * Virtual scrolling activates when a column has >= 15 cards.
 	 * Lower than TaskListView (100) because kanban cards are typically larger with more
 	 * visible properties, and columns are narrower (more constrained viewport).
 	 * Benefits: ~85% memory reduction, smooth 60fps scrolling for columns with 200+ cards.
@@ -347,17 +445,37 @@ export class KanbanView extends BasesViewBase {
 		}
 
 		const savedState = this.getEphemeralState();
-		try {
-			void this.render();
-		} catch (error) {
-			tasknotesLogger.error(`[TaskNotes][${this.type}] Render error:`, {
-				category: "internal",
-				operation: "render-kanban-view",
-				error: error,
-			});
-			this.renderError(error as Error);
+		this.scheduleDataUpdateRender(savedState);
+	}
+
+	private scheduleDataUpdateRender(savedState: unknown): void {
+		this.pendingDataUpdateSavedState = savedState;
+		if (this.pendingDataUpdateTimer) {
+			window.clearTimeout(this.pendingDataUpdateTimer);
 		}
-		this.setEphemeralState(savedState);
+		this.pendingDataUpdateTimer = window.setTimeout(() => {
+			const stateForRender = this.pendingDataUpdateSavedState;
+			this.pendingDataUpdateTimer = null;
+			this.pendingDataUpdateSavedState = null;
+
+			if (this.draggedTaskPath) {
+				this.debugLog("DATA-UPDATE-DEBOUNCE-TIMER-FIRED: deferred (drag active)", {
+					draggedTask: this.draggedTaskPath.split("/").pop(),
+				});
+				this.pendingRender = true;
+				return;
+			}
+
+			if (this.activeDropCount > 0 || Date.now() < this.suppressRenderUntil) {
+				this.debugLog("DATA-UPDATE-DEBOUNCE-TIMER-FIRED: suppressed", {
+					activeDropCount: this.activeDropCount,
+					msRemaining: this.suppressRenderUntil - Date.now(),
+				});
+				return;
+			}
+
+			void this.renderFromDataUpdate(stateForRender);
+		}, this.DATA_UPDATE_RENDER_DEBOUNCE_MS);
 	}
 
 	/**
@@ -371,35 +489,52 @@ export class KanbanView extends BasesViewBase {
 
 		try {
 			this.swimLanePropertyId = this.config.getAsPropertyId("swimLane");
-			this.columnWidth = (this.config.get("columnWidth") as number) || 280;
-			this.maxSwimlaneHeight = (this.config.get("maxSwimlaneHeight") as number) || 600;
-			this.hideEmptyColumns = (this.config.get("hideEmptyColumns") as boolean) || false;
+			this.columnWidth =
+				(getKanbanViewConfigOption(this.config, "columnWidth") as number) || 280;
+			this.hideEmptyColumns =
+				(getKanbanViewConfigOption(this.config, "hideEmptyColumns") as boolean) || false;
 
 			// Read explodeListColumns option (defaults to true)
-			const explodeValue = this.config.get("explodeListColumns");
+			const explodeValue = getKanbanViewConfigOption(this.config, "explodeListColumns");
 			this.explodeListColumns = explodeValue !== false; // Default to true if not set
 
 			// Read consolidateStatusIcon option (defaults to false)
-			const consolidateValue = this.config.get("consolidateStatusIcon");
+			const consolidateValue = getKanbanViewConfigOption(
+				this.config,
+				"consolidateStatusIcon"
+			);
 			this.consolidateStatusIcon = consolidateValue === true; // Default to false if not set
 
 			// Read column orders
-			this.columnOrders = normalizeKanbanOrderConfig(this.config.get("columnOrder"));
-			this.pinnedColumns = normalizePinnedColumnConfig(this.config.get("pinnedColumns"));
-			this.wipLimits = normalizeKanbanWipLimitsConfig(this.config.get("wipLimits"));
+			this.columnOrders = normalizeKanbanOrderConfig(
+				getKanbanViewConfigOption(this.config, "columnOrder")
+			);
+			this.pinnedColumns = normalizePinnedColumnConfig(
+				getKanbanViewConfigOption(this.config, "pinnedColumns")
+			);
+			this.wipLimits = normalizeKanbanWipLimitsConfig(
+				getKanbanViewConfigOption(this.config, "wipLimits")
+			);
 
 			// Read swimlane orders. Support both the public singular key and the
 			// originally proposed plural key for manually-authored Bases YAML.
 			this.swimLaneOrders = normalizeKanbanOrderConfig(
-				this.config.get("swimLaneOrder") ?? this.config.get("swimLaneOrders")
+				getKanbanViewConfigOption(this.config, "swimLaneOrder") ??
+					getKanbanViewConfigOption(this.config, "swimLaneOrders")
 			);
-			this.hideEmptySwimLanes = this.config.get("hideEmptySwimLanes") === true;
-			this.cardLayout = normalizeKanbanCardLayout(this.config.get("cardLayout"));
+			this.hideEmptySwimLanes =
+				getKanbanViewConfigOption(this.config, "hideEmptySwimLanes") === true;
+			this.cardLayout = normalizeKanbanCardLayout(
+				getKanbanViewConfigOption(this.config, "cardLayout")
+			);
+			this.showHermesArchivedTasks =
+				getKanbanViewConfigOption(this.config, "showHermesArchivedTasks") === true;
 
 			// Read enableSearch toggle (default: false for backward compatibility)
-			const enableSearchValue = this.config.get("enableSearch");
+			const enableSearchValue = getKanbanViewConfigOption(this.config, "enableSearch");
 			this.enableSearch = (enableSearchValue as boolean) ?? false;
-			const expandedRelationshipFilterModeValue = this.config.get(
+			const expandedRelationshipFilterModeValue = getKanbanViewConfigOption(
+				this.config,
 				"expandedRelationshipFilterMode"
 			);
 			this.expandedRelationshipFilterMode = normalizeExpandedRelationshipFilterMode(
@@ -549,12 +684,22 @@ export class KanbanView extends BasesViewBase {
 	async render(): Promise<void> {
 		if (!this.boardEl || !this.rootElement) return;
 		if (!this.data?.data) return;
+		const renderDebugId = ++this.renderDebugSequence;
+		const renderStartedAt = Date.now();
+		const boardChildrenBefore = this.boardEl.childElementCount;
+		const cardsBefore = this.boardEl.querySelectorAll(".kanban-view__card-wrapper").length;
+		const scrollersBefore = this.columnScrollers.size;
 
 		this.debugLog("RENDER-START", {
+			renderDebugId,
+			mode: "full",
 			activeDropCount: this.activeDropCount,
 			suppressRenderRemaining: Math.max(0, this.suppressRenderUntil - Date.now()),
 			draggedTaskPath: this.draggedTaskPath?.split("/").pop() || null,
 			currentTaskElementsCount: this.currentTaskElements.size,
+			boardChildrenBefore,
+			cardsBefore,
+			scrollersBefore,
 		});
 
 		// Always re-read view options to catch config changes (e.g., toggling consolidateStatusIcon)
@@ -573,17 +718,30 @@ export class KanbanView extends BasesViewBase {
 			// Compute formulas before reading formula-based properties (swimlanes, etc.)
 			computeBasesFormulas(this.data, dataItems);
 
+			const pathToProps = buildBasesPathProperties(dataItems);
 			const taskNotes = await identifyTaskNotesFromBasesData(dataItems, this.plugin);
+			this.mergeBasesPropertiesIntoTaskInfo(taskNotes, pathToProps);
+
+			const archivedFilteredTasks = filterKanbanTasksByHermesArchivedVisibility(
+				taskNotes,
+				this.showHermesArchivedTasks
+			);
 
 			// Apply search filter
-			const filteredTasks = this.applySearchFilter(taskNotes);
+			const filteredTasks = this.applySearchFilter(archivedFilteredTasks);
 			this.setExpandedRelationshipTaskScope(filteredTasks);
 			const renderTasks = this.getTopLevelRenderTasks(filteredTasks);
-			const candidateTasks = this.getTopLevelRenderTasks(taskNotes);
+			const candidateTasks = this.getTopLevelRenderTasks(archivedFilteredTasks);
 			this.setCurrentVisibleTaskPaths(renderTasks);
 
 			// Clear board and cleanup scrollers
 			this.destroyColumnScrollers();
+			this.debugLog("FULL-BOARD-REBUILD", {
+				renderDebugId,
+				boardChildrenBefore,
+				cardsBefore,
+				destroyedScrollerCount: scrollersBefore,
+			});
 			this.boardEl.empty();
 			this.sortScopeTaskPaths.clear();
 			this.sortScopeCandidateTaskPaths.clear();
@@ -597,9 +755,6 @@ export class KanbanView extends BasesViewBase {
 				}
 				return;
 			}
-
-			// Build path -> props map for dynamic property access
-			const pathToProps = buildBasesPathProperties(this.dataAdapter.extractDataItems());
 
 			// Determine groupBy property ID
 			const groupByPropertyId = this.getGroupByPropertyId();
@@ -616,6 +771,7 @@ export class KanbanView extends BasesViewBase {
 
 			// Render swimlanes if configured
 			if (this.swimLanePropertyId) {
+				this.clearFlatRenderSnapshot();
 				await this.renderWithSwimLanes(
 					groups,
 					renderTasks,
@@ -625,8 +781,25 @@ export class KanbanView extends BasesViewBase {
 					groupByPropertyId
 				);
 			} else {
-				await this.renderFlat(groups, allGroups);
+				const state = this.buildFlatRenderState(
+					taskNotes,
+					filteredTasks,
+					groups,
+					allGroups,
+					groupByPropertyId
+				);
+				await this.renderFlat(state);
+				this.captureFlatRenderSnapshot(state);
 			}
+			this.debugLog("RENDER-END", {
+				renderDebugId,
+				mode: "full",
+				elapsedMs: Date.now() - renderStartedAt,
+				columnsAfter: this.boardEl?.querySelectorAll(".kanban-view__column").length ?? 0,
+				cardsAfter: this.boardEl?.querySelectorAll(".kanban-view__card-wrapper").length ?? 0,
+				scrollersAfter: this.columnScrollers.size,
+			});
+			this.updateSelectionVisuals();
 		} catch (error: unknown) {
 			tasknotesLogger.error("[TaskNotes][KanbanView] Error rendering:", {
 				category: "internal",
@@ -635,6 +808,429 @@ export class KanbanView extends BasesViewBase {
 			});
 			this.renderError(error instanceof Error ? error : new Error(String(error)));
 		}
+	}
+
+	private async renderFromDataUpdate(savedState: unknown): Promise<void> {
+		try {
+			const renderDebugId = ++this.renderDebugSequence;
+			const renderStartedAt = Date.now();
+			const state = await this.prepareFlatIncrementalRenderState();
+			if (!state) {
+				this.debugLog("INCREMENTAL-RENDER: unavailable; fallback to full render", {
+					renderDebugId,
+					reason: this.swimLanePropertyId ? "swimlanes-enabled" : "missing-flat-state",
+				});
+				await this.render();
+				this.setEphemeralState(savedState);
+				return;
+			}
+
+			const previous = this.lastFlatRenderSnapshot;
+			const plan = planKanbanIncrementalUpdate({
+				previousStructuralSignature: previous?.structuralSignature ?? null,
+				nextStructuralSignature: state.structuralSignature,
+				previousScopes: previous?.scopes ?? [],
+				nextScopes: state.scopes,
+			});
+			const signatureDiff = this.getFlatRenderSignatureDiff(state);
+			this.debugLog("INCREMENTAL-RENDER: plan", {
+				renderDebugId,
+				plan: plan.kind,
+				reason: plan.kind === "full-render" ? plan.reason : null,
+				columns: state.orderedKeys.length,
+				cards: state.filteredTasks.length,
+				...signatureDiff,
+			});
+
+			if (plan.kind === "full-render") {
+				this.debugLog("INCREMENTAL-RENDER: fallback to full render", {
+					renderDebugId,
+					reason: plan.reason,
+				});
+				await this.render();
+				this.setEphemeralState(savedState);
+				return;
+			}
+
+			if (this.isFlatRenderNoOp(state, signatureDiff)) {
+				this.applyFlatRenderStateCaches(state);
+				this.debugLog("INCREMENTAL-RENDER: no-op skipped", {
+					renderDebugId,
+					elapsedMs: Date.now() - renderStartedAt,
+					...signatureDiff,
+				});
+				return;
+			}
+
+			const incrementalStats = this.createIncrementalDebugStats();
+			if (!this.applyFlatIncrementalUpdate(state, incrementalStats)) {
+				this.debugLog("INCREMENTAL-RENDER: reconcile failed; fallback to full render", {
+					renderDebugId,
+					...incrementalStats,
+				});
+				await this.render();
+				this.setEphemeralState(savedState);
+				return;
+			}
+
+			this.captureFlatRenderSnapshot(state);
+			this.setEphemeralState(savedState);
+			this.debugLog("INCREMENTAL-RENDER: complete", {
+				renderDebugId,
+				elapsedMs: Date.now() - renderStartedAt,
+				...incrementalStats,
+				...signatureDiff,
+			});
+		} catch (error) {
+			tasknotesLogger.error(`[TaskNotes][${this.type}] Render error:`, {
+				category: "internal",
+				operation: "render-kanban-view",
+				error,
+			});
+			this.renderError(error as Error);
+		}
+	}
+
+	private async prepareFlatIncrementalRenderState(): Promise<KanbanFlatRenderState | null> {
+		if (!this.boardEl || !this.rootElement) return null;
+		if (!this.data?.data) return null;
+
+		// Re-read options before planning. Any structural option drift is encoded in
+		// the structural signature so the planner can safely choose full render.
+		if (this.config) {
+			this.readViewOptions();
+		}
+		if (this.rootElement) {
+			this.setupSearch(this.rootElement);
+		}
+
+		const dataItems = this.dataAdapter.extractDataItems();
+		computeBasesFormulas(this.data, dataItems);
+		const pathToProps = buildBasesPathProperties(dataItems);
+		const taskNotes = await identifyTaskNotesFromBasesData(dataItems, this.plugin);
+		this.mergeBasesPropertiesIntoTaskInfo(taskNotes, pathToProps);
+		const archivedFilteredTasks = filterKanbanTasksByHermesArchivedVisibility(
+			taskNotes,
+			this.showHermesArchivedTasks
+		);
+		const filteredTasks = this.applySearchFilter(archivedFilteredTasks);
+		this.setCurrentVisibleTaskPaths(filteredTasks);
+
+		if (filteredTasks.length === 0 || this.swimLanePropertyId) {
+			this.clearFlatRenderSnapshot();
+			return null;
+		}
+
+		const groupByPropertyId = this.getGroupByPropertyId();
+		if (!groupByPropertyId) {
+			this.clearFlatRenderSnapshot();
+			return null;
+		}
+
+		const groups = this.groupTasks(filteredTasks, groupByPropertyId, pathToProps);
+		const allGroups = this.groupTasks(taskNotes, groupByPropertyId, pathToProps);
+		return this.buildFlatRenderState(taskNotes, filteredTasks, groups, allGroups, groupByPropertyId);
+	}
+
+	private mergeBasesPropertiesIntoTaskInfo(
+		tasks: TaskInfo[],
+		pathToProps: Map<string, Record<string, unknown>>
+	): void {
+		for (const task of tasks) {
+			const props = pathToProps.get(task.path);
+			if (!props) {
+				continue;
+			}
+
+			task.customProperties = {
+				...(task.customProperties ?? {}),
+				...props,
+			};
+		}
+	}
+
+	private buildFlatRenderState(
+		taskNotes: TaskInfo[],
+		filteredTasks: TaskInfo[],
+		groups: Map<string, TaskInfo[]>,
+		allGroups: Map<string, TaskInfo[]>,
+		groupByPropertyId: string
+	): KanbanFlatRenderState {
+		const columnKeys = Array.from(groups.keys());
+		const orderedKeys = this.applyColumnOrder(groupByPropertyId, columnKeys).filter((groupKey) =>
+			shouldRenderKanbanColumn(
+				this.hideEmptyColumns,
+				groupKey,
+				groups.get(groupKey) || [],
+				this.pinnedColumns
+			)
+		);
+		const visibleProperties = this.getVisibleProperties();
+		const cardOptions = this.getCardOptions();
+		const cardRenderSignature = stringifyUnknown({ visibleProperties, cardOptions });
+		const scopes = orderedKeys.map((groupKey) => {
+			const tasks = groups.get(groupKey) || [];
+			return {
+				key: this.getSortScopeKey(groupKey),
+				paths: tasks.map((task) => task.path),
+				usesVirtualScrolling: tasks.length >= this.VIRTUAL_SCROLL_THRESHOLD,
+			};
+		});
+		const structuralSignature = stringifyUnknown({
+			groupByPropertyId,
+			orderedKeys,
+			columnWidth: this.columnWidth,
+			hideEmptyColumns: this.hideEmptyColumns,
+			pinnedColumns: this.pinnedColumns,
+			wipLimits: this.wipLimits,
+			consolidateStatusIcon: this.consolidateStatusIcon,
+			showHermesArchivedTasks: this.showHermesArchivedTasks,
+			cardRenderSignature,
+		});
+
+		return {
+			taskNotes,
+			filteredTasks,
+			groups,
+			allGroups,
+			groupByPropertyId,
+			orderedKeys,
+			visibleProperties,
+			cardOptions,
+			cardRenderSignature,
+			structuralSignature,
+			scopes,
+		};
+	}
+
+	private applyFlatRenderStateCaches(state: KanbanFlatRenderState): void {
+		this.sortScopeTaskPaths.clear();
+		for (const scope of state.scopes) {
+			this.sortScopeTaskPaths.set(scope.key, [...scope.paths]);
+		}
+		this.setSortScopeCandidatePaths(
+			Array.from(state.allGroups.entries()).map(([groupKey, tasks]) => [
+				this.getSortScopeKey(groupKey),
+				tasks.map((task) => task.path),
+			])
+		);
+		this.setCurrentVisibleTaskPathOrder(state.filteredTasks.map((task) => task.path));
+	}
+
+	private applyFlatIncrementalUpdate(
+		state: KanbanFlatRenderState,
+		debugStats: KanbanIncrementalDebugStats = this.createIncrementalDebugStats()
+	): boolean {
+		if (!this.boardEl) return false;
+		this.applyFlatRenderStateCaches(state);
+		this.boardEl.style.setProperty("--kanban-column-width", `${this.columnWidth}px`);
+
+		const nextVisiblePaths = new Set(state.filteredTasks.map((task) => task.path));
+		for (const [path, element] of Array.from(this.currentTaskElements.entries())) {
+			if (!nextVisiblePaths.has(path)) {
+				element.remove();
+				this.currentTaskElements.delete(path);
+				debugStats.removedCards += 1;
+			}
+		}
+		for (const path of Array.from(this.lastTaskSignatures.keys())) {
+			if (!nextVisiblePaths.has(path)) {
+				this.lastTaskSignatures.delete(path);
+			}
+		}
+
+		for (const groupKey of state.orderedKeys) {
+			const tasks = state.groups.get(groupKey) || [];
+			const container = this.getTaskContainerForScope(groupKey, null);
+			const scroller = this.columnScrollers.get(this.getColumnScrollerKey(groupKey, null));
+			if (!container && !scroller) {
+				return false;
+			}
+
+			if (scroller) {
+				scroller.updateItems(tasks);
+				debugStats.virtualScrollerUpdates += 1;
+				for (const task of tasks) {
+					this.taskInfoCache.set(task.path, task);
+					this.lastTaskSignatures.set(task.path, this.buildTaskRenderSignature(task, state));
+				}
+				this.updateCountDisplaysForScope(groupKey, null);
+				this.updateScopeSelectionCheckboxPaths(
+					groupKey,
+					null,
+					tasks.map((task) => task.path)
+				);
+				continue;
+			}
+
+			if (!container) {
+				return false;
+			}
+			this.reconcileNormalFlatScope(container, groupKey, tasks, state, debugStats);
+			this.updateScopeEmptyHint(groupKey, null);
+			this.updateCountDisplaysForScope(groupKey, null);
+			this.updateScopeSelectionCheckboxPaths(
+				groupKey,
+				null,
+				tasks.map((task) => task.path)
+			);
+		}
+
+		this.lastCardRenderSignature = state.cardRenderSignature;
+		this.updateSelectionVisuals();
+		return true;
+	}
+
+	private reconcileNormalFlatScope(
+		container: HTMLElement,
+		groupKey: string,
+		tasks: TaskInfo[],
+		state: KanbanFlatRenderState,
+		debugStats: KanbanIncrementalDebugStats = this.createIncrementalDebugStats()
+	): void {
+		this.removeEmptyCellHint(container);
+		const nextPaths = new Set(tasks.map((task) => task.path));
+		for (const wrapper of Array.from(
+			container.querySelectorAll<HTMLElement>(".kanban-view__card-wrapper")
+		)) {
+			const path = wrapper.getAttribute("data-task-path");
+			if (!path || !nextPaths.has(path)) {
+				wrapper.remove();
+				debugStats.removedCards += 1;
+			}
+		}
+
+		for (const [index, task] of tasks.entries()) {
+			const nextSignature = this.buildTaskRenderSignature(task, state);
+			const currentSignature = this.lastTaskSignatures.get(task.path);
+			let wrapper = this.currentTaskElements.get(task.path);
+			if (!wrapper || currentSignature !== nextSignature) {
+				const previousWrapper = wrapper;
+				wrapper = this.createRenderedTaskWrapper(task);
+				if (previousWrapper?.parentElement) {
+					previousWrapper.replaceWith(wrapper);
+				}
+				this.currentTaskElements.set(task.path, wrapper);
+				debugStats.replacedCards += 1;
+			} else {
+				debugStats.reusedCards += 1;
+			}
+
+			const currentChildAtIndex = container.children.item(index);
+			if (currentChildAtIndex !== wrapper) {
+				container.insertBefore(wrapper, currentChildAtIndex);
+			}
+			this.taskInfoCache.set(task.path, task);
+			this.lastTaskSignatures.set(task.path, nextSignature);
+		}
+
+		if (tasks.length === 0) {
+			this.renderEmptyCellHint(container, groupKey);
+		}
+	}
+
+	private buildTaskRenderSignature(task: TaskInfo, state: KanbanFlatRenderState): string {
+		return `${state.cardRenderSignature}:${stringifyUnknown(task)}`;
+	}
+
+	private createIncrementalDebugStats(): KanbanIncrementalDebugStats {
+		return {
+			removedCards: 0,
+			reusedCards: 0,
+			replacedCards: 0,
+			virtualScrollerUpdates: 0,
+		};
+	}
+
+	private getFlatRenderSignatureDiff(state: KanbanFlatRenderState): KanbanSignatureDiff {
+		const nextPaths = new Set(state.filteredTasks.map((task) => task.path));
+		let addedCards = 0;
+		let changedCards = 0;
+		let unchangedCards = 0;
+
+		for (const task of state.filteredTasks) {
+			const previousSignature = this.lastTaskSignatures.get(task.path);
+			if (previousSignature === undefined) {
+				addedCards += 1;
+			} else if (previousSignature === this.buildTaskRenderSignature(task, state)) {
+				unchangedCards += 1;
+			} else {
+				changedCards += 1;
+			}
+		}
+
+		let removedCards = 0;
+		for (const previousPath of this.lastTaskSignatures.keys()) {
+			if (!nextPaths.has(previousPath)) {
+				removedCards += 1;
+			}
+		}
+
+		return { addedCards, removedCards, changedCards, unchangedCards };
+	}
+
+	private isFlatRenderNoOp(
+		state: KanbanFlatRenderState,
+		signatureDiff: KanbanSignatureDiff
+	): boolean {
+		if (!this.lastFlatRenderSnapshot) {
+			return false;
+		}
+		if (
+			signatureDiff.addedCards !== 0 ||
+			signatureDiff.removedCards !== 0 ||
+			signatureDiff.changedCards !== 0
+		) {
+			return false;
+		}
+		if (this.lastFlatRenderSnapshot.structuralSignature !== state.structuralSignature) {
+			return false;
+		}
+		return this.haveSameScopePaths(this.lastFlatRenderSnapshot.scopes, state.scopes);
+	}
+
+	private haveSameScopePaths(
+		previousScopes: readonly KanbanIncrementalScopeSnapshot[],
+		nextScopes: readonly KanbanIncrementalScopeSnapshot[]
+	): boolean {
+		if (previousScopes.length !== nextScopes.length) {
+			return false;
+		}
+		for (let scopeIndex = 0; scopeIndex < nextScopes.length; scopeIndex += 1) {
+			const previousScope = previousScopes[scopeIndex];
+			const nextScope = nextScopes[scopeIndex];
+			if (previousScope.key !== nextScope.key) {
+				return false;
+			}
+			if (previousScope.paths.length !== nextScope.paths.length) {
+				return false;
+			}
+			for (let pathIndex = 0; pathIndex < nextScope.paths.length; pathIndex += 1) {
+				if (previousScope.paths[pathIndex] !== nextScope.paths[pathIndex]) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	private captureFlatRenderSnapshot(state: KanbanFlatRenderState): void {
+		this.lastFlatRenderSnapshot = {
+			structuralSignature: state.structuralSignature,
+			scopes: state.scopes.map((scope) => ({ ...scope, paths: [...scope.paths] })),
+		};
+		this.lastCardRenderSignature = state.cardRenderSignature;
+		this.lastTaskSignatures.clear();
+		for (const task of state.filteredTasks) {
+			this.taskInfoCache.set(task.path, task);
+			this.lastTaskSignatures.set(task.path, this.buildTaskRenderSignature(task, state));
+		}
+	}
+
+	private clearFlatRenderSnapshot(): void {
+		this.lastFlatRenderSnapshot = null;
+		this.lastTaskSignatures.clear();
+		this.lastCardRenderSignature = "";
 	}
 
 	private getGroupByPropertyId(): string | null {
@@ -667,6 +1263,11 @@ export class KanbanView extends BasesViewBase {
 		}
 
 		return null;
+	}
+
+	private isHermesRunSwimlaneView(): boolean {
+		const propertyId = stringifyUnknown(this.swimLanePropertyId).trim().toLowerCase();
+		return propertyId === "hermesrootrunid" || propertyId === "hermes_run_id" || propertyId === "run_id";
 	}
 
 	private getSortScopeKey(groupKey: string, swimLaneKey: string | null = null): string {
@@ -1035,6 +1636,9 @@ export class KanbanView extends BasesViewBase {
 	}
 
 	private createRenderedTaskWrapper(task: TaskInfo): HTMLElement {
+		this.debugLog("CARD-RENDER", {
+			task: task.path.split("/").pop(),
+		});
 		const doc = this.containerEl.ownerDocument;
 		const cardWrapper = doc.createElement("div");
 		cardWrapper.className = "kanban-view__card-wrapper";
@@ -1131,7 +1735,7 @@ export class KanbanView extends BasesViewBase {
 	private updateCountDisplaysForScope(groupKey: string, swimLaneKey: string | null): void {
 		this.updateColumnCountDisplay(groupKey);
 		if (swimLaneKey !== null) {
-			this.updateSwimLaneCountDisplay(swimLaneKey);
+			this.updateSwimLaneCountDisplay(groupKey, swimLaneKey);
 		}
 	}
 
@@ -1165,26 +1769,18 @@ export class KanbanView extends BasesViewBase {
 		return count;
 	}
 
-	private updateSwimLaneCountDisplay(swimLaneKey: string): void {
+	private updateSwimLaneCountDisplay(groupKey: string, swimLaneKey: string): void {
+		const groupSelector = escapeAttributeSelectorValue(groupKey);
 		const swimLaneSelector = escapeAttributeSelectorValue(swimLaneKey);
-		const row = this.boardEl
-			?.querySelector<HTMLElement>(
-				`.kanban-view__swimlane-column[data-swimlane="${swimLaneSelector}"]`
-			)
-			?.closest<HTMLElement>(".kanban-view__swimlane-row");
-		const countEl = row?.querySelector<HTMLElement>(".kanban-view__swimlane-count");
-		if (!countEl) {
+		const cell = this.boardEl?.querySelector<HTMLElement>(
+			`.kanban-view__swimlane-column[data-column="${groupSelector}"][data-swimlane="${swimLaneSelector}"]`
+		);
+		const countEl = cell?.querySelector<HTMLElement>(".kanban-view__swimlane-count");
+		if (!countEl || countEl.classList.contains("kanban-view__run-lane-counts")) {
 			return;
 		}
 
-		const prefix = `${swimLaneKey}::`;
-		let count = 0;
-		for (const [scopeKey, paths] of this.sortScopeTaskPaths) {
-			if (scopeKey.startsWith(prefix)) {
-				count += paths.length;
-			}
-		}
-		countEl.textContent = `${count}`;
+		countEl.textContent = `${this.sortScopeTaskPaths.get(this.getSortScopeKey(groupKey, swimLaneKey))?.length ?? 0}`;
 	}
 
 	private async confirmLargeReorder(
@@ -1391,63 +1987,27 @@ export class KanbanView extends BasesViewBase {
 		setTooltip(element, "Status is not defined in TaskNotes settings");
 	}
 
-	private async renderFlat(
-		groups: Map<string, TaskInfo[]>,
-		allGroups: Map<string, TaskInfo[]>
-	): Promise<void> {
+	private async renderFlat(state: KanbanFlatRenderState): Promise<void> {
 		if (!this.boardEl) return;
-		this.sortScopeTaskPaths.clear();
-		this.setSortScopeCandidatePaths(
-			Array.from(allGroups.entries()).map(([groupKey, tasks]) => [
-				this.getSortScopeKey(groupKey),
-				tasks.map((task) => task.path),
-			])
-		);
+		this.applyFlatRenderStateCaches(state);
 
 		// Set CSS variable for column width (allows responsive override)
 		this.boardEl.style.setProperty("--kanban-column-width", `${this.columnWidth}px`);
 
-		// Render columns without swimlanes
-		const visibleProperties = this.getVisibleProperties();
-
-		// Tasks are re-sorted by sort_order in groupTasks() when configured,
-		// ensuring correct order even if Bases' internal data hasn't refreshed yet.
-
-		// Get groupBy property ID
-		const groupByPropertyId = this.getGroupByPropertyId();
-
-		// Get column keys and apply ordering
-		const columnKeys = Array.from(groups.keys());
-		const orderedKeys = groupByPropertyId
-			? this.applyColumnOrder(groupByPropertyId, columnKeys)
-			: columnKeys;
-
-		for (const groupKey of orderedKeys) {
-			const tasks = groups.get(groupKey) || [];
-
-			// Filter empty columns if option enabled
-			if (
-				!shouldRenderKanbanColumn(
-					this.hideEmptyColumns,
-					groupKey,
-					tasks,
-					this.pinnedColumns
-				)
-			) {
-				continue;
-			}
-
-			this.sortScopeTaskPaths.set(
-				this.getSortScopeKey(groupKey),
-				tasks.map((task) => task.path)
-			);
+		for (const groupKey of state.orderedKeys) {
+			const tasks = state.groups.get(groupKey) || [];
+			this.debugLog("COLUMN-REBUILD", {
+				groupKey,
+				cards: tasks.length,
+				usesVirtualScrolling: tasks.length >= this.VIRTUAL_SCROLL_THRESHOLD,
+			});
 
 			// Create column
 			const column = await this.createColumn(
 				groupKey,
 				tasks,
-				visibleProperties,
-				groupByPropertyId
+				state.visibleProperties,
+				state.groupByPropertyId
 			);
 			if (this.boardEl) {
 				this.boardEl.appendChild(column);
@@ -1507,6 +2067,232 @@ export class KanbanView extends BasesViewBase {
 		);
 	}
 
+	private isHermesRunSwimLaneView(): boolean {
+		return stripPropertyPrefix(this.swimLanePropertyId ?? "") === HERMES_ROOT_RUN_ID_FRONTMATTER;
+	}
+
+	private normalizeHermesRunLaneId(swimLaneKey: string): string {
+		if (swimLaneKey === "None" || swimLaneKey === "" || swimLaneKey === "__no_run__") {
+			return HERMES_NO_RUN_LANE_ID;
+		}
+		if (swimLaneKey === "__unknown_run__" || swimLaneKey === "Unknown run") {
+			return HERMES_UNKNOWN_RUN_LANE_ID;
+		}
+		return swimLaneKey;
+	}
+
+	private getFirstHermesRunLaneValue(
+		columns: Map<string, TaskInfo[]>,
+		pathToProps: Map<string, Record<string, unknown>>,
+		property: string
+	): string | null {
+		for (const tasks of columns.values()) {
+			for (const task of tasks) {
+				const value = pathToProps.get(task.path)?.[property];
+				const normalized = stringifyUnknown(value).trim();
+				if (normalized) {
+					return normalized;
+				}
+			}
+		}
+		return null;
+	}
+
+	private createHermesRunLaneLike(
+		swimLaneKey: string,
+		columns: Map<string, TaskInfo[]>,
+		pathToProps: Map<string, Record<string, unknown>>
+	): HermesRunLaneLike {
+		const id = this.normalizeHermesRunLaneId(swimLaneKey);
+		const total = Array.from(columns.values()).reduce((sum, tasks) => sum + tasks.length, 0);
+		const done = columns.get("done")?.length ?? 0;
+		const running = columns.get("running")?.length ?? 0;
+		const blocked = columns.get("blocked")?.length ?? 0;
+		const archived = columns.get("archived")?.length ?? 0;
+		const active = Math.max(0, total - done - archived);
+		const titleFromTasks = this.getFirstHermesRunLaneValue(
+			columns,
+			pathToProps,
+			HERMES_RUN_TITLE_FRONTMATTER
+		);
+		const runTypeFromTasks = this.getFirstHermesRunLaneValue(
+			columns,
+			pathToProps,
+			HERMES_RUN_TYPE_FRONTMATTER
+		);
+		const runIdFromTasks =
+			this.getFirstHermesRunLaneValue(columns, pathToProps, HERMES_ROOT_RUN_ID_FRONTMATTER) ??
+			this.getFirstHermesRunLaneValue(columns, pathToProps, HERMES_RUN_ID_FRONTMATTER);
+
+		return {
+			id,
+			title:
+				id === HERMES_NO_RUN_LANE_ID
+					? "No run — tasks not assigned to a logical run"
+					: id === HERMES_UNKNOWN_RUN_LANE_ID
+						? "Unknown run — referenced run metadata is missing or not visible"
+						: (titleFromTasks ?? runIdFromTasks ?? swimLaneKey),
+			run_type:
+				id === HERMES_NO_RUN_LANE_ID
+					? "metadata"
+					: id === HERMES_UNKNOWN_RUN_LANE_ID
+						? "warning"
+						: (runTypeFromTasks ?? "unknown"),
+			counts: { total, done, active, running, blocked, archived },
+			columns: Array.from(columns.entries()).map(([name, tasks]) => ({
+				name,
+				status: name,
+				count: tasks.length,
+			})),
+		};
+	}
+
+	private getHermesRunLaneCollapseStorageKey(laneId: string): string {
+		const settings = this.plugin.settings as unknown as Record<string, unknown>;
+		const profile = stringifyUnknown(settings.hermesProfile ?? settings.hermesProfileName ?? "default");
+		const board = stringifyUnknown(
+			this.config?.get?.("board") ??
+				this.config?.get?.("project") ??
+				settings.hermesDefaultBoard ??
+				settings.hermesBoard ??
+				"default"
+		);
+		const view = stringifyUnknown(this.basesController.viewName ?? this.config?.get?.("name") ?? "default");
+		const tenant = stringifyUnknown(this.config?.get?.("tenant") ?? settings.hermesTenant ?? "none");
+		const runScope = stringifyUnknown(this.config?.get?.("runScope") ?? this.config?.get?.("run_scope") ?? "root");
+		return buildHermesRunLaneCollapseStorageKey({
+			profile,
+			board,
+			view,
+			tenant,
+			groupBy: "run",
+			runScope,
+			laneId,
+		});
+	}
+
+	private getHermesRunLanePersistedExpanded(laneId: string): boolean | null {
+		try {
+			const value = this.containerEl.ownerDocument.defaultView?.localStorage?.getItem(
+				this.getHermesRunLaneCollapseStorageKey(laneId)
+			);
+			if (value === "expanded") return true;
+			if (value === "collapsed") return false;
+		} catch {
+			// Ignore unavailable localStorage; default/ephemeral state still works.
+		}
+		return null;
+	}
+
+	private setHermesRunLanePersistedExpanded(laneId: string, expanded: boolean): void {
+		try {
+			this.containerEl.ownerDocument.defaultView?.localStorage?.setItem(
+				this.getHermesRunLaneCollapseStorageKey(laneId),
+				expanded ? "expanded" : "collapsed"
+			);
+		} catch {
+			// Ignore unavailable localStorage; ephemeral override is already updated.
+		}
+	}
+
+	private isHermesRunLaneExpanded(lane: HermesRunLaneLike): boolean {
+		const id = lane.id ?? "";
+		return (
+			this.hermesRunLaneExpandedOverrides.get(id) ??
+			this.getHermesRunLanePersistedExpanded(id) ??
+			getDefaultHermesRunLaneExpanded(lane)
+		);
+	}
+
+	private renderHermesRunLaneHeader(
+		labelCell: HTMLElement,
+		lane: HermesRunLaneLike,
+		expanded: boolean
+	): void {
+		labelCell.addClass("kanban-view__swimlane-label--hermes-run");
+		const id = lane.id ?? "";
+		const accessibleCopy = getHermesRunLaneAccessibleCopy(lane);
+		labelCell.setAttribute("aria-label", accessibleCopy);
+
+		const toggle = labelCell.createEl("button", {
+			cls: "kanban-view__run-lane-toggle",
+			attr: {
+				type: "button",
+				"aria-expanded": expanded ? "true" : "false",
+				"aria-label": `${expanded ? "Collapse" : "Expand"} ${getHermesRunLaneDisplayTitle(lane)}`,
+			},
+		});
+		const toggleIcon = toggle.createSpan({ cls: "kanban-view__run-lane-toggle-icon" });
+		setIcon(toggleIcon, expanded ? "chevron-down" : "chevron-right");
+		toggle.createSpan({
+			cls: "kanban-view__swimlane-title kanban-view__run-lane-title",
+			text: getHermesRunLaneDisplayTitle(lane),
+		});
+		toggle.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			const nextExpanded = !expanded;
+			this.hermesRunLaneExpandedOverrides.set(id, nextExpanded);
+			this.setHermesRunLanePersistedExpanded(id, nextExpanded);
+			void this.render();
+		});
+
+		const badges = labelCell.createDiv({ cls: "kanban-view__run-lane-badges" });
+		badges.createSpan({
+			cls: "kanban-view__run-lane-badge kanban-view__run-lane-badge--type",
+			text: lane.run_type ?? lane.runType ?? "unknown",
+		});
+		badges.createSpan({
+			cls: "kanban-view__run-lane-badge kanban-view__run-lane-badge--status",
+			text: getHermesRunLaneStatus(lane),
+		});
+
+		const counts = lane.counts ?? {};
+		labelCell.createDiv({
+			cls: "kanban-view__swimlane-count kanban-view__run-lane-counts",
+			text: `${counts.done ?? 0}/${counts.total ?? 0} done · ${counts.active ?? 0} active · ${counts.running ?? 0} running · ${counts.blocked ?? 0} blocked`,
+		});
+
+		if (id === HERMES_NO_RUN_LANE_ID || id === HERMES_UNKNOWN_RUN_LANE_ID) {
+			labelCell.createDiv({
+				cls: `kanban-view__run-lane-copy ${id === HERMES_UNKNOWN_RUN_LANE_ID ? "kanban-view__run-lane-copy--warning" : ""}`,
+				text: accessibleCopy,
+			});
+		}
+
+		if (id && id !== HERMES_NO_RUN_LANE_ID && id !== HERMES_UNKNOWN_RUN_LANE_ID) {
+			const actions = labelCell.createDiv({ cls: "kanban-view__run-lane-actions" });
+			const copyButton = actions.createEl("button", {
+				cls: "kanban-view__run-lane-action clickable-icon",
+				attr: { type: "button", "aria-label": `Copy run id ${id}` },
+			});
+			setIcon(copyButton, "copy");
+			setTooltip(copyButton, `Copy run id ${id}`);
+			copyButton.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				void navigator.clipboard?.writeText(id);
+			});
+		}
+	}
+
+	private renderCollapsedHermesRunLaneSummaryCell(
+		cell: HTMLElement,
+		columns: Map<string, TaskInfo[]>,
+		columnKey: string,
+		swimLaneKey: string
+	): void {
+		this.sortScopeTaskPaths.set(
+			this.getSortScopeKey(columnKey, swimLaneKey),
+			(columns.get(columnKey) ?? []).map((task) => task.path)
+		);
+		cell.addClass("kanban-view__swimlane-column--collapsed-summary");
+		cell.createSpan({
+			cls: "kanban-view__run-lane-summary-chip",
+			text: `${columnKey}: ${columns.get(columnKey)?.length ?? 0}`,
+		});
+	}
+
 	private async renderSwimLaneTable(
 		swimLanes: Map<string, Map<string, TaskInfo[]>>,
 		columnKeys: string[],
@@ -1515,102 +2301,87 @@ export class KanbanView extends BasesViewBase {
 	): Promise<void> {
 		if (!this.boardEl) return;
 
-		// Set CSS variables for column width and swimlane max height
+		// Set CSS variables for column width
 		this.boardEl.style.setProperty("--kanban-column-width", `${this.columnWidth}px`);
-		this.boardEl.style.setProperty(
-			"--kanban-swimlane-max-height",
-			`${this.maxSwimlaneHeight}px`
-		);
 
 		// Add swimlanes class to board
 		this.boardEl.addClass("kanban-view__board--swimlanes");
 
-		// Create header row
-		const headerRow = this.boardEl.createEl("div", {
-			cls: "kanban-view__swimlane-row kanban-view__swimlane-row--header",
+		const columnTaskCounts = getKanbanColumnTaskCounts(swimLanes, columnKeys);
+		const visibleColumnKeys = columnKeys.filter((columnKey) => {
+			const taskCount = columnTaskCounts.get(columnKey) ?? 0;
+			return !this.hideEmptyColumns || taskCount > 0 || this.pinnedColumns.includes(columnKey);
+		});
+		const visibleProperties = this.getVisibleProperties();
+		const isHermesRunSwimLaneView = this.isHermesRunSwimLaneView();
+		const swimLaneEntries = Array.from(swimLanes.entries()).map(([swimLaneKey, columns]) => {
+			const lane = isHermesRunSwimLaneView
+				? this.createHermesRunLaneLike(swimLaneKey, columns, pathToProps)
+				: null;
+			const expanded = lane ? this.isHermesRunLaneExpanded(lane) : true;
+			return { swimLaneKey, columns, lane, expanded };
 		});
 
-		// Empty corner cell for swimlane label column
-		headerRow.createEl("div", { cls: "kanban-view__swimlane-label" });
-
-		// Column headers
-		const columnTaskCounts = getKanbanColumnTaskCounts(swimLanes, columnKeys);
-		for (const columnKey of columnKeys) {
-			const headerCell = headerRow.createEl("div", {
-				cls: "kanban-view__column-header-cell",
-			});
-			headerCell.setAttribute("draggable", "true");
-			headerCell.setAttribute("data-column-key", columnKey);
+		for (const columnKey of visibleColumnKeys) {
+			const column = this.containerEl.ownerDocument.createElement("div");
+			column.className = "kanban-view__column kanban-view__column--swimlanes";
+			column.style.width = `${this.columnWidth}px`;
+			column.setAttribute("data-group", columnKey);
+			column.setAttribute("data-column", columnKey);
 			const isUnknownStatusColumn = this.isUnknownStatusGroup(columnKey, groupByPropertyId);
 			if (isUnknownStatusColumn) {
-				this.markUnknownStatusColumnHeader(headerCell, columnKey);
+				this.markUnknownStatusColumn(column, columnKey);
 			}
 
-			// Drag handle
-			const dragHandle = headerCell.createSpan({ cls: "kanban-view__drag-handle" });
+			const header = column.createDiv({ cls: "kanban-view__column-header" });
+			header.setAttribute("draggable", "true");
+			header.setAttribute("data-column-key", columnKey);
+			if (isUnknownStatusColumn) {
+				this.markUnknownStatusColumnHeader(header, columnKey);
+			}
+
+			const dragHandle = header.createSpan({ cls: "kanban-view__drag-handle" });
 			dragHandle.setAttribute("aria-hidden", "true");
 			setIcon(dragHandle, "grip-vertical");
+			this.createScopeSelectionCheckbox(
+				header,
+				columnKey,
+				null,
+				this.getColumnTaskPaths(swimLaneEntries, columnKey),
+				`Select all tasks in ${columnKey}`
+			);
 
-			// Status icon (when consolidation enabled and grouped by status)
 			if (this.consolidateStatusIcon && this.isGroupedByStatus()) {
 				const statusConfig = this.plugin.statusManager.getStatusConfig(columnKey);
 				if (statusConfig?.icon) {
-					const iconEl = headerCell.createSpan({ cls: "kanban-view__column-icon" });
+					const iconEl = header.createSpan({ cls: "kanban-view__column-icon" });
 					iconEl.style.color = statusConfig.color;
 					setIcon(iconEl, statusConfig.icon);
 				}
 			}
 
-			const titleContainer = headerCell.createSpan({ cls: "kanban-view__column-title" });
+			const titleContainer = header.createSpan({ cls: "kanban-view__column-title" });
 			this.renderGroupTitleWrapper(titleContainer, columnKey, false, true);
-			this.renderColumnCount(headerCell, columnKey, columnTaskCounts.get(columnKey) ?? 0);
+			this.renderColumnCount(header, columnKey, columnTaskCounts.get(columnKey) ?? 0);
+			this.setupColumnHeaderDragHandlers(header);
 
-			// Setup column header drag handlers for swimlane mode
-			this.setupColumnHeaderDragHandlers(headerCell);
-		}
+			const groupsContainer = column.createDiv({ cls: "kanban-view__swimlane-groups" });
+			let renderedLaneCount = 0;
 
-		// Get visible properties for cards
-		const visibleProperties = this.getVisibleProperties();
-
-		// Note: tasks are already sorted by Bases
-		// No manual sorting needed - Bases provides pre-sorted data
-
-		// Render each swimlane row
-		for (const [swimLaneKey, columns] of swimLanes) {
-			const row = this.boardEl.createEl("div", { cls: "kanban-view__swimlane-row" });
-
-			// Swimlane label cell
-			const labelCell = row.createEl("div", { cls: "kanban-view__swimlane-label" });
-
-			// Add swimlane title and count
-			const titleEl = labelCell.createEl("div", { cls: "kanban-view__swimlane-title" });
-			this.renderGroupTitleWrapper(titleEl, swimLaneKey, true);
-
-			// Count total tasks in this swimlane
-			const totalTasks = Array.from(columns.values()).reduce(
-				(sum, tasks) => sum + tasks.length,
-				0
-			);
-			labelCell.createEl("div", {
-				cls: "kanban-view__swimlane-count",
-				text: `${totalTasks}`,
-			});
-
-			// Render columns in this swimlane
-			for (const columnKey of columnKeys) {
+			for (const { swimLaneKey, columns, lane, expanded } of swimLaneEntries) {
 				const tasks = columns.get(columnKey) || [];
-				const isUnknownStatusColumn = this.isUnknownStatusGroup(
-					columnKey,
-					groupByPropertyId
-				);
 				this.sortScopeTaskPaths.set(
 					this.getSortScopeKey(columnKey, swimLaneKey),
 					tasks.map((task) => task.path)
 				);
 
-				// Create cell
-				const cell = row.createEl("div", {
-					cls: "kanban-view__swimlane-column",
+				if (this.hideEmptySwimLanes && tasks.length === 0) {
+					continue;
+				}
+
+				renderedLaneCount += 1;
+				const cell = groupsContainer.createDiv({
+					cls: `kanban-view__swimlane-column${expanded ? "" : " kanban-view__swimlane-column--collapsed"}`,
 					attr: {
 						"data-column": columnKey,
 						"data-swimlane": swimLaneKey,
@@ -1620,51 +2391,92 @@ export class KanbanView extends BasesViewBase {
 					this.markUnknownStatusColumn(cell, columnKey);
 				}
 
-				// Setup drop handlers for this cell
-				this.setupSwimLaneCellDragDrop(cell, columnKey, swimLaneKey);
+				const laneHeader = cell.createDiv({ cls: "kanban-view__swimlane-section-header" });
+				this.createScopeSelectionCheckbox(
+					laneHeader,
+					columnKey,
+					swimLaneKey,
+					tasks.map((task) => task.path),
+					`Select all tasks in ${columnKey} / ${swimLaneKey}`
+				);
+				if (lane) {
+					cell.setAttribute("data-run-lane-id", lane.id ?? swimLaneKey);
+					cell.setAttribute("aria-label", getHermesRunLaneAccessibleCopy(lane));
+					this.renderHermesRunLaneHeader(laneHeader, lane, expanded);
+				} else {
+					const titleEl = laneHeader.createEl("div", {
+						cls: "kanban-view__swimlane-title",
+					});
+					this.renderGroupTitleWrapper(titleEl, swimLaneKey, true);
+					const actionsEl = laneHeader.createDiv({
+						cls: "kanban-view__swimlane-section-actions",
+					});
+					actionsEl.createEl("div", {
+						cls: "kanban-view__swimlane-count",
+						text: `${tasks.length}`,
+					});
+					this.createSwimLaneHeaderAddTaskButton(
+						actionsEl,
+						groupByPropertyId,
+						columnKey,
+						swimLaneKey
+					);
+				}
 
-				// Create tasks container inside the cell
+				if (!expanded) {
+					this.renderCollapsedHermesRunLaneSummaryCell(
+						cell,
+						columns,
+						columnKey,
+						swimLaneKey
+					);
+					continue;
+				}
+
+				this.setupSwimLaneCellDragDrop(cell, columnKey, swimLaneKey);
 				const tasksContainer = cell.createDiv({ cls: "kanban-view__tasks-container" });
 
-				// Use virtual scrolling for cells with 30+ tasks
-				if (tasks.length >= this.VIRTUAL_SCROLL_THRESHOLD) {
-					await this.createVirtualSwimLaneCell(
-						tasksContainer,
-						`${swimLaneKey}:${columnKey}`,
-						tasks,
-						visibleProperties
+				const cardOptions = this.getCardOptions();
+				for (const task of tasks) {
+					const cardWrapper = tasksContainer.createDiv({
+						cls: "kanban-view__card-wrapper",
+					});
+					cardWrapper.setAttribute("draggable", "true");
+					cardWrapper.setAttribute("data-task-path", task.path);
+
+					const card = createTaskCard(
+						task,
+						this.plugin,
+						visibleProperties,
+						cardOptions
 					);
-				} else {
-					// Render tasks normally for smaller cells
-					const cardOptions = this.getCardOptions();
-					for (const task of tasks) {
-						const cardWrapper = tasksContainer.createDiv({
-							cls: "kanban-view__card-wrapper",
-						});
-						cardWrapper.setAttribute("draggable", "true");
-						cardWrapper.setAttribute("data-task-path", task.path);
 
-						const card = createTaskCard(
-							task,
-							this.plugin,
-							visibleProperties,
-							cardOptions
-						);
+					cardWrapper.appendChild(card);
+					this.currentTaskElements.set(task.path, cardWrapper);
+					this.taskInfoCache.set(task.path, task);
 
-						cardWrapper.appendChild(card);
-						this.currentTaskElements.set(task.path, cardWrapper);
-						this.taskInfoCache.set(task.path, task);
-
-						// Setup card drag handlers
-						this.setupCardDragHandlers(cardWrapper, task);
-					}
+					// Setup card drag handlers
+					this.setupCardDragHandlers(cardWrapper, task);
 				}
 				if (tasks.length === 0) {
 					this.renderEmptyCellHint(tasksContainer, columnKey, swimLaneKey);
 				}
 
-				this.createAddTaskButton(cell, groupByPropertyId, columnKey, swimLaneKey);
 			}
+
+			if (renderedLaneCount === 0) {
+				const emptyCell = groupsContainer.createDiv({
+					cls: "kanban-view__swimlane-column kanban-view__swimlane-column--empty-column",
+					attr: { "data-column": columnKey },
+				});
+				const tasksContainer = emptyCell.createDiv({
+					cls: "kanban-view__tasks-container",
+				});
+				this.renderEmptyCellHint(tasksContainer, columnKey);
+				this.createAddTaskButton(emptyCell, groupByPropertyId, columnKey);
+			}
+
+			this.boardEl.appendChild(column);
 		}
 	}
 
@@ -1697,6 +2509,13 @@ export class KanbanView extends BasesViewBase {
 		const dragHandle = header.createSpan({ cls: "kanban-view__drag-handle" });
 		dragHandle.setAttribute("aria-hidden", "true");
 		setIcon(dragHandle, "grip-vertical");
+		this.createScopeSelectionCheckbox(
+			header,
+			groupKey,
+			null,
+			tasks.map((task) => task.path),
+			`Select all tasks in ${groupKey}`
+		);
 
 		// Status icon (when consolidation enabled and grouped by status)
 		if (this.consolidateStatusIcon && this.isGroupedByStatus()) {
@@ -1757,6 +2576,156 @@ export class KanbanView extends BasesViewBase {
 		}
 	}
 
+	private getColumnTaskPaths(
+		swimLaneEntries: Array<{ columns: Map<string, TaskInfo[]> }>,
+		columnKey: string
+	): string[] {
+		return swimLaneEntries.flatMap(({ columns }) =>
+			(columns.get(columnKey) ?? []).map((task) => task.path)
+		);
+	}
+
+	private createScopeSelectionCheckbox(
+		container: HTMLElement,
+		groupKey: string,
+		swimLaneKey: string | null,
+		taskPaths: string[],
+		label: string
+	): void {
+		const scopeTaskPaths = Array.from(new Set(taskPaths));
+		if (!this.plugin.taskSelectionService || scopeTaskPaths.length === 0) {
+			return;
+		}
+
+		const checkbox = container.ownerDocument.createElement("input");
+		checkbox.type = "checkbox";
+		checkbox.className = "kanban-view__scope-selection-checkbox";
+		checkbox.setAttribute("aria-label", label);
+		checkbox.setAttribute("data-selection-column", groupKey);
+		if (swimLaneKey !== null) {
+			checkbox.setAttribute("data-selection-swimlane", swimLaneKey);
+		}
+		const titleEl = container.querySelector<HTMLElement>(
+			".kanban-view__column-title, .kanban-view__swimlane-title"
+		);
+		container.insertBefore(checkbox, titleEl);
+		setTooltip(checkbox, label);
+		this.scopeSelectionCheckboxPaths.set(checkbox, scopeTaskPaths);
+		this.updateScopeSelectionCheckbox(checkbox);
+
+		const stopPropagation = (event: Event) => {
+			event.stopPropagation();
+		};
+		checkbox.addEventListener("pointerdown", stopPropagation);
+		checkbox.addEventListener("mousedown", stopPropagation);
+		checkbox.addEventListener("click", stopPropagation);
+		checkbox.addEventListener("dragstart", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+		});
+		checkbox.addEventListener("change", (event) => {
+			event.stopPropagation();
+			this.setScopeSelection(
+				this.scopeSelectionCheckboxPaths.get(checkbox) ?? [],
+				checkbox.checked
+			);
+		});
+	}
+
+	private setScopeSelection(taskPaths: string[], selected: boolean): void {
+		const selectionService = this.plugin.taskSelectionService;
+		if (!selectionService) {
+			return;
+		}
+
+		if (selected) {
+			selectionService.selectPaths(taskPaths);
+		} else {
+			selectionService.deselectPaths(taskPaths);
+		}
+
+		this.updateSelectionVisuals();
+		this.rootElement?.focus({ preventScroll: true });
+	}
+
+	protected updateSelectionVisuals(): void {
+		super.updateSelectionVisuals();
+		this.updateScopeSelectionCheckboxes();
+	}
+
+	private updateScopeSelectionCheckboxes(): void {
+		const checkboxes = this.boardEl?.querySelectorAll<HTMLInputElement>(
+			".kanban-view__scope-selection-checkbox"
+		);
+		checkboxes?.forEach((checkbox) => this.updateScopeSelectionCheckbox(checkbox));
+	}
+
+	private updateScopeSelectionCheckbox(checkbox: HTMLInputElement): void {
+		const selectionService = this.plugin.taskSelectionService;
+		const paths = this.scopeSelectionCheckboxPaths.get(checkbox) ?? [];
+		const selectedCount = selectionService
+			? paths.filter((path) => selectionService.isSelected(path)).length
+			: 0;
+		const mixed = selectedCount > 0 && selectedCount < paths.length;
+		checkbox.checked = paths.length > 0 && selectedCount === paths.length;
+		checkbox.indeterminate = mixed;
+		checkbox.disabled = paths.length === 0;
+		checkbox.setAttribute(
+			"aria-checked",
+			mixed ? "mixed" : checkbox.checked ? "true" : "false"
+		);
+	}
+
+	private updateScopeSelectionCheckboxPaths(
+		groupKey: string,
+		swimLaneKey: string | null,
+		taskPaths: string[]
+	): void {
+		let checkbox = this.findScopeSelectionCheckbox(groupKey, swimLaneKey);
+		if (!checkbox && taskPaths.length > 0 && swimLaneKey === null) {
+			const header = this.findColumnHeader(groupKey);
+			if (header) {
+				this.createScopeSelectionCheckbox(
+					header,
+					groupKey,
+					null,
+					taskPaths,
+					`Select all tasks in ${groupKey}`
+				);
+				checkbox = this.findScopeSelectionCheckbox(groupKey, null);
+			}
+		}
+		if (!checkbox) {
+			return;
+		}
+
+		this.scopeSelectionCheckboxPaths.set(checkbox, Array.from(new Set(taskPaths)));
+		this.updateScopeSelectionCheckbox(checkbox);
+	}
+
+	private findScopeSelectionCheckbox(
+		groupKey: string,
+		swimLaneKey: string | null
+	): HTMLInputElement | null {
+		const groupSelector = escapeAttributeSelectorValue(groupKey);
+		const swimLaneSelector =
+			swimLaneKey !== null ? escapeAttributeSelectorValue(swimLaneKey) : null;
+		const selector =
+			swimLaneSelector === null
+				? `.kanban-view__scope-selection-checkbox[data-selection-column="${groupSelector}"]:not([data-selection-swimlane])`
+				: `.kanban-view__scope-selection-checkbox[data-selection-column="${groupSelector}"][data-selection-swimlane="${swimLaneSelector}"]`;
+		return this.boardEl?.querySelector<HTMLInputElement>(selector) ?? null;
+	}
+
+	private findColumnHeader(groupKey: string): HTMLElement | null {
+		const groupSelector = escapeAttributeSelectorValue(groupKey);
+		return (
+			this.boardEl?.querySelector<HTMLElement>(
+				`.kanban-view__column[data-group="${groupSelector}"] .kanban-view__column-header`
+			) ?? null
+		);
+	}
+
 	private createAddTaskButton(
 		container: HTMLElement,
 		groupByPropertyId: string | null,
@@ -1764,8 +2733,39 @@ export class KanbanView extends BasesViewBase {
 		swimLaneKey: string | null = null
 	): void {
 		const footer = container.createDiv({ cls: "kanban-view__add-task-footer" });
-		const button = footer.createEl("button", {
-			cls: "kanban-view__add-task-button clickable-icon",
+		this.createAddTaskIconButton(
+			footer,
+			groupByPropertyId,
+			groupKey,
+			swimLaneKey,
+			"kanban-view__add-task-button clickable-icon"
+		);
+	}
+
+	private createSwimLaneHeaderAddTaskButton(
+		container: HTMLElement,
+		groupByPropertyId: string | null,
+		groupKey: string,
+		swimLaneKey: string
+	): void {
+		this.createAddTaskIconButton(
+			container,
+			groupByPropertyId,
+			groupKey,
+			swimLaneKey,
+			"kanban-view__swimlane-add-task-button clickable-icon"
+		);
+	}
+
+	private createAddTaskIconButton(
+		container: HTMLElement,
+		groupByPropertyId: string | null,
+		groupKey: string,
+		swimLaneKey: string | null,
+		className: string
+	): void {
+		const button = container.createEl("button", {
+			cls: className,
 			attr: {
 				type: "button",
 				"aria-label": this.getAddTaskLabel(groupKey, swimLaneKey),
@@ -1895,45 +2895,6 @@ export class KanbanView extends BasesViewBase {
 		});
 
 		this.columnScrollers.set(groupKey, scroller);
-	}
-
-	private async createVirtualSwimLaneCell(
-		tasksContainer: HTMLElement,
-		cellKey: string,
-		tasks: TaskInfo[],
-		visibleProperties: string[]
-	): Promise<void> {
-		// Use semantic class instead of inline style for easier maintenance.
-		tasksContainer.addClass("kanban-view__tasks-container--virtual");
-
-		const cardOptions = this.getCardOptions();
-
-		// Use containerEl.ownerDocument for pop-out window support
-		const doc = this.containerEl.ownerDocument;
-		const scroller = new VirtualScroller<TaskInfo>({
-			container: tasksContainer,
-			items: tasks,
-			// itemHeight omitted - automatically calculated from sample
-			overscan: 3,
-			renderItem: (task: TaskInfo) => {
-				const cardWrapper = doc.createElement("div");
-				cardWrapper.className = "kanban-view__card-wrapper";
-				cardWrapper.setAttribute("draggable", "true");
-				cardWrapper.setAttribute("data-task-path", task.path);
-
-				const card = createTaskCard(task, this.plugin, visibleProperties, cardOptions);
-
-				cardWrapper.appendChild(card);
-
-				this.taskInfoCache.set(task.path, task);
-				this.setupCardDragHandlers(cardWrapper, task);
-
-				return cardWrapper;
-			},
-			getItemKey: (task: TaskInfo) => task.path,
-		});
-
-		this.columnScrollers.set(cellKey, scroller);
 	}
 
 	private createNormalColumn(
@@ -2354,6 +3315,23 @@ export class KanbanView extends BasesViewBase {
 				const isCrossColumn = this.draggedFromColumn !== columnKey;
 				const isCrossSwimlane = this.draggedFromSwimlane !== swimLaneKey;
 				const isCrossScope = isCrossColumn || isCrossSwimlane;
+				if (
+					isHermesRunLaneDropRejected({
+						isRunSwimlaneView: this.isHermesRunSwimlaneView(),
+						sourceLaneId: this.draggedFromSwimlane,
+						targetLaneId: swimLaneKey,
+					})
+				) {
+					cell.classList.remove("kanban-view__swimlane-column--dragover");
+					this.cleanupDragShift();
+					new Notice(HERMES_RUN_REASSIGNMENT_EXPLICIT_ONLY_COPY);
+					this.debugLog("SWIMLANE-CELL-DROP-REJECTED", {
+						sourceSwimlane: this.draggedFromSwimlane,
+						targetSwimlane: swimLaneKey,
+						reason: HERMES_RUN_REASSIGNMENT_EXPLICIT_ONLY_COPY,
+					});
+					return;
+				}
 				const targetInCell =
 					!!initialDropTarget &&
 					cardsContainer?.querySelector(
@@ -2831,6 +3809,25 @@ export class KanbanView extends BasesViewBase {
 				const swimLaneKey = swimlaneRow?.dataset.swimlane || null;
 
 				if (!groupKey) return;
+
+				if (
+					isHermesRunLaneDropRejected({
+						isRunSwimlaneView: this.isHermesRunSwimlaneView(),
+						sourceLaneId: this.draggedFromSwimlane,
+						targetLaneId: swimLaneKey,
+					})
+				) {
+					this.cleanupDragShift();
+					col?.classList.remove("kanban-view__column--dragover");
+					swimCol?.classList.remove("kanban-view__swimlane-column--dragover");
+					new Notice(HERMES_RUN_REASSIGNMENT_EXPLICIT_ONLY_COPY);
+					this.debugLog("CARD-DROP-REJECTED", {
+						sourceSwimlane: this.draggedFromSwimlane,
+						targetSwimlane: swimLaneKey,
+						reason: HERMES_RUN_REASSIGNMENT_EXPLICIT_ONLY_COPY,
+					});
+					return;
+				}
 
 				// Resolve from the actual drop event so a queued dragover frame
 				// cannot leave the final before/after side stale.
@@ -3789,9 +4786,7 @@ export class KanbanView extends BasesViewBase {
 					let sideEffectUpdatedTask: TaskInfo | null = null;
 					if (dropPlan.changedTaskProp) {
 						try {
-							const originalTask =
-								this.taskInfoCache.get(path) ??
-								(await this.plugin.cacheManager.getTaskInfo(path));
+							const originalTask = await getTaskInfoFromNoteFirst(this.plugin, path);
 							const sideEffectPlan = planKanbanDropSideEffect({
 								plan: dropPlan,
 								originalTask,
@@ -3891,7 +4886,9 @@ export class KanbanView extends BasesViewBase {
 	}
 
 	protected async handleTaskUpdate(task: TaskInfo): Promise<void> {
-		// For kanban, just do full refresh since cards might move columns
+		this.debugLog("TASK-UPDATE: scheduling incremental reconcile", {
+			task: task.path.split("/").pop(),
+		});
 		this.debouncedRefresh();
 	}
 
@@ -3905,7 +4902,7 @@ export class KanbanView extends BasesViewBase {
 			window.clearTimeout(this.updateDebounceTimer);
 		}
 
-		this.debugLog("DEBOUNCED-REFRESH: scheduling render in 150ms", {
+		this.debugLog("DEBOUNCED-REFRESH: scheduling incremental render in 150ms", {
 			activeDropCount: this.activeDropCount,
 			suppressRenderRemaining: Math.max(0, this.suppressRenderUntil - Date.now()),
 		});
@@ -3928,14 +4925,12 @@ export class KanbanView extends BasesViewBase {
 					this.updateDebounceTimer = null;
 					return;
 				}
-				this.debugLog("DEBOUNCED-REFRESH-TIMER-FIRED: executing render now", {
+				this.debugLog("DEBOUNCED-REFRESH-TIMER-FIRED: executing incremental render now", {
 					activeDropCount: this.activeDropCount,
 					suppressRenderRemaining: Math.max(0, this.suppressRenderUntil - Date.now()),
 				});
-				await this.render();
+				await this.renderFromDataUpdate(savedState);
 				this.updateDebounceTimer = null;
-				// Restore scroll state after render completes
-				this.setEphemeralState(savedState);
 			})();
 		}, 150);
 	}
@@ -4299,6 +5294,11 @@ export class KanbanView extends BasesViewBase {
 	}
 
 	private destroyColumnScrollers(): void {
+		if (this.columnScrollers.size > 0) {
+			this.debugLog("SCROLL-CONTAINERS-DESTROY", {
+				count: this.columnScrollers.size,
+			});
+		}
 		for (const scroller of this.columnScrollers.values()) {
 			scroller.destroy();
 		}
@@ -4314,6 +5314,11 @@ export class KanbanView extends BasesViewBase {
 			window.clearTimeout(this.postDropTimer);
 			this.postDropTimer = null;
 		}
+		if (this.pendingDataUpdateTimer) {
+			window.clearTimeout(this.pendingDataUpdateTimer);
+			this.pendingDataUpdateTimer = null;
+		}
+		this.pendingDataUpdateSavedState = null;
 		this.suppressRenderUntil = 0;
 
 		// Component.register() calls will be automatically cleaned up

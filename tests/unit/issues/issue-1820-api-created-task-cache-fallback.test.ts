@@ -1,7 +1,12 @@
 import type { App } from "obsidian";
 import { App as MockApp, MockObsidian } from "../../helpers/obsidian-runtime";
 import { FieldMapper } from "../../../src/services/FieldMapper";
-import { DEFAULT_FIELD_MAPPING, DEFAULT_SETTINGS } from "../../../src/settings/defaults";
+import {
+	DEFAULT_FIELD_MAPPING,
+	DEFAULT_PRIORITIES,
+	DEFAULT_SETTINGS,
+	DEFAULT_STATUSES,
+} from "../../../src/settings/defaults";
 import { EVENT_TASK_UPDATED, type TaskInfo } from "../../../src/types";
 import { TaskManager } from "../../../src/utils/TaskManager";
 
@@ -37,7 +42,7 @@ describe("Issue #1820: API-created task cache fallback", () => {
 				excludedFolders: "",
 				storeTitleInFilename: false,
 			},
-			new FieldMapper(DEFAULT_FIELD_MAPPING)
+			new FieldMapper(DEFAULT_FIELD_MAPPING, [], DEFAULT_STATUSES, DEFAULT_PRIORITIES)
 		);
 	});
 
@@ -108,6 +113,59 @@ describe("Issue #1820: API-created task cache fallback", () => {
 			path,
 			scheduled: "2026-05-20",
 			dateModified: "2026-05-18T09:05:00.000Z",
+		});
+	});
+
+	it("can read note frontmatter directly without using a stale pending fallback", async () => {
+		const path = "TaskNotes/Tasks/api-created.md";
+		MockObsidian.createTestFile(
+			path,
+			[
+				"---",
+				JSON.stringify({
+					title: "Frontmatter title",
+					status: "done",
+					tags: ["task"],
+					dateModified: "2026-05-18T09:00:00.000Z",
+				}),
+				"---",
+				"",
+			].join("\n")
+		);
+		app.metadataCache.setCache(path, {
+			frontmatter: {
+				title: "Metadata title",
+				status: "open",
+				priority: "normal",
+				tags: ["task"],
+				dateModified: "2026-05-18T08:55:00.000Z",
+			},
+		});
+
+		manager.updateTaskInfoInCache(
+			path,
+			createTask({
+				path,
+				title: "Pending title",
+				status: "in-progress",
+				dateModified: "2026-05-18T09:05:00.000Z",
+			})
+		);
+
+		await expect(manager.getTaskInfo(path)).resolves.toMatchObject({
+			path,
+			title: "Pending title",
+			status: "in-progress",
+		});
+		await expect(manager.getTaskInfoFromFrontmatter(path)).resolves.toMatchObject({
+			path,
+			title: "Frontmatter title",
+			status: "done",
+		});
+		await expect(manager.getTaskInfo(path)).resolves.toMatchObject({
+			path,
+			title: "Metadata title",
+			status: "open",
 		});
 	});
 

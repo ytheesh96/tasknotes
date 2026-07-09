@@ -1,12 +1,24 @@
 import { TFile } from "obsidian";
+import type { TaskInfo } from "../../../src/types";
+
+jest.mock("../../../src/ui/TaskCard", () => ({
+	createTaskCard: jest.fn((task: TaskInfo) => {
+		const card = document.createElement("div");
+		card.className = "task-card";
+		card.textContent = task.title;
+		return card;
+	}),
+}));
+
+import { createTaskCard } from "../../../src/ui/TaskCard";
 import {
 	addDependencyItem,
 	getBlockedByDependencyCandidates,
 	getBlockingDependencyCandidates,
 	removeDependencyItemAtIndex,
+	renderDependencyList,
 	type DependencyItem,
 } from "../../../src/modals/taskModalDependencies";
-import type { TaskInfo } from "../../../src/types";
 
 function task(path: string): TaskInfo {
 	return {
@@ -39,8 +51,16 @@ function createPlugin(paths: string[], useMarkdownLinks = false): any {
 			fileManager: {
 				generateMarkdownLink: (file: TFile) => `[${file.basename}](${file.path})`,
 			},
+			workspace: {
+				openLinkText: jest.fn(),
+				getLeaf: jest.fn(),
+			},
 		},
 		settings: { useFrontmatterMarkdownLinks: useMarkdownLinks },
+		cacheManager: {
+			getTaskInfoFromFrontmatter: jest.fn(),
+			getTaskInfo: jest.fn(),
+		},
 	};
 }
 
@@ -115,5 +135,42 @@ describe("taskModalDependencies state helpers", () => {
 				currentPath: "Tasks/current.md",
 			}).map((candidate) => candidate.path)
 		).toEqual(["Tasks/available.md"]);
+	});
+
+	it("renders resolved dependency cards from note frontmatter before pending cache data", async () => {
+		const plugin = createPlugin(["Tasks/current.md", "Tasks/dependency.md"]);
+		const freshTask = { ...task("Tasks/dependency.md"), title: "Fresh dependency" };
+		const staleTask = { ...task("Tasks/dependency.md"), title: "Stale dependency" };
+		plugin.cacheManager.getTaskInfoFromFrontmatter.mockResolvedValue(freshTask);
+		plugin.cacheManager.getTaskInfo.mockResolvedValue(staleTask);
+		const listEl = document.createElement("div");
+
+		await renderDependencyList({
+			plugin,
+			listEl,
+			items: [dependency("[[Tasks/dependency]]", "Tasks/dependency.md")],
+			linkServices: {
+				metadataCache: plugin.app.metadataCache,
+				workspace: plugin.app.workspace,
+			},
+			translate: (key) => key,
+			onRemove: jest.fn(),
+		});
+
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			"Tasks/dependency.md"
+		);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+		expect(createTaskCard).toHaveBeenCalledWith(
+			freshTask,
+			plugin,
+			undefined,
+			expect.objectContaining({
+				layout: "default",
+				showSecondaryBadges: false,
+				enableHoverPreview: false,
+			})
+		);
+		expect(listEl.querySelector(".task-card")?.textContent).toBe("Fresh dependency");
 	});
 });

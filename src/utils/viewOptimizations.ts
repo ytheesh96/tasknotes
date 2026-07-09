@@ -1,6 +1,7 @@
 import { TaskInfo, TimeEntry } from "../types";
 import TaskNotesPlugin from "../main";
 import { createTaskNotesLogger } from "./tasknotesLogger";
+import { getTaskInfoFromNoteFirst } from "./taskInfoRead";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Utils/ViewOptimizations" });
 
@@ -152,7 +153,7 @@ export async function selectiveUpdateForListView(
 		case "update":
 			if (taskElement) {
 				// Task is visible - update it in place
-				const updatedTask = await view.plugin.cacheManager.getTaskInfo(taskPath);
+				const updatedTask = await getTaskInfoFromNoteFirst(view.plugin, taskPath);
 				if (updatedTask) {
 					// Get visible properties from the view instead of extracting from DOM
 					const visibleProperties = view.getCurrentVisibleProperties?.() ||

@@ -5,6 +5,47 @@ These settings control the integration with other plugins and services, such as 
 
 ![Integrations Settings](../assets/settings-integrations.png)
 
+## Hermes
+
+Hermes settings live under **Settings → TaskNotes → Integrations → Hermes**. They control how TaskNotes starts Hermes and how **Submit to Hermes** creates Kanban cards.
+
+### Submission mode
+
+Set **Kanban task creation transport** (`hermesKanbanTransport`) to `kanban-cli` for normal use. This keeps **Submit to Hermes** on the local Kanban CLI path instead of making task creation depend on the Hermes dashboard API.
+
+| Mode | Use when | Must be available |
+| --- | --- | --- |
+| `kanban-cli` | Recommended for TaskNotes submissions. Use this when TaskNotes should create Kanban cards directly through `hermes kanban`, including when the dashboard/API is not running. | Desktop Obsidian with Node `child_process`, a working `hermes` CLI, and a selected board that the CLI can open. |
+| `dashboard-api` | Only use this if you intentionally want task creation to go through the dashboard API alongside dashboard-backed live reads. | Hermes dashboard at `http://127.0.0.1:9119/` and Kanban API at `http://127.0.0.1:9119/api/plugins/kanban`. |
+
+`kanban-cli` is the preferred write path for creating cards. Dashboard-backed reads are separate: live board lists, assignee lists, activity, comments, run history, and mirror/detail sync still require the dashboard/API. After CLI creation, TaskNotes may show a partial-success notice until the dashboard is reachable and can sync details back.
+
+### Required configuration
+
+- **Kanban task creation transport** (`hermesKanbanTransport`): set to `kanban-cli` to create cards directly through the Hermes CLI. `dashboard-api` remains available only when you explicitly want API-backed writes.
+- For `kanban-cli`, ensure the Obsidian environment can find `hermes`. TaskNotes checks `HERMES_EXECUTABLE`, `PATH`, `~/.local/bin/hermes`, `~/.hermes/hermes-agent/venv/bin/hermes`, `/opt/homebrew/bin/hermes`, and `/usr/local/bin/hermes`.
+- For `kanban-cli`, choose a Hermes board before submitting. TaskNotes validates it with `hermes kanban --board <board> list --json` and creates cards with `hermes kanban --board <board> create <title> ... --json`.
+- **Start command** (`hermesStartCommand`): command used by **Start Hermes** for dashboard-backed reads. Default: `hermes dashboard --host 127.0.0.1 --port 9119 --no-open --skip-build`.
+- **Auto-start after Hermes task changes** (`hermesAutoStartOnTaskChange`): optional desktop-only attempt to start the dashboard after Hermes-linked task changes; not required for CLI task creation.
+
+### Common messages
+
+| Message | Likely fix |
+| --- | --- |
+| `Hermes dashboard is not reachable at http://127.0.0.1:9119/.` | Start Hermes, fix the start command, or switch to `kanban-cli` if you only need task creation. |
+| `Hermes dashboard root is reachable, but the Kanban API is unavailable.` | Restart Hermes or inspect dashboard/plugin logs; the root server is up but the Kanban endpoint is not healthy. |
+| `Multiple Hermes dashboard processes detected; using healthy localhost:9119.` | A healthy dashboard is being used; clean up duplicate dashboard processes when convenient. |
+| `Hermes CLI is not available on PATH.` | Install Hermes or expose it to Obsidian's environment. |
+| `Hermes CLI is not available from HERMES_EXECUTABLE or PATH.` | Check `HERMES_EXECUTABLE` and the normal lookup paths; the configured executable was not usable. |
+| `Hermes CLI is not executable: ...` | Run `hermes --version` from a terminal and fix permissions, installation, or environment errors. |
+| `Choose a Hermes board before writing through the CLI.` | Select a board in the modal or Hermes board view before submitting. |
+| `Hermes board <board> is not available through the CLI: ...` | Verify the current Hermes profile/board database and run `hermes kanban --board <board> list --json` from the same environment. |
+| `Hermes Kanban CLI returned invalid JSON for create task: ...` | Ensure the installed Hermes supports `--json` and is not printing non-JSON output for the command. |
+| `Hermes Kanban CLI failed (exit <code>): ...` | Read the sanitized detail, then retry the equivalent `hermes kanban ... --json` command in a terminal. |
+
+For developer smoke-test steps and implementation notes, see [Hermes Kanban task creation transports](../development/hermes-kanban-transports.md).
+
+## Bases Integration
 ## Bases
 
 TaskNotes v4 uses Obsidian's Bases core plugin for its main views. For setup instructions, see [Core Concepts](../core-concepts.md#bases-integration).

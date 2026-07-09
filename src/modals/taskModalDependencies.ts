@@ -10,6 +10,7 @@ import {
 import { appendInternalLink, type LinkServices } from "../ui/renderers/linkRenderer";
 import { createTaskCard } from "../ui/TaskCard";
 import { stringifyUnknown } from "../utils/stringUtils";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 export interface DependencyItem {
 	dependency: TaskDependency;
@@ -216,7 +217,7 @@ async function renderResolvedDependency(
 		return;
 	}
 
-	const taskInfo = await plugin.cacheManager.getCachedTaskInfo(item.path);
+	const taskInfo = await getTaskInfoFromNoteFirst(plugin, item.path);
 	if (taskInfo) {
 		const taskCard = createTaskCard(taskInfo, plugin, undefined, {
 			layout: "default",

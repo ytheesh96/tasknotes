@@ -1,6 +1,7 @@
 import { Notice, type Editor } from "obsidian";
 import type TaskNotesPlugin from "../main";
 import type { TranslatedCommandDefinition } from "./types";
+import { getAllTasksFromNoteFirst, getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 import { showConfirmationModal } from "../modals/ConfirmationModal";
 
@@ -53,6 +54,20 @@ export function createTaskNotesCommandDefinitions(
 			},
 		},
 		{
+			id: "open-agent-roster-view",
+			nameKey: "commands.openAgentRosterView",
+			callback: async (ctx) => {
+				await ctx.openBasesFileForCommand("open-agent-roster-view");
+			},
+		},
+		{
+			id: "open-hermes-boards-view",
+			nameKey: "commands.openHermesBoardsView",
+			callback: async (ctx) => {
+				await ctx.openBasesFileForCommand("open-hermes-boards-view");
+			},
+		},
+		{
 			id: "update-default-base-files",
 			nameKey: "commands.updateDefaultBaseFiles",
 			callback: async (ctx) => {
@@ -95,6 +110,20 @@ export function createTaskNotesCommandDefinitions(
 			nameKey: "commands.createNewTask",
 			callback: (ctx) => {
 				ctx.openTaskCreationModal();
+			},
+		},
+		{
+			id: "create-hermes-goal-mode-card",
+			nameKey: "commands.createHermesGoalModeCard",
+			callback: (ctx) => {
+				ctx.openGoalTaskCreationModal();
+			},
+		},
+		{
+			id: "start-hermes",
+			nameKey: "commands.startHermes",
+			callback: async (ctx) => {
+				await ctx.startHermesDashboard();
 			},
 		},
 		{
@@ -238,7 +267,7 @@ export function createTaskNotesCommandDefinitions(
 			nameKey: "commands.exportAllTasksIcs",
 			callback: async (ctx) => {
 				try {
-					const allTasks = await ctx.cacheManager.getAllTasks();
+					const allTasks = await getAllTasksFromNoteFirst(ctx);
 					const { downloadAllTasksICSFile } = await import(
 						"../ui/calendarExportActions"
 					);
@@ -310,7 +339,7 @@ export function createTaskNotesCommandDefinitions(
 					return;
 				}
 
-				const task = await ctx.cacheManager.getTaskInfo(activeFile.path);
+				const task = await getTaskInfoFromNoteFirst(ctx, activeFile.path);
 				if (!task) {
 					new Notice(
 						ctx.i18n.translate(

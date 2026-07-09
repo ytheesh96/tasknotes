@@ -376,7 +376,7 @@ Refactor rule:
   removals, and returned task-state assembly belong in `taskUpdatePlanning`;
   `TaskUpdateService` keeps vault writes, renames, body writes, cache updates,
   events, webhooks, calendar sync, and auto-archive side effects
-- archive tag mutation and archive/tasks move path construction belong in
+- archived field mutation and archive/tasks move path construction belong in
   `taskArchivePlanning`; `TaskService` keeps the vault write, rename, cache,
   calendar, and webhook side effects
 - time-entry sanitization and start/stop/delete frontmatter mutation rules

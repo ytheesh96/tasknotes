@@ -18,7 +18,7 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 }
 
 describe("taskArchivePlanning", () => {
-	it("adds the archive tag and toggles archived state when archiving", () => {
+	it("toggles native archived state without changing tags when archiving", () => {
 		const plan = buildTaskArchiveState(
 			createTask({ archived: false, tags: ["task"] }),
 			"archived",
@@ -30,13 +30,13 @@ describe("taskArchivePlanning", () => {
 		expect(plan.updatedTask).toEqual(
 			expect.objectContaining({
 				archived: true,
-				tags: ["task", "archived"],
+				tags: ["task"],
 				dateModified: "2026-05-19T06:45:00+10:00",
 			})
 		);
 	});
 
-	it("removes the archive tag and toggles archived state when unarchiving", () => {
+	it("toggles native archived state without removing tags when unarchiving", () => {
 		const plan = buildTaskArchiveState(
 			createTask({ archived: true, tags: ["task", "archived"] }),
 			"archived",
@@ -46,10 +46,64 @@ describe("taskArchivePlanning", () => {
 		expect(plan.isCurrentlyArchived).toBe(true);
 		expect(plan.operation).toBe("unarchiving");
 		expect(plan.updatedTask.archived).toBe(false);
-		expect(plan.updatedTask.tags).toEqual(["task"]);
+		expect(plan.updatedTask.tags).toEqual(["task", "archived"]);
 	});
 
-	it("updates frontmatter tags and dateModified for archive changes", () => {
+	it("uses hermesArchived instead of native archived state for Hermes-managed tasks", () => {
+		const plan = buildTaskArchiveState(
+			createTask({
+				archived: false,
+				tags: ["task"],
+				customProperties: {
+					hermesTaskId: "t_1234abcd",
+					hermesBoard: "default",
+					hermesArchived: false,
+					hermesList: "done",
+					hermesVisible: true,
+				},
+			}),
+			"archived",
+			"2026-05-19T06:45:00+10:00"
+		);
+
+		expect(plan.stateSource).toBe("hermes-archived");
+		expect(plan.updatedTask).toEqual(
+			expect.objectContaining({
+				archived: true,
+				tags: ["task"],
+				dateModified: "2026-05-19T06:45:00+10:00",
+			})
+		);
+		expect(plan.updatedTask.customProperties).toMatchObject({
+			hermesArchived: true,
+			hermesList: "archived",
+			hermesVisible: false,
+		});
+	});
+
+	it("lets hermesArchived false override native archived state when archive state is read", () => {
+		const plan = buildTaskArchiveState(
+			createTask({
+				archived: true,
+				status: "done",
+				tags: ["task", "archived"],
+				customProperties: {
+					hermesTaskId: "t_1234abcd",
+					hermesBoard: "default",
+					hermesArchived: false,
+				},
+			}),
+			"archived",
+			"2026-05-19T06:45:00+10:00"
+		);
+
+		expect(plan.isCurrentlyArchived).toBe(false);
+		expect(plan.operation).toBe("archiving");
+		expect(plan.updatedTask.tags).toEqual(["task", "archived"]);
+		expect(plan.updatedTask.customProperties?.hermesArchived).toBe(true);
+	});
+
+	it("updates native archived frontmatter and dateModified for archive changes", () => {
 		const frontmatter: Record<string, unknown> = {
 			tags: "task",
 		};
@@ -62,11 +116,12 @@ describe("taskArchivePlanning", () => {
 			dateModifiedField: "dateModified",
 		});
 
-		expect(frontmatter.tags).toEqual(["task", "archived"]);
+		expect(frontmatter.tags).toBe("task");
+		expect(frontmatter.archived).toBe(true);
 		expect(frontmatter.dateModified).toBe("2026-05-19T06:45:00+10:00");
 	});
 
-	it("removes empty tag frontmatter when unarchiving the last tag", () => {
+	it("sets native archived frontmatter false when unarchiving", () => {
 		const frontmatter: Record<string, unknown> = {
 			tags: ["archived"],
 		};
@@ -79,8 +134,63 @@ describe("taskArchivePlanning", () => {
 			dateModifiedField: "dateModified",
 		});
 
-		expect(frontmatter).not.toHaveProperty("tags");
+		expect(frontmatter.tags).toEqual(["archived"]);
+		expect(frontmatter.archived).toBe(false);
 		expect(frontmatter.dateModified).toBe("2026-05-19T06:45:00+10:00");
+	});
+
+	it("updates Hermes archived frontmatter without touching tags", () => {
+		const frontmatter: Record<string, unknown> = {
+			tags: "task",
+			status: "done",
+			hermesTaskId: "t_1234abcd",
+			hermesBoard: "default",
+			hermesArchived: false,
+			hermesList: "done",
+			hermesVisible: true,
+		};
+
+		applyTaskArchiveFrontmatterChange({
+			frontmatter,
+			archiveTag: "archived",
+			isCurrentlyArchived: false,
+			dateModified: "2026-05-19T06:45:00+10:00",
+			dateModifiedField: "dateModified",
+			stateSource: "hermes-archived",
+			hermesListOnUnarchive: "done",
+		});
+
+		expect(frontmatter.tags).toBe("task");
+		expect(frontmatter.hermesArchived).toBe(true);
+		expect(frontmatter.hermesList).toBe("archived");
+		expect(frontmatter.hermesVisible).toBe(false);
+		expect(frontmatter.dateModified).toBe("2026-05-19T06:45:00+10:00");
+	});
+
+	it("restores Hermes list visibility when unarchiving through Hermes metadata", () => {
+		const frontmatter: Record<string, unknown> = {
+			tags: ["task", "archived"],
+			hermesTaskId: "t_1234abcd",
+			hermesBoard: "default",
+			hermesArchived: true,
+			hermesList: "archived",
+			hermesVisible: false,
+		};
+
+		applyTaskArchiveFrontmatterChange({
+			frontmatter,
+			archiveTag: "archived",
+			isCurrentlyArchived: true,
+			dateModified: "2026-05-19T06:45:00+10:00",
+			dateModifiedField: "dateModified",
+			stateSource: "hermes-archived",
+			hermesListOnUnarchive: "blocked",
+		});
+
+		expect(frontmatter.tags).toEqual(["task", "archived"]);
+		expect(frontmatter.hermesArchived).toBe(false);
+		expect(frontmatter.hermesList).toBe("blocked");
+		expect(frontmatter.hermesVisible).toBe(true);
 	});
 
 	it("builds archive and unarchive move plans from resolved folder templates", () => {

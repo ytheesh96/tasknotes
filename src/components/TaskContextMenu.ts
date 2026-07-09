@@ -45,6 +45,8 @@ import {
 	openOrCreateOccurrenceNote,
 } from "../ui/occurrenceNoteActions";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getAllTasksFromNoteFirst, getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
+import { getHermesTaskIdentity } from "../hermes/hermesApiClient";
 import type { UserMappedField } from "../types/settings";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Components/TaskContextMenu" });
@@ -136,6 +138,10 @@ function toMenuTitle(value: unknown, fallback = ""): string {
 			: "";
 	const trimmed = text.trim();
 	return trimmed.length > 0 ? trimmed : fallback;
+}
+
+function isHermesManagedTask(task: TaskInfo): boolean {
+	return getHermesTaskIdentity(task) !== null;
 }
 
 export interface TaskContextMenuOptions {
@@ -515,20 +521,22 @@ export class TaskContextMenu {
 			// Get the file for the task
 			const file = plugin.app.vault.getAbstractFileByPath(task.path);
 			if (file instanceof TFile) {
-				// Try to populate with Obsidian's native file menu
-				try {
-					// Trigger the file-menu event to populate with default actions
-					plugin.app.workspace.trigger(
-						"file-menu",
-						submenu,
-						file,
-						"tasknotes-context-menu"
-					);
-				} catch {
-					tasknotesLogger.debug("Native file menu not available, using fallback", {
-						category: "stale-data",
-						operation: "native-file-menu-not-using-fallback",
-					});
+				if (!isHermesManagedTask(task)) {
+					// Try to populate with Obsidian's native file menu
+					try {
+						// Trigger the file-menu event to populate with default actions
+						plugin.app.workspace.trigger(
+							"file-menu",
+							submenu,
+							file,
+							"tasknotes-context-menu"
+						);
+					} catch {
+						tasknotesLogger.debug("Native file menu not available, using fallback", {
+							category: "stale-data",
+							operation: "native-file-menu-not-using-fallback",
+						});
+					}
 				}
 
 				// Add common file actions (these will either supplement or replace the native menu)
@@ -1103,7 +1111,7 @@ export class TaskContextMenu {
 									[path],
 									{}
 								);
-								const refreshed = await plugin.cacheManager.getTaskInfo(task.path);
+								const refreshed = await getTaskInfoFromNoteFirst(plugin, task.path);
 								if (refreshed) {
 									Object.assign(task, refreshed);
 								}
@@ -1187,7 +1195,7 @@ export class TaskContextMenu {
 		onSelect: (selected: TaskInfo) => Promise<void>
 	): Promise<void> {
 		try {
-			const allTasks = await plugin.cacheManager.getAllTasks();
+			const allTasks = await getAllTasksFromNoteFirst(plugin);
 			const candidates = allTasks.filter(filter);
 
 			if (candidates.length === 0) {
@@ -1278,7 +1286,7 @@ export class TaskContextMenu {
 				[blockedPath]: rawEntry,
 			});
 
-			const refreshed = await plugin.cacheManager.getTaskInfo(task.path);
+			const refreshed = await getTaskInfoFromNoteFirst(plugin, task.path);
 			if (refreshed) {
 				Object.assign(task, refreshed);
 			} else if (Array.isArray(task.blocking)) {
@@ -1533,7 +1541,7 @@ export class TaskContextMenu {
 		plugin: TaskNotesPlugin
 	): Promise<void> {
 		try {
-			const allTasks = await plugin.cacheManager.getAllTasks();
+			const allTasks = await getAllTasksFromNoteFirst(plugin);
 
 			// Filter out the current task
 			const candidates = allTasks.filter((candidate) => candidate.path !== task.path);

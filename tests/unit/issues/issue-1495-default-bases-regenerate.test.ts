@@ -35,26 +35,27 @@ async function readVaultFile(plugin: TaskNotesPlugin, path: string): Promise<str
 }
 
 describe("issue #1495 - default Bases files after changing task tag", () => {
-	it("keeps existing Bases files by default but can overwrite them from current settings", async () => {
+	it("keeps existing Bases files by default and regenerates task-folder scoped defaults", async () => {
 		const plugin = createPlugin("task");
 		const tasksBasePath = plugin.settings.commandFileMapping["open-tasks-view"];
 
 		await plugin.ensureBasesViewFiles();
 		await expect(readVaultFile(plugin, tasksBasePath)).resolves.toContain(
-			'file.hasTag("task")'
+			'file.inFolder("TaskNotes/Tasks")'
 		);
 
 		plugin.settings.taskTag = "todo";
 		const skippedResult = await plugin.ensureBasesViewFiles();
 		expect(skippedResult.updated).not.toContain(tasksBasePath);
 		await expect(readVaultFile(plugin, tasksBasePath)).resolves.toContain(
-			'file.hasTag("task")'
+			'file.inFolder("TaskNotes/Tasks")'
 		);
 
 		const updatedResult = await plugin.ensureBasesViewFiles({ overwriteExisting: true });
 		expect(updatedResult.updated).toContain(tasksBasePath);
 		const updatedContent = await readVaultFile(plugin, tasksBasePath);
-		expect(updatedContent).toContain('file.hasTag("todo")');
+		expect(updatedContent).toContain('file.inFolder("TaskNotes/Tasks")');
 		expect(updatedContent).not.toContain('file.hasTag("task")');
+		expect(updatedContent).not.toContain('file.hasTag("todo")');
 	});
 });

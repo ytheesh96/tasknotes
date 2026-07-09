@@ -48,6 +48,20 @@ describe("Issue #798: command for Edit task details", () => {
 		expect(ctx.openTaskEditModalForCurrentTask).toHaveBeenCalledTimes(1);
 	});
 
+	it("registers the Start Hermes command as a hotkeyable command", async () => {
+		const definitions = createTaskNotesCommandDefinitions({} as TaskNotesPlugin);
+		const command = definitions.find((definition) => definition.id === "start-hermes");
+		const ctx = {
+			startHermesDashboard: jest.fn(),
+		};
+
+		expect(command?.nameKey).toBe("commands.startHermes");
+
+		await command?.callback?.(ctx as never);
+
+		expect(ctx.startHermesDashboard).toHaveBeenCalledTimes(1);
+	});
+
 	it("opens the task edit modal for the active task file", async () => {
 		const task = createTask();
 		const activeFile = new TFile(task.path);

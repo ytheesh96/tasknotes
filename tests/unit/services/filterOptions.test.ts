@@ -122,4 +122,16 @@ describe("filterOptions", () => {
 			expect.objectContaining({ id: "user:effort", label: "Effort" }),
 		]);
 	});
+
+	it("keeps user-backed properties in settings order", () => {
+		const definitions = buildUserPropertyDefinitions([
+			{ id: "effort", key: "effort", displayName: "Effort", type: "number" },
+			{ id: "assignee", key: "assignee", displayName: "Assignee", type: "text" },
+		]);
+
+		expect(definitions.map((definition) => definition.id)).toEqual([
+			"user:effort",
+			"user:assignee",
+		]);
+	});
 });

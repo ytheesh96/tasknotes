@@ -14,6 +14,7 @@ import { TranslationKey } from "../i18n";
 import { appendInternalLink, LinkServices } from "../ui/renderers/linkRenderer";
 import { parseLinkToPath } from "../utils/linkUtils";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/UnscheduledTasksSelectorModal" });
 
@@ -79,7 +80,7 @@ export class UnscheduledTasksSelectorModal extends FuzzySuggestModal<TaskInfo> {
 			// Get all task paths and then get their task info
 			const allTaskPaths = this.plugin.cacheManager.getAllTaskPaths();
 			const allTasksPromises = Array.from(allTaskPaths).map((path) =>
-				this.plugin.cacheManager.getTaskInfo(path)
+				getTaskInfoFromNoteFirst(this.plugin, path)
 			);
 			const allTasks = (await Promise.all(allTasksPromises)).filter(
 				(task): task is TaskInfo => task !== null

@@ -81,6 +81,16 @@ import {
 } from "./task-service/taskBlockingRelationships";
 import { resolveTaskPropertyFrontmatterField } from "./task-service/taskPropertyFrontmatterField";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
+import {
+	HermesKanbanApiClient,
+	getHermesTaskIdentity,
+	isHermesTaskNotFoundError,
+} from "../hermes/hermesApiClient";
+import {
+	getUnsupportedHermesBoardMoveExplanation,
+	HermesWriteGuard,
+} from "../hermes/hermesWriteGuard";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/TaskService" });
 
@@ -575,7 +585,7 @@ export class TaskService {
 			}
 
 			// Get fresh task data to prevent overwrites
-			const freshTask = (await this.plugin.cacheManager.getTaskInfo(task.path)) || task;
+			const freshTask = (await getTaskInfoFromNoteFirst(this.plugin, task.path)) || task;
 
 			// Step 1: Construct new state in memory using fresh data
 			const updatePlan = buildTaskPropertyUpdatePlan({
@@ -1134,6 +1144,8 @@ export class TaskService {
 				isCurrentlyArchived,
 				dateModified,
 				dateModifiedField,
+				stateSource: archivePlan.stateSource,
+				hermesListOnUnarchive: archivePlan.hermesListOnUnarchive,
 			});
 		});
 
@@ -1141,7 +1153,8 @@ export class TaskService {
 		let movedFile = file;
 		const movePlan = buildTaskArchiveMovePlan({
 			isCurrentlyArchived,
-			moveArchivedTasks: this.plugin.settings.moveArchivedTasks,
+			moveArchivedTasks:
+				archivePlan.stateSource === "archive-field" && this.plugin.settings.moveArchivedTasks,
 			archiveFolderTemplate: this.plugin.settings.archiveFolder,
 			tasksFolderTemplate: this.plugin.settings.tasksFolder,
 			fileName: file.name,
@@ -1455,8 +1468,21 @@ export class TaskService {
 	 */
 	async updateTask(
 		originalTask: TaskInfo,
-		updates: Partial<TaskInfo> & { details?: string }
+		updates: Partial<TaskInfo> & {
+			details?: string;
+			customFrontmatter?: Record<string, unknown>;
+		}
 	): Promise<TaskInfo> {
+		await new HermesWriteGuard({
+			transport: this.plugin.settings.hermesKanbanTransport,
+		}).assertCanWriteHermesTask(originalTask);
+		const unsupportedHermesBoardMove = getUnsupportedHermesBoardMoveExplanation(
+			originalTask,
+			buildHermesBoardMovePolicyTask(originalTask, updates)
+		);
+		if (unsupportedHermesBoardMove) {
+			throw new Error(unsupportedHermesBoardMove);
+		}
 		return this.taskUpdateService.updateTask(originalTask, updates);
 	}
 
@@ -1466,6 +1492,10 @@ export class TaskService {
 		removedBlockedTaskPaths: string[],
 		rawEntries: Record<string, TaskDependency | string> = {}
 	): Promise<void> {
+		await new HermesWriteGuard({
+			transport: this.plugin.settings.hermesKanbanTransport,
+		}).assertCanWriteHermesTask(currentTask);
+
 		// This method is called when the current task's "blocking" list is updated in the UI.
 		// The current task is the one blocking other tasks.
 		// We need to update the blockedBy field of the tasks that this task is blocking.
@@ -1477,7 +1507,7 @@ export class TaskService {
 
 		// Remove current task from the blockedBy field of tasks it's no longer blocking
 		for (const blockedTaskPath of uniqueRemovals) {
-			const blockedTask = await this.plugin.cacheManager.getTaskInfo(blockedTaskPath);
+			const blockedTask = await getTaskInfoFromNoteFirst(this.plugin, blockedTaskPath);
 			if (!blockedTask) {
 				continue;
 			}
@@ -1494,7 +1524,7 @@ export class TaskService {
 
 		// Add current task to the blockedBy field of tasks it's now blocking
 		for (const blockedTaskPath of uniqueAdditions) {
-			const blockedTask = await this.plugin.cacheManager.getTaskInfo(blockedTaskPath);
+			const blockedTask = await getTaskInfoFromNoteFirst(this.plugin, blockedTaskPath);
 			if (!blockedTask) {
 				continue;
 			}
@@ -1544,6 +1574,10 @@ export class TaskService {
 			const file = this.plugin.app.vault.getAbstractFileByPath(task.path);
 			if (!(file instanceof TFile)) {
 				throw new Error(`Cannot find task file: ${task.path}`);
+			}
+
+			if (this.isHermesManagedTask(task)) {
+				await this.deleteHermesManagedTaskFromKanban(task);
 			}
 
 			// Delete from Google Calendar first (before file deletion, so we have the event ID)
@@ -1605,6 +1639,26 @@ export class TaskService {
 		}
 	}
 
+	private isHermesManagedTask(task: TaskInfo): boolean {
+		return getHermesTaskIdentity(task) !== null;
+	}
+
+	private async deleteHermesManagedTaskFromKanban(task: TaskInfo): Promise<void> {
+		const identity = getHermesTaskIdentity(task);
+		if (!identity) {
+			return;
+		}
+
+		try {
+			await new HermesKanbanApiClient().deleteTask(identity);
+		} catch (error) {
+			if (isHermesTaskNotFoundError(error, identity.id)) {
+				return;
+			}
+			throw error;
+		}
+	}
+
 	/**
 	 * Toggle completion status for recurring tasks on a specific date
 	 */
@@ -1613,7 +1667,7 @@ export class TaskService {
 			return date;
 		}
 
-		const freshTask = (await this.plugin.cacheManager.getTaskInfo(task.path)) || task;
+		const freshTask = (await getTaskInfoFromNoteFirst(this.plugin, task.path)) || task;
 		return this.getRecurringTaskActionDate(freshTask);
 	}
 
@@ -1628,7 +1682,7 @@ export class TaskService {
 		}
 
 		// Get fresh task data to ensure we have the latest completion state
-		const freshTask = (await this.plugin.cacheManager.getTaskInfo(task.path)) || task;
+		const freshTask = (await getTaskInfoFromNoteFirst(this.plugin, task.path)) || task;
 
 		if (!freshTask.recurrence) {
 			throw new Error("Task is not recurring");
@@ -1778,7 +1832,7 @@ export class TaskService {
 		}
 
 		// Get fresh task data to avoid stale data issues
-		const freshTask = (await this.plugin.cacheManager.getTaskInfo(task.path)) || task;
+		const freshTask = (await getTaskInfoFromNoteFirst(this.plugin, task.path)) || task;
 
 		if (!freshTask.recurrence) {
 			throw new Error("Task is not recurring");
@@ -1973,4 +2027,30 @@ export class TaskService {
 		const resolved = this.plugin.app.metadataCache.getFirstLinkpathDest?.(linkPath, "");
 		return (resolved?.path ?? linkPath).replace(/\.md$/i, "");
 	}
+}
+
+function buildHermesBoardMovePolicyTask(
+	originalTask: TaskInfo,
+	updates: Partial<TaskInfo> & { customFrontmatter?: Record<string, unknown> }
+): TaskInfo {
+	const customProperties: Record<string, unknown> = {
+		...(originalTask.customProperties ?? {}),
+		...(updates.customProperties ?? {}),
+	};
+
+	if (updates.customFrontmatter) {
+		Object.entries(updates.customFrontmatter).forEach(([key, value]) => {
+			if (value === null) {
+				delete customProperties[key];
+			} else {
+				customProperties[key] = value;
+			}
+		});
+	}
+
+	return {
+		...originalTask,
+		...updates,
+		customProperties,
+	};
 }

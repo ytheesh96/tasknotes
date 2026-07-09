@@ -25,6 +25,7 @@ const CSS_FILES = [
     'styles/time-entry-editor-modal.css', // TimeEntryEditorModal component with proper BEM scoping
     'styles/relationships.css',  // RelationshipsWidget component with proper BEM scoping
     'styles/task-card-note-widget.css',  // TaskCardNoteWidget component with proper BEM scoping
+    'styles/hermes-task-review-surface.css', // Hermes-managed task note review surface
     
     // BEM View Files
     'styles/task-list-view.css',     // TaskListView component with proper BEM scoping

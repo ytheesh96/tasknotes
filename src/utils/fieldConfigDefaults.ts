@@ -5,6 +5,7 @@ import type {
 	FieldGroup,
 	UserMappedField,
 } from "../types/settings";
+import { HERMES_ACTIVITY_USER_FIELDS } from "../hermes/hermesActivityFields";
 
 /**
  * Default field group configurations
@@ -12,38 +13,52 @@ import type {
 export const DEFAULT_FIELD_GROUPS: FieldGroupConfig[] = [
 	{
 		id: "basic",
-		displayName: "Basic Information",
+		displayName: "Task",
 		order: 0,
 		collapsible: false,
 		defaultCollapsed: false,
 	},
 	{
-		id: "metadata",
-		displayName: "Metadata",
+		id: "routing",
+		displayName: "Routing",
 		order: 1,
-		collapsible: true,
-		defaultCollapsed: false,
-	},
-	{
-		id: "organization",
-		displayName: "Organization",
-		order: 2,
 		collapsible: true,
 		defaultCollapsed: false,
 	},
 	{
 		id: "dependencies",
 		displayName: "Dependencies",
+		order: 2,
+		collapsible: true,
+		defaultCollapsed: false,
+	},
+	{
+		id: "metadata",
+		displayName: "TaskNotes Metadata",
 		order: 3,
+		collapsible: true,
+		defaultCollapsed: true,
+	},
+	{
+		id: "organization",
+		displayName: "TaskNotes Organization",
+		order: 4,
+		collapsible: true,
+		defaultCollapsed: true,
+	},
+	{
+		id: "activity",
+		displayName: "Activity",
+		order: 5,
 		collapsible: true,
 		defaultCollapsed: false,
 	},
 	{
 		id: "custom",
-		displayName: "Custom Fields",
-		order: 4,
+		displayName: "Other Fields",
+		order: 6,
 		collapsible: true,
-		defaultCollapsed: false,
+		defaultCollapsed: true,
 	},
 ];
 
@@ -75,17 +90,29 @@ export const DEFAULT_CORE_FIELDS: ModalFieldConfig[] = [
 		enabled: true,
 	},
 
-	// Metadata group
+	// Routing group
 	{
-		id: "contexts",
-		fieldType: "core",
-		group: "metadata",
-		displayName: "Contexts",
+		id: "projects",
+		fieldType: "organization",
+		group: "routing",
+		displayName: "Board",
 		visibleInCreation: true,
 		visibleInEdit: true,
 		order: 0,
 		enabled: true,
 	},
+	{
+		id: "contexts",
+		fieldType: "core",
+		group: "routing",
+		displayName: "Assignee",
+		visibleInCreation: true,
+		visibleInEdit: true,
+		order: 1,
+		enabled: true,
+	},
+
+	// Metadata group
 	{
 		id: "tags",
 		fieldType: "core",
@@ -108,16 +135,6 @@ export const DEFAULT_CORE_FIELDS: ModalFieldConfig[] = [
 	},
 
 	// Organization group
-	{
-		id: "projects",
-		fieldType: "organization",
-		group: "organization",
-		displayName: "Projects",
-		visibleInCreation: true,
-		visibleInEdit: true,
-		order: 0,
-		enabled: true,
-	},
 	{
 		id: "subtasks",
 		fieldType: "organization",
@@ -152,13 +169,26 @@ export const DEFAULT_CORE_FIELDS: ModalFieldConfig[] = [
 	},
 ];
 
+export const DEFAULT_ACTIVITY_FIELDS: ModalFieldConfig[] = HERMES_ACTIVITY_USER_FIELDS.map(
+	(field, index) => ({
+		id: field.id,
+		fieldType: "user",
+		group: "activity",
+		displayName: field.displayName,
+		visibleInCreation: false,
+		visibleInEdit: true,
+		order: index,
+		enabled: true,
+	})
+);
+
 /**
  * Create default field configuration
  */
 export function createDefaultFieldConfig(): TaskModalFieldsConfig {
 	return {
 		version: 1,
-		fields: [...DEFAULT_CORE_FIELDS],
+		fields: [...DEFAULT_CORE_FIELDS, ...DEFAULT_ACTIVITY_FIELDS],
 		groups: [...DEFAULT_FIELD_GROUPS],
 	};
 }
@@ -216,16 +246,19 @@ export function migrateUserFieldsToFieldConfig(
 		return [];
 	}
 
-	return existingUserFields.map((userField, index) => ({
-		id: userField.id || `user-${index}`,
-		fieldType: "user" as const,
-		group: "custom" as const,
-		displayName: userField.displayName || `Field ${index + 1}`,
-		visibleInCreation: true,
-		visibleInEdit: true,
-		order: index,
-		enabled: true,
-	}));
+	const activityFieldIds = new Set(HERMES_ACTIVITY_USER_FIELDS.map((field) => field.id));
+	return existingUserFields
+		.filter((userField) => !activityFieldIds.has(userField.id))
+		.map((userField, index) => ({
+			id: userField.id || `user-${index}`,
+			fieldType: "user" as const,
+			group: "custom" as const,
+			displayName: userField.displayName || `Field ${index + 1}`,
+			visibleInCreation: true,
+			visibleInEdit: true,
+			order: index,
+			enabled: true,
+		}));
 }
 
 /**

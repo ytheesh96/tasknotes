@@ -1,4 +1,4 @@
-import { App, Notice, setIcon, setTooltip, TFile } from "obsidian";
+import { App, Menu, Notice, setIcon, setTooltip, TFile } from "obsidian";
 import TaskNotesPlugin from "../main";
 import { TaskModal } from "./TaskModal";
 import { TaskInfo } from "../types";
@@ -24,7 +24,37 @@ import { NLPSuggest } from "./taskCreationSuggest";
 import { shouldShowFilenameShortenedNotice } from "../utils/filenameGenerator";
 import { setTaskModalDetailsEditorValue } from "./taskModalDetailsEditor";
 import { collapseTaskModalDetailsLayout } from "./taskModalLayout";
+import type { ModalFieldsConfigLike } from "./taskModalFieldConfig";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import type { TaskModalActionIconSpec } from "./taskModalActionBar";
+import {
+	HermesKanbanApiClient,
+	getHermesTaskIdentity,
+	type HermesCreateTaskPayload,
+} from "../hermes/hermesApiClient";
+import { createHermesKanbanClient } from "../hermes/hermesKanbanTransport";
+import { createOrUpdateHermesMirrorNote } from "../hermes/hermesMirror";
+import { normalizeHermesAssignee } from "../hermes/hermesAssignee";
+import {
+	canonicalHermesBoardProjects,
+	defaultHermesAssignees,
+	defaultHermesBoards,
+	getHermesBoardFromProjects,
+	hermesBoardProject,
+	splitHermesList,
+	validateHermesAssigneeSelection,
+	validateHermesBoardSelection,
+} from "../hermes/hermesRouting";
+import {
+	HermesAvailabilityService,
+	type HermesAvailabilityHealth,
+	type HermesDashboardStartResult,
+} from "../hermes/hermesAvailabilityService";
+import {
+	getHermesManagedCreationBoard,
+	HermesWriteGuard,
+} from "../hermes/hermesWriteGuard";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Modals/TaskCreationModal" });
 export type { StatusSuggestion } from "./taskCreationSuggest";
@@ -62,7 +92,26 @@ export interface TaskCreationOptions {
 	prePopulatedValues?: TaskCreationPrepopulatedValues;
 	onTaskCreated?: (task: TaskInfo) => void;
 	creationContext?: "manual-creation" | "modal-inline-creation"; // Folder behavior context
+	modalTitle?: string;
+	saveButtonText?: string;
+	modalFieldsConfig?: ModalFieldsConfigLike;
+	creationTargetPicker?: {
+		boards: string[];
+		selectedTarget: string;
+	};
+	hermesBoardPicker?: {
+		boards: string[];
+		selectedBoard: string;
+	};
 }
+
+const DEFAULT_CREATION_TARGET = "default";
+const HERMES_TARGET_PREFIX = "hermes:";
+const GOAL_MODE_TAGS = new Set(["goal", "#goal", "hermes-goal"]);
+
+type HermesCreationTaskData = Partial<TaskInfo> & {
+	customFrontmatter?: Record<string, unknown>;
+};
 
 type OpenTaskAfterCreationMode = TaskNotesPlugin["settings"]["openTaskAfterCreation"];
 type CreatedTaskOpenMode = Exclude<OpenTaskAfterCreationMode, "none">;
@@ -109,6 +158,13 @@ export class TaskCreationModal extends TaskModal {
 	private nlPreviewContainer: HTMLElement = undefined as unknown as HTMLElement;
 	private nlButtonContainer: HTMLElement = undefined as unknown as HTMLElement;
 	private nlpSuggest: NLPSuggest | null = null; // Will be replaced with CodeMirror autocomplete
+	private selectedHermesBoard: string | null = null;
+	private selectedCreationTarget = DEFAULT_CREATION_TARGET;
+	private nonHermesStatus: string | null = null;
+	private hermesBoardOptions: string[] | null = null;
+	private hermesAssigneeOptions: string[] | null = null;
+	private hermesBoardSelectEl: HTMLSelectElement | null = null;
+	private isSubmitting = false;
 
 	// Track event listeners for cleanup
 	private eventListeners: Array<{
@@ -121,14 +177,31 @@ export class TaskCreationModal extends TaskModal {
 		super(app, plugin);
 		this.options = options;
 		this.nlParser = NaturalLanguageParser.fromPlugin(plugin);
+		this.selectedHermesBoard = options.hermesBoardPicker?.selectedBoard ?? null;
+		this.selectedCreationTarget =
+			options.creationTargetPicker?.selectedTarget ??
+			(this.selectedHermesBoard
+				? this.getHermesTargetId(this.selectedHermesBoard)
+				: DEFAULT_CREATION_TARGET);
 	}
 
 	getModalTitle(): string {
-		return this.t("modals.taskCreation.title");
+		return (
+			this.options.modalTitle ??
+			(this.isHermesCreationTarget() ? "Submit to Hermes" : this.t("modals.taskCreation.title"))
+		);
 	}
 
 	protected isCreationMode(): boolean {
 		return true;
+	}
+
+	protected getModalFieldsConfig(): ModalFieldsConfigLike | undefined {
+		return this.options.modalFieldsConfig ?? super.getModalFieldsConfig();
+	}
+
+	protected getPrimaryActionText(): string | undefined {
+		return this.options.saveButtonText ?? (this.isHermesCreationTarget() ? "Submit to Hermes" : undefined);
 	}
 
 	/**
@@ -499,6 +572,33 @@ export class TaskCreationModal extends TaskModal {
 		this.updateIconStates();
 	}
 
+	protected getCoreActionIconSpecs(): TaskModalActionIconSpec[] {
+		const specs = super.getCoreActionIconSpecs();
+		if (!this.hasHermesBoardPicker()) {
+			return specs;
+		}
+
+		return [
+			{
+				iconName: "columns-3",
+				tooltip: this.getHermesBoardTooltip(),
+				onClick: (_, event) => {
+					void this.showHermesBoardContextMenu(event);
+				},
+				dataType: "hermes-board",
+			},
+			{
+				iconName: "user",
+				tooltip: this.getHermesAssigneeTooltip(),
+				onClick: (_, event) => {
+					void this.showHermesAssigneeContextMenu(event);
+				},
+				dataType: "hermes-assignee",
+			},
+			...specs,
+		];
+	}
+
 	private parseAndFillForm(input: string): void {
 		const parsed = this.nlParser.parseInput(input);
 		this.applyParsedData(parsed);
@@ -566,6 +666,8 @@ export class TaskCreationModal extends TaskModal {
 			this.updateUserFieldControls();
 		}
 
+		this.syncHermesBoardSelection();
+
 		// Update icon states
 		this.updateIconStates();
 	}
@@ -600,6 +702,9 @@ export class TaskCreationModal extends TaskModal {
 		this.scheduledDate = formState.scheduledDate;
 		this.priority = formState.priority;
 		this.status = formState.status;
+		this.nonHermesStatus = this.isHermesCreationTarget()
+			? this.plugin.settings.defaultTaskStatus
+			: formState.status;
 		this.contexts = formState.contexts;
 		this.tags = formState.tags;
 		this.timeEstimate = formState.timeEstimate;
@@ -612,8 +717,26 @@ export class TaskCreationModal extends TaskModal {
 			this.initializeProjectsFromStrings(formState.projectStrings);
 		}
 
+		this.defaultHermesCreationTargetFromPrefill();
+		this.syncHermesBoardSelection();
+
 		this.details = this.normalizeDetails(this.details);
 		this.originalDetails = this.details;
+	}
+
+	private defaultHermesCreationTargetFromPrefill(): void {
+		if (this.options.creationTargetPicker?.selectedTarget || this.isHermesCreationTarget()) {
+			return;
+		}
+		const board = getHermesManagedCreationBoard({
+			projects: this.projects,
+			tags: this.tags,
+		});
+		if (!board) {
+			return;
+		}
+		this.selectedHermesBoard = board;
+		this.selectedCreationTarget = this.getHermesTargetId(board);
 	}
 
 	protected async handleSubmitShortcut(shift: boolean): Promise<void> {
@@ -621,85 +744,259 @@ export class TaskCreationModal extends TaskModal {
 	}
 
 	async handleSave(options: { createAnother?: boolean } = {}): Promise<void> {
-		// If NLP is enabled and there's content in the NL field, parse it first
-		if (this.plugin.settings.enableNaturalLanguageInput) {
-			const nlContent = this.getNLPInputValue().trim();
-			if (nlContent && !this.title.trim()) {
-				// Only auto-parse if no title has been manually entered
-				const parsed = this.nlParser.parseInput(nlContent);
-				this.applyParsedData(parsed);
-			}
-		}
-
-		if (!this.validateForm()) {
-			new Notice(this.t("modals.taskCreation.notices.titleRequired"));
+		if (this.isSubmitting) {
 			return;
 		}
-
+		this.isSubmitting = true;
+		this.setPrimaryActionDisabled(true);
 		try {
-			const taskData = this.buildTaskData();
-			// Disable defaults since they were already applied to form fields in initializeFormData()
-			const result = await this.plugin.taskService.createTask(taskData, {
-				applyDefaults: false,
-			});
-			let createdTask = result.taskInfo;
+			// If NLP is enabled and there's content in the NL field, parse it first
+			if (this.plugin.settings.enableNaturalLanguageInput) {
+				const nlContent = this.getNLPInputValue().trim();
+				if (nlContent && !this.title.trim()) {
+					// Only auto-parse if no title has been manually entered
+					const parsed = this.nlParser.parseInput(nlContent);
+					this.applyParsedData(parsed);
+				}
+			}
 
-			if (
-				shouldShowFilenameShortenedNotice(
-					this.plugin.settings,
-					result.taskInfo.title,
-					result.file.basename
-				)
-			) {
+			this.syncHermesBoardSelection();
+
+			if (!this.validateForm()) {
+				new Notice(this.t("modals.taskCreation.notices.titleRequired"));
+				return;
+			}
+
+			try {
+				if (this.isHermesCreationTarget()) {
+					await this.handleHermesApiCreate(options);
+					return;
+				}
+
+				const taskData = this.buildTaskData();
+				const hermesManagedBoard = getHermesManagedCreationBoard({
+					projects: taskData.projects ?? this.projects,
+					tags: taskData.tags ?? this.tags,
+				});
+				if (hermesManagedBoard) {
+					await this.handleHermesApiCreate(options, {
+						board: hermesManagedBoard,
+						taskData,
+					});
+					return;
+				}
+
+				await this.assertHermesManagedCreationAllowed(taskData);
+				// Disable defaults since they were already applied to form fields in initializeFormData()
+				const result = await this.plugin.taskService.createTask(taskData, {
+					applyDefaults: false,
+				});
+				let createdTask = result.taskInfo;
+
+				if (
+					shouldShowFilenameShortenedNotice(
+						this.plugin.settings,
+						result.taskInfo.title,
+						result.file.basename
+					)
+				) {
+					new Notice(
+						this.t("modals.taskCreation.notices.successShortened", {
+							title: createdTask.title,
+						})
+					);
+				} else {
+					new Notice(
+						this.t("modals.taskCreation.notices.success", { title: createdTask.title })
+					);
+				}
+
+				if (this.blockingItems.length > 0) {
+					const blockingUpdates = buildCreationBlockingUpdates(this.blockingItems);
+
+					if (blockingUpdates.added.length > 0) {
+						await this.plugin.taskService.updateBlockingRelationships(
+							createdTask,
+							blockingUpdates.added,
+							[],
+							blockingUpdates.raw
+						);
+						const refreshed = await getTaskInfoFromNoteFirst(
+							this.plugin,
+							createdTask.path
+						);
+						if (refreshed) {
+							createdTask = refreshed;
+						}
+					}
+
+					if (blockingUpdates.unresolved.length > 0) {
+						new Notice(
+							this.t("modals.taskCreation.notices.blockingUnresolved", {
+								entries: blockingUpdates.unresolved.join(", "),
+							})
+						);
+					}
+
+					this.blockingItems = [];
+				}
+
+				// Handle subtask assignments
+				if (this.selectedSubtaskFiles.length > 0) {
+					await this.applySubtaskAssignments(createdTask);
+				}
+
+				if (this.options.onTaskCreated) {
+					this.options.onTaskCreated(createdTask);
+				}
+
+				await this.openCreatedTaskIfConfigured(result.file, options);
+
+				this.close();
+
+				if (options.createAnother) {
+					window.setTimeout(() => {
+						new TaskCreationModal(this.app, this.plugin, this.options).open();
+					}, 0);
+				}
+			} catch (error) {
+				tasknotesLogger.error("Failed to create task:", {
+					category: "persistence",
+					operation: "create-task",
+					error: error,
+				});
+				const message = getTaskCreationFailureNoticeMessage(error);
+				new Notice(this.t("modals.taskCreation.notices.failure", { message }));
+			}
+		} finally {
+			this.isSubmitting = false;
+			this.setPrimaryActionDisabled(false);
+		}
+	}
+
+	private async handleHermesApiCreate(
+		options: { createAnother?: boolean } = {},
+		input: { board?: string; taskData?: HermesCreationTaskData } = {}
+	): Promise<void> {
+		const board = input.board ?? this.getSelectedHermesBoard();
+		if (!board) {
+			throw new Error("Choose a board before submitting.");
+		}
+
+		await new HermesWriteGuard({
+			transport: this.plugin.settings.hermesKanbanTransport,
+		}).assertCanCreateHermesTask(board);
+
+		const routing = await this.validateHermesCreationRouting(board);
+		if (routing.error) {
+			throw new Error(routing.error);
+		}
+
+		const taskData = input.taskData ?? this.buildTaskData();
+		const api = new HermesKanbanApiClient();
+		const taskCreator = createHermesKanbanClient(this.plugin.settings.hermesKanbanTransport);
+		const parentResolution = await this.resolveHermesDependencyIds(this.blockedByItems, board);
+		const childResolution = await this.resolveHermesDependencyIds(this.blockingItems, board);
+		const assignee = routing.assignee ?? this.hermesAssigneeFromTaskData(taskData);
+		const taskStatus =
+			typeof taskData.status === "string" && taskData.status.trim()
+				? taskData.status.trim()
+				: "triage";
+		const status =
+			this.isHermesCreationTarget() && taskStatus === this.plugin.settings.defaultTaskStatus
+				? "triage"
+				: taskStatus;
+		const createPayload: HermesCreateTaskPayload = {
+			title: String(taskData.title || this.title).trim(),
+			body: typeof taskData.details === "string" ? taskData.details : undefined,
+			status,
+			assignee: assignee ?? undefined,
+			priority: this.hermesPriorityFromTaskData(),
+			created_by: "tasknotes",
+			parents: parentResolution.ids,
+			triage: status === "triage",
+		};
+		if (this.isGoalTaggedCreation()) {
+			createPayload.idempotency_key = buildHermesGoalModeCreateIdempotencyKey(
+				board,
+				createPayload
+			);
+		}
+		const created = await taskCreator.createTask(board, createPayload);
+		const identity = { board, id: created.id };
+		try {
+			const postCreateSyncErrors: string[] = [];
+			if (this.isGoalTaggedCreation()) {
+				try {
+					await this.addHermesGoalModeComment(api, identity, taskData);
+				} catch (error) {
+					postCreateSyncErrors.push(
+						`Goal Mode comment sync failed: ${getTaskCreationFailureNoticeMessage(error)}`
+					);
+				}
+			}
+
+			for (const childId of childResolution.ids) {
+				try {
+					await api.addLink({ board, parentId: created.id, childId });
+				} catch (error) {
+					postCreateSyncErrors.push(
+						`dependency link ${childId} failed: ${getTaskCreationFailureNoticeMessage(error)}`
+					);
+				}
+			}
+
+			const detail = await api.getTask(identity);
+			const mirrorTask = detail.task ?? created;
+
+			const { file, taskInfo } = await createOrUpdateHermesMirrorNote(
+				this.plugin,
+				board,
+				mirrorTask,
+				{
+					parents: detail.links?.parents ?? parentResolution.ids,
+					children: detail.links?.children ?? childResolution.ids,
+					...(this.isGoalTaggedCreation()
+						? {
+								extraFrontmatter: {
+									hermesCardMode: "goal",
+									hermesMode: "goal",
+								},
+								extraTags: ["goal"],
+							}
+						: {}),
+				}
+			);
+
+			if (parentResolution.unresolved.length > 0 || childResolution.unresolved.length > 0) {
 				new Notice(
-					this.t("modals.taskCreation.notices.successShortened", {
-						title: createdTask.title,
+					`Some dependencies were not linked on the board: ${[
+						...parentResolution.unresolved,
+						...childResolution.unresolved,
+					].join(", ")}`
+				);
+			}
+
+			if (postCreateSyncErrors.length > 0) {
+				new Notice(
+					getHermesPartialSuccessNoticeMessage({
+						mode: this.isGoalTaggedCreation() ? "goal" : "kanban",
+						title: created.title,
+						id: created.id,
+						error: new Error(postCreateSyncErrors.join("; ")),
 					})
 				);
 			} else {
 				new Notice(
-					this.t("modals.taskCreation.notices.success", { title: createdTask.title })
+					this.isGoalTaggedCreation()
+						? `Created Goal Mode card: ${created.title}`
+						: `Created task: ${created.title}`
 				);
 			}
-
-			if (this.blockingItems.length > 0) {
-				const blockingUpdates = buildCreationBlockingUpdates(this.blockingItems);
-
-				if (blockingUpdates.added.length > 0) {
-					await this.plugin.taskService.updateBlockingRelationships(
-						createdTask,
-						blockingUpdates.added,
-						[],
-						blockingUpdates.raw
-					);
-					const refreshed = await this.plugin.cacheManager.getTaskInfo(createdTask.path);
-					if (refreshed) {
-						createdTask = refreshed;
-					}
-				}
-
-				if (blockingUpdates.unresolved.length > 0) {
-					new Notice(
-						this.t("modals.taskCreation.notices.blockingUnresolved", {
-							entries: blockingUpdates.unresolved.join(", "),
-						})
-					);
-				}
-
-				this.blockingItems = [];
-			}
-
-			// Handle subtask assignments
-			if (this.selectedSubtaskFiles.length > 0) {
-				await this.applySubtaskAssignments(createdTask);
-			}
-
 			if (this.options.onTaskCreated) {
-				this.options.onTaskCreated(createdTask);
+				this.options.onTaskCreated(taskInfo);
 			}
-
-			await this.openCreatedTaskIfConfigured(result.file, options);
-
+			await this.openCreatedTaskIfConfigured(file, options);
 			this.close();
 
 			if (options.createAnother) {
@@ -708,13 +1005,22 @@ export class TaskCreationModal extends TaskModal {
 				}, 0);
 			}
 		} catch (error) {
-			tasknotesLogger.error("Failed to create task:", {
-				category: "persistence",
-				operation: "create-task",
-				error: error,
-			});
-			const message = getTaskCreationFailureNoticeMessage(error);
-			new Notice(this.t("modals.taskCreation.notices.failure", { message }));
+			tasknotesLogger.error(
+				"Hermes card was created but TaskNotes post-create sync failed:",
+				{
+					category: "persistence",
+					operation: "create-hermes-task-post-sync",
+					error,
+				}
+			);
+			new Notice(
+				getHermesPartialSuccessNoticeMessage({
+					mode: this.isGoalTaggedCreation() ? "goal" : "kanban",
+					title: created.title,
+					id: created.id,
+					error,
+				})
+			);
 		}
 	}
 
@@ -739,7 +1045,7 @@ export class TaskCreationModal extends TaskModal {
 		}
 	}
 
-	private buildTaskData(): Partial<TaskInfo> {
+	private buildTaskData(): HermesCreationTaskData {
 		const taskData = buildTaskCreationData({
 			title: this.title,
 			dueDate: this.dueDate,
@@ -772,6 +1078,488 @@ export class TaskCreationModal extends TaskModal {
 		return taskData;
 	}
 
+	private hermesAssigneeFromTaskData(taskData: HermesCreationTaskData): string | undefined {
+		return normalizeHermesAssignee(taskData.contexts) ?? undefined;
+	}
+
+	private hermesPriorityFromTaskData(): number {
+		if (this.priority === "high") return 8;
+		if (this.priority === "normal") return 5;
+		if (this.priority === "low") return 2;
+		return 0;
+	}
+
+	private isGoalTaggedCreation(): boolean {
+		return splitCommaList(this.tags).some((tag) => GOAL_MODE_TAGS.has(tag.toLowerCase()));
+	}
+
+	private async addHermesGoalModeComment(
+		api: HermesKanbanApiClient,
+		identity: { board: string; id: string },
+		taskData: HermesCreationTaskData
+	): Promise<void> {
+		const metadata = this.buildHermesGoalModeMetadata(taskData);
+		await api.addComment(identity, {
+			body: [
+				"Created from Obsidian TaskNotes as a #goal task.",
+				"",
+				"```json",
+				JSON.stringify(metadata, null, 2),
+				"```",
+			].join("\n"),
+		});
+	}
+
+	private buildHermesGoalModeMetadata(taskData: HermesCreationTaskData): Record<string, unknown> {
+		return {
+			hermes_card_mode: "goal",
+			hermes_mode: "goal",
+			source: "obsidian-tasknotes",
+			tasknotes: {
+				projects: splitCommaList(this.projects),
+				contexts: splitCommaList(this.contexts),
+				tags: splitCommaList(this.tags),
+				priority: this.priority,
+				status: taskData.status ?? this.status,
+			},
+		};
+	}
+
+	private async resolveHermesDependencyIds(
+		items: Array<{ path?: string; dependency: { uid: string } }>,
+		board: string
+	): Promise<{ ids: string[]; unresolved: string[] }> {
+		const ids: string[] = [];
+		const unresolved: string[] = [];
+		for (const item of items) {
+			const directId = item.dependency.uid.match(/\b(t_[A-Za-z0-9]+)\b/)?.[1];
+			if (item.path) {
+				const task = await getTaskInfoFromNoteFirst(this.plugin, item.path);
+				const identity = task ? getHermesTaskIdentity(task) : null;
+				if (identity && identity.board === board) {
+					ids.push(identity.id);
+					continue;
+				}
+			}
+			if (directId) {
+				ids.push(directId);
+			} else {
+				unresolved.push(item.dependency.uid);
+			}
+		}
+		return { ids: [...new Set(ids)], unresolved };
+	}
+
+	private hasHermesBoardPicker(): boolean {
+		return (
+			Boolean(this.options.hermesBoardPicker || this.options.creationTargetPicker) &&
+			this.getHermesBoardOptions().length > 0
+		);
+	}
+
+	private getHermesBoardOptions(): string[] {
+		return uniqueNonEmpty([
+			...(this.hermesBoardOptions ?? []),
+			...(this.options.hermesBoardPicker?.boards ?? []),
+			...(this.options.creationTargetPicker?.boards ?? []),
+			...defaultHermesBoards(),
+			...(this.selectedHermesBoard ? [this.selectedHermesBoard] : []),
+		]);
+	}
+
+	private async resolveHermesBoardOptions(): Promise<string[]> {
+		try {
+			const boards = (await new HermesKanbanApiClient().listBoards())
+				.filter((board) => !board.archived)
+				.map((board) => board.slug);
+			if (boards.length > 0) {
+				this.hermesBoardOptions = uniqueNonEmpty(boards);
+				return this.hermesBoardOptions;
+			}
+		} catch (error) {
+			tasknotesLogger.warn("Failed to load Hermes boards:", {
+				category: "provider",
+				operation: "load-hermes-boards",
+				error,
+			});
+		}
+		this.hermesBoardOptions = this.getHermesBoardOptions();
+		return this.hermesBoardOptions;
+	}
+
+	private getHermesAssigneeOptions(): string[] {
+		return uniqueNonEmpty([
+			...(this.hermesAssigneeOptions ?? []),
+			...defaultHermesAssignees(),
+			...splitHermesList(this.contexts),
+		]);
+	}
+
+	private async resolveHermesAssigneeOptions(board?: string): Promise<string[]> {
+		try {
+			const assignees = (await new HermesKanbanApiClient().listAssignees(board))
+				.map((assignee) => assignee.name)
+				.filter(Boolean);
+			if (assignees.length > 0) {
+				this.hermesAssigneeOptions = uniqueNonEmpty(assignees);
+				return this.hermesAssigneeOptions;
+			}
+		} catch (error) {
+			tasknotesLogger.warn("Failed to load Hermes assignees:", {
+				category: "provider",
+				operation: "load-hermes-assignees",
+				error,
+			});
+		}
+		this.hermesAssigneeOptions = this.getHermesAssigneeOptions();
+		return this.hermesAssigneeOptions;
+	}
+
+	public async recheckHermesAvailability(): Promise<HermesAvailabilityHealth> {
+		return this.getHermesAvailabilityService().recheckHealth({
+			...this.getHermesTransportCheckOptions(),
+			board: this.getSelectedHermesBoard(),
+		});
+	}
+
+	public async startHermesDashboardAndRefreshOptions(): Promise<HermesDashboardStartResult> {
+		const result = await this.plugin.startHermesDashboard({ showNotice: false });
+		if (result.health.status === "connected" || result.health.status === "degraded") {
+			await this.refreshHermesLiveOptions();
+		}
+		return result;
+	}
+
+	private async refreshHermesLiveOptions(): Promise<void> {
+		const selectedBoard = this.getSelectedHermesBoard();
+		const transportOptions = this.getHermesTransportCheckOptions();
+		const options = transportOptions.transport
+			? await this.getHermesAvailabilityService().getOptions(selectedBoard, transportOptions)
+			: await this.getHermesAvailabilityService().getOptions(selectedBoard);
+		if (options.boards.length > 0) {
+			this.hermesBoardOptions = uniqueNonEmpty(options.boards);
+			this.renderHermesBoardSelectOptions(this.hermesBoardOptions);
+		}
+		if (options.assignees.length > 0) {
+			this.hermesAssigneeOptions = uniqueNonEmpty(options.assignees);
+		}
+	}
+
+	private getHermesAvailabilityService(): HermesAvailabilityService {
+		return new HermesAvailabilityService({ transport: this.plugin.settings.hermesKanbanTransport });
+	}
+
+	private getHermesTransportCheckOptions(): { transport?: "dashboard-api" | "kanban-cli" } {
+		return this.plugin.settings.hermesKanbanTransport
+			? { transport: this.plugin.settings.hermesKanbanTransport }
+			: {};
+	}
+
+	private async assertHermesManagedCreationAllowed(
+		taskData: HermesCreationTaskData
+	): Promise<void> {
+		const board =
+			getHermesManagedCreationBoard({
+				projects: taskData.projects ?? this.projects,
+				tags: taskData.tags ?? this.tags,
+			}) ??
+			(this.options.hermesBoardPicker || this.options.creationTargetPicker
+				? this.getSelectedHermesBoard()
+				: null);
+		if (!board) {
+			return;
+		}
+		await new HermesWriteGuard({
+			transport: this.plugin.settings.hermesKanbanTransport,
+		}).assertCanCreateHermesTask(board);
+	}
+
+	private renderHermesBoardSelectOptions(boards: readonly string[]): void {
+		if (!this.hermesBoardSelectEl) {
+			return;
+		}
+		while (this.hermesBoardSelectEl.firstChild) {
+			this.hermesBoardSelectEl.removeChild(this.hermesBoardSelectEl.firstChild);
+		}
+		for (const board of boards) {
+			const option = this.hermesBoardSelectEl.ownerDocument.createElement("option");
+			option.value = board;
+			option.text = board;
+			this.hermesBoardSelectEl.appendChild(option);
+		}
+		const currentBoard = this.getSelectedHermesBoard();
+		const nextBoard = boards.includes(currentBoard) ? currentBoard : boards[0];
+		if (nextBoard) {
+			this.setCreationTarget(this.getHermesTargetId(nextBoard));
+			this.hermesBoardSelectEl.value = nextBoard;
+		}
+	}
+
+	private async validateHermesCreationRouting(
+		selectedBoard: string
+	): Promise<{ assignee: string | null; error?: string }> {
+		const acceptedBoards = await this.resolveHermesBoardOptions();
+		const boardResult = validateHermesBoardSelection(
+			this.projects,
+			acceptedBoards,
+			selectedBoard
+		);
+		if (boardResult.error) {
+			return { assignee: null, error: boardResult.error };
+		}
+
+		const acceptedAssignees = await this.resolveHermesAssigneeOptions(selectedBoard);
+		return validateHermesAssigneeSelection(this.contexts, acceptedAssignees);
+	}
+
+	protected createContextsField(container: HTMLElement): void {
+		if (!this.isHermesCreationTarget()) {
+			super.createContextsField(container);
+			return;
+		}
+	}
+
+	protected createProjectsField(container: HTMLElement): void {
+		if (!this.isHermesCreationTarget()) {
+			super.createProjectsField(container);
+			return;
+		}
+
+		this.hermesBoardSelectEl = null;
+	}
+
+	private getHermesBoardTooltip(): string {
+		const board = this.getSelectedHermesBoard();
+		if (this.isHermesCreationTarget() && board) {
+			return `Board: ${board}`;
+		}
+		return board ? `Choose board: ${board}` : "Choose board";
+	}
+
+	private getHermesAssigneeTooltip(): string {
+		const assignee = normalizeHermesAssignee(this.contexts);
+		return assignee ? `Assignee: ${assignee}` : "Assignee: Unassigned";
+	}
+
+	private getSelectedHermesBoard(): string {
+		if (this.selectedCreationTarget.startsWith(HERMES_TARGET_PREFIX)) {
+			return this.selectedCreationTarget.slice(HERMES_TARGET_PREFIX.length);
+		}
+		return (
+			this.selectedHermesBoard ??
+			this.options.hermesBoardPicker?.selectedBoard ??
+			getHermesBoardFromProjects(this.projects, this.getHermesBoardOptions()) ??
+			""
+		);
+	}
+
+	private getHermesTargetId(board: string): string {
+		return `${HERMES_TARGET_PREFIX}${board}`;
+	}
+
+	private isHermesCreationTarget(): boolean {
+		return this.selectedCreationTarget.startsWith(HERMES_TARGET_PREFIX);
+	}
+
+	private getCreationTargetLabel(): string {
+		if (this.isHermesCreationTarget()) {
+			return `Board/${this.getSelectedHermesBoard()}`;
+		}
+		return "Board";
+	}
+
+	private async showHermesBoardContextMenu(event: UIEvent): Promise<void> {
+		const boards = await this.resolveHermesBoardOptions();
+		if (boards.length === 0) return;
+
+		const menu = new Menu();
+		const currentBoard = this.getSelectedHermesBoard();
+		for (const board of boards) {
+			menu.addItem((item) => {
+				const isSelected = this.isHermesCreationTarget() && board === currentBoard;
+				item.setTitle(`Board/${board}`);
+				item.setIcon(isSelected ? "check" : "columns-3");
+				item.setChecked(isSelected);
+				item.onClick(() => {
+					this.setCreationTarget(this.getHermesTargetId(board));
+				});
+			});
+		}
+
+		this.showMenuForEvent(menu, event);
+	}
+
+	private async showHermesAssigneeContextMenu(event: UIEvent): Promise<void> {
+		const currentAssignee = normalizeHermesAssignee(this.contexts);
+		const assignees = uniqueNonEmpty([
+			...(currentAssignee ? [currentAssignee] : []),
+			...(await this.resolveHermesAssigneeOptions(this.getSelectedHermesBoard())),
+		]);
+		const menu = new Menu();
+		menu.addItem((item) => {
+			const isSelected = !currentAssignee;
+			item.setTitle("Unassigned");
+			item.setIcon(isSelected ? "check" : "user-x");
+			item.setChecked(isSelected);
+			item.onClick(() => {
+				this.setHermesAssignee("");
+			});
+		});
+		for (const assignee of assignees) {
+			menu.addItem((item) => {
+				const isSelected = assignee === currentAssignee;
+				item.setTitle(assignee);
+				item.setIcon(isSelected ? "check" : "user");
+				item.setChecked(isSelected);
+				item.onClick(() => {
+					this.setHermesAssignee(assignee);
+				});
+			});
+		}
+
+		this.showMenuForEvent(menu, event);
+	}
+
+	private setHermesAssignee(assignee: string): void {
+		this.contexts = assignee;
+		if (this.contextsInput) {
+			this.contextsInput.value = assignee;
+		}
+		this.updateIconStates();
+	}
+
+	private showMenuForEvent(menu: Menu, event: UIEvent): void {
+		if (event.instanceOf(MouseEvent)) {
+			menu.showAtMouseEvent(event);
+			return;
+		}
+
+		const target =
+			event.currentTarget instanceof HTMLElement
+				? event.currentTarget
+				: event.target instanceof HTMLElement
+					? event.target
+					: null;
+		const rect = target?.getBoundingClientRect();
+		menu.showAtPosition({
+			x: rect?.left ?? window.innerWidth / 2,
+			y: rect ? rect.bottom + 4 : window.innerHeight / 2,
+		});
+	}
+
+	private setCreationTarget(target: string): void {
+		if (!target) return;
+
+		if (!this.isHermesCreationTarget()) {
+			this.nonHermesStatus = this.status;
+		}
+
+		const previousTarget = this.selectedCreationTarget;
+		this.selectedCreationTarget = target;
+		if (this.isHermesCreationTarget()) {
+			const board = this.getSelectedHermesBoard();
+			this.selectedHermesBoard = board;
+			this.applyHermesSubmissionState(board);
+		} else {
+			this.clearHermesSubmissionState();
+		}
+
+		this.renderModalTitle();
+		this.updatePrimaryActionButtonText();
+		this.updateIconStates();
+
+		if (previousTarget !== target) {
+			new Notice(`Task target set to ${this.getCreationTargetLabel()}`);
+		}
+	}
+
+	private applyHermesSubmissionState(board: string): void {
+		if (!board) return;
+
+		this.projects = withHermesBoardProject(this.projects, this.getHermesBoardOptions(), board);
+		this.initializeProjectsFromStrings(splitCommaList(this.projects));
+		this.syncVisibleHermesFields();
+	}
+
+	private clearHermesSubmissionState(): void {
+		this.status = this.nonHermesStatus ?? this.plugin.settings.defaultTaskStatus;
+		this.projects = withoutHermesBoardProject(this.projects, this.getHermesBoardOptions());
+		this.initializeProjectsFromStrings(splitCommaList(this.projects));
+		this.syncVisibleHermesFields();
+	}
+
+	private syncHermesBoardSelection(): void {
+		if (!this.isHermesCreationTarget()) {
+			return;
+		}
+
+		const board = this.getSelectedHermesBoard();
+		if (!board) return;
+
+		this.selectedHermesBoard = board;
+		this.applyHermesSubmissionState(board);
+	}
+
+	private syncVisibleHermesFields(): void {
+		if (this.tagsInput) {
+			this.tagsInput.value = this.tags;
+		}
+		if (this.contextsInput) {
+			this.contextsInput.value = this.contexts;
+		}
+		if (this.hermesBoardSelectEl) {
+			const board = this.getSelectedHermesBoard();
+			if (board) {
+				this.hermesBoardSelectEl.value = board;
+			}
+		}
+		this.renderProjectsList();
+	}
+
+	private updatePrimaryActionButtonText(): void {
+		const saveButton = this.contentEl.querySelector<HTMLButtonElement>(
+			".tn-task-modal__button-bar .mod-cta"
+		);
+		if (!saveButton) return;
+		saveButton.setText(this.getPrimaryActionText() ?? this.t("modals.task.buttons.save"));
+	}
+
+	private setPrimaryActionDisabled(disabled: boolean): void {
+		const saveButton = this.contentEl.querySelector<HTMLButtonElement>(
+			".tn-task-modal__button-bar .mod-cta"
+		);
+		if (!saveButton) return;
+		saveButton.disabled = disabled;
+	}
+
+	protected updateIconStates(): void {
+		super.updateIconStates();
+		this.updateHermesRoutingIconState(
+			"hermes-board",
+			this.getHermesBoardTooltip(),
+			this.isHermesCreationTarget()
+		);
+		this.updateHermesRoutingIconState(
+			"hermes-assignee",
+			this.getHermesAssigneeTooltip(),
+			Boolean(normalizeHermesAssignee(this.contexts))
+		);
+	}
+
+	private updateHermesRoutingIconState(
+		dataType: string,
+		tooltip: string,
+		hasValue: boolean
+	): void {
+		const icon = this.actionBar?.querySelector<HTMLElement>(`[data-type="${dataType}"]`);
+		if (!icon) return;
+
+		icon.toggleClass("has-value", hasValue);
+		icon.setAttribute("aria-label", tooltip);
+		icon.setAttribute("data-initial-tooltip", tooltip);
+		setTooltip(icon, tooltip, { placement: "top" });
+	}
+
 	// Override to prevent creating duplicate title input when NLP is enabled
 	protected createTitleInput(container: HTMLElement): void {
 		// Only create title input if NLP is disabled
@@ -787,7 +1575,7 @@ export class TaskCreationModal extends TaskModal {
 		await applyTaskCreationSubtaskAssignments({
 			currentTaskFile,
 			subtaskFiles: this.selectedSubtaskFiles,
-			getTaskInfo: (path) => this.plugin.cacheManager.getTaskInfo(path),
+			getTaskInfo: (path) => getTaskInfoFromNoteFirst(this.plugin, path),
 			buildProjectReference: (targetFile, sourcePath) =>
 				this.buildProjectReference(targetFile, sourcePath),
 			updateTaskProjects: (subtaskInfo, projects) =>
@@ -821,4 +1609,89 @@ export class TaskCreationModal extends TaskModal {
 
 		super.onClose();
 	}
+}
+
+export function withHermesBoardProject(
+	projects: string,
+	knownBoards: readonly string[],
+	selectedBoard: string
+): string {
+	void projects;
+	void knownBoards;
+	return canonicalHermesBoardProjects(selectedBoard);
+}
+
+export function withoutHermesBoardProject(
+	projects: string,
+	knownBoards: readonly string[]
+): string {
+	const projectSet = new Set(knownBoards.map(hermesBoardProject));
+	return splitCommaList(projects)
+		.filter((project) => !projectSet.has(project))
+		.join(", ");
+}
+
+export function addCommaListValue(value: string, item: string): string {
+	const entries = value
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+	if (!entries.includes(item)) {
+		entries.push(item);
+	}
+	return entries.join(", ");
+}
+
+export function removeCommaListValues(value: string, items: readonly string[]): string {
+	const removeSet = new Set(items);
+	return splitCommaList(value)
+		.filter((entry) => !removeSet.has(entry))
+		.join(", ");
+}
+
+export function buildHermesGoalModeCreateIdempotencyKey(
+	board: string,
+	payload: HermesCreateTaskPayload
+): string {
+	const stablePayload = {
+		assignee: payload.assignee ?? null,
+		body: payload.body ?? null,
+		mode: "goal",
+		parents: [...(payload.parents ?? [])].sort(),
+		priority: payload.priority ?? null,
+		status: payload.status ?? null,
+		title: payload.title.trim(),
+		triage: payload.triage === true,
+	};
+	return `tasknotes:goal:${board}:${hashStableString(JSON.stringify(stablePayload))}`;
+}
+
+export function getHermesPartialSuccessNoticeMessage(options: {
+	mode: "goal" | "kanban";
+	title: string;
+	id: string;
+	error: unknown;
+}): string {
+	const cardType = options.mode === "goal" ? "Goal Mode card" : "Hermes card";
+	return `Created ${cardType} ${options.title} (${options.id}), but TaskNotes could not finish syncing the comment or mirror note: ${getTaskCreationFailureNoticeMessage(options.error)}. Do not submit again; use the existing Hermes card or retry after reconciling the mirror note.`;
+}
+
+function hashStableString(value: string): string {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < value.length; i += 1) {
+		hash ^= value.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(36);
+}
+
+function splitCommaList(value: string): string[] {
+	return value
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+}
+
+function uniqueNonEmpty(values: readonly string[]): string[] {
+	return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }

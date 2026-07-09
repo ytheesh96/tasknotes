@@ -43,12 +43,13 @@ export function getAvailableProperties(
 		{ id: "tags", label: "Tags" }, // Special property, not in FieldMapping
 	];
 
+	const userFields = plugin.settings.userFields || [];
+
 	// Add user-defined fields
-	const userProperties =
-		plugin.settings.userFields?.map((field) => ({
-			id: `user:${field.id}`,
-			label: field.displayName,
-		})) || [];
+	const userProperties = userFields.map((field) => ({
+		id: `user:${field.id}`,
+		label: field.displayName,
+	}));
 
 	return [...coreProperties, ...userProperties];
 }

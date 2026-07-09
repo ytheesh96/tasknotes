@@ -56,6 +56,7 @@ export function buildUserPropertyDefinitions(
 	fields: readonly UserFieldDefinition[]
 ): PropertyDefinition[] {
 	const definitions: PropertyDefinition[] = [];
+
 	for (const field of fields) {
 		if (!field || !field.key || !field.displayName) continue;
 

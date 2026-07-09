@@ -233,7 +233,7 @@ The collection path is resolved in order:
 | `mtn complete <task>` | `done` | Mark task as completed |
 | `mtn update <task> [options]` | | Update task fields |
 | `mtn delete <task>` | `rm` | Delete a task |
-| `mtn archive <task>` | | Add archive tag |
+| `mtn archive <task>` | | Set archived field |
 | `mtn search <query>` | | Full-text search |
 | `mtn timer start <task>` | | Start time tracking |
 | `mtn timer stop` | | Stop running timer |

@@ -11,6 +11,7 @@ import { RequestDeduplicator } from "../utils/RequestDeduplicator";
 import { EventRef, setIcon, setTooltip, TFile } from "obsidian";
 import { openTaskSelector } from "../modals/TaskSelectorWithCreateModal";
 import { formatPomodoroTime } from "../utils/pomodoroTime";
+import { getAllTasksFromNoteFirst } from "../utils/taskInfoRead";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/StatusBarService" });
@@ -155,7 +156,7 @@ export class StatusBarService {
 	 */
 	private async getTrackedTasks(): Promise<TaskInfo[]> {
 		// Force a fresh lookup of all tasks to avoid stale data
-		const allTasks = await this.plugin.cacheManager.getAllTasks();
+		const allTasks = await getAllTasksFromNoteFirst(this.plugin);
 
 		return allTasks.filter((task) => {
 			// Skip archived tasks

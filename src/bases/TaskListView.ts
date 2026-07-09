@@ -22,6 +22,7 @@ import {
 } from "../utils/dateUtils";
 import { stringifyUnknown } from "../utils/stringUtils";
 import { VirtualScroller } from "../utils/VirtualScroller";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import {
 	isSortOrderInSortConfig,
 	prepareSortOrderUpdate,
@@ -1414,9 +1415,7 @@ export class TaskListView extends BasesViewBase {
 			// Fire post-write side effects for known TaskInfo property changes
 			if (groupDropPlan.needsGroupUpdate && groupDropPlan.groupByTaskProp) {
 				try {
-					const originalTask =
-						this.taskInfoCache.get(draggedPath) ??
-						(await this.plugin.cacheManager.getTaskInfo(draggedPath));
+					const originalTask = await getTaskInfoFromNoteFirst(this.plugin, draggedPath);
 					if (originalTask) {
 						const updatedTask = buildTaskListDropSideEffectTask(originalTask, {
 							plan: groupDropPlan,

@@ -261,6 +261,7 @@ export async function initializeHTTPAPI(plugin: TaskNotesPlugin): Promise<void> 
 		plugin.taskService.setWebhookNotifier(plugin.apiService);
 		plugin.pomodoroService.setWebhookNotifier(plugin.apiService);
 		await plugin.apiService.start();
+		void plugin.configureHermesTaskNotesSyncForLiveDashboard();
 		showNotice(`TaskNotes API started on port ${plugin.apiService.getPort()}`);
 	} catch (error) {
 		tasknotesLogger.error("Failed to initialize HTTP API:", {
@@ -290,6 +291,7 @@ export async function initializeAfterLayoutReady(plugin: TaskNotesPlugin): Promi
 
 		plugin.cacheManager.initialize();
 		plugin.dependencyCache.initialize();
+		await plugin.dependencyCache.buildIndexes();
 		plugin.filterService.initialize();
 		plugin.statusBarService.initialize();
 		await plugin.notificationService.initialize();

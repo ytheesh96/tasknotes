@@ -22,9 +22,8 @@ Choosing a stable `groupBy` field is the most important design decision. Frequen
 
 Access these options through the Bases view settings panel:
 
-- **Swim Lane**: Optional property for horizontal grouping. Creates a two-dimensional layout where tasks are organized by both column (groupBy) and row (swimLane)
+- **Swim Lane**: Optional property for grouping tasks into labeled sections inside each column
 - **Column Width**: Controls the width of columns in pixels. Range: 200-500px. Default: 280px
-- **Max Swimlane Height**: Caps each swimlane row before the task area scrolls. Range: 300-1200px. Default: 600px
 - **Hide Empty Columns**: When enabled, columns containing no tasks are hidden from the view
 - **Pinned Columns**: Optional comma-separated list of column values that should stay visible even when empty. This is useful with **Hide Empty Columns** when each board needs a small stable subset of shared statuses or categories
 - **WIP Limits**: Advanced JSON configuration for showing per-column work-in-progress limits in column headers
@@ -33,7 +32,7 @@ Access these options through the Bases view settings panel:
 - **Show items in multiple columns**: When enabled (default), tasks with multiple values in list properties (contexts, tags, projects) appear in each individual column. For example, a task with `contexts: [work, call]` appears in both the "work" and "call" columns. When disabled, tasks appear in a single combined column (e.g., "work, call")
 - **Hide top-level subtasks**: When enabled, tasks whose Projects field links to another task in the current filtered board are hidden as standalone cards and remain available through the parent task's expanded subtasks
 - **Column Order**: Managed automatically when dragging column headers. Stores custom column ordering
-- **Swim Lane Order**: Advanced JSON configuration for pinning swimlane rows in a stable order
+- **Swim Lane Order**: Advanced JSON configuration for pinning swimlane sections in a stable order
 A common setup is to keep one board grouped by status and another grouped by project or context, each in a separate `.base` file.
 
 ## Interface Layout
@@ -44,19 +43,20 @@ In standard mode, the Kanban board displays a horizontal row of columns. Each co
 
 Each column includes:
 - A header showing the property value and task count
+- A header checkbox for selecting or clearing all visible tasks in that column
 - A scrollable area containing task cards
 - An add button that opens the TaskNotes creation modal with the column value filled in
 - Drag-and-drop functionality for reordering columns or moving tasks between columns
 
 ### Swimlane Layout
 
-When a `swimLane` property is configured, the board displays a grid layout. The horizontal axis represents columns (groupBy values), and the vertical axis represents swimlanes.
+When a `swimLane` property is configured, the board still displays one horizontal row of columns. Inside each column, cards are grouped into labeled swimlane sections for that column's tasks.
 
-Each swimlane row includes:
-- A label cell showing the swimlane property value and total task count
-- Multiple cells, each representing a column within that swimlane
-- Scrollable cells containing task cards
-- Add buttons inside cells that fill in both the column value and swimlane value
+Each swimlane section includes:
+- A header showing the swimlane property value and task count for that column
+- A header checkbox for selecting or clearing all visible tasks in that section
+- Task cards that scroll with the rest of the column
+- A compact add button that fills in both the column value and swimlane value
 
 To pin swimlanes in a stable order, set the advanced `swimLaneOrder` option to a JSON object keyed by the swimlane property:
 
@@ -130,7 +130,7 @@ The default generated TaskNotes templates use manual-order sorting in places whe
 
 ## Performance Optimization
 
-The Kanban view implements virtual scrolling for columns or swimlane cells containing 30 or more tasks. This optimization reduces memory usage by approximately 85% and maintains 60fps scrolling performance for columns with 200+ tasks.
+The Kanban view implements virtual scrolling for columns containing 30 or more tasks. This optimization reduces memory usage by approximately 85% and maintains 60fps scrolling performance for columns with 200+ tasks.
 
 Virtual scrolling activates automatically based on task count. No configuration is required.
 

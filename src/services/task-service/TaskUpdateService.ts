@@ -102,7 +102,7 @@ export class TaskUpdateService {
 
 	async updateTask(
 		originalTask: TaskInfo,
-		updates: Partial<TaskInfo> & { details?: string }
+		updates: Partial<TaskInfo> & { details?: string; customFrontmatter?: Record<string, unknown> }
 	): Promise<TaskInfo> {
 		const { runtime } = this.deps;
 

@@ -22,6 +22,7 @@ const createMockPlugin = (settingsOverride: Record<string, unknown> = {}) => {
 	return {
 		settings: {
 			taskTag: "task",
+			tasksFolder: "TaskNotes/Tasks",
 			taskIdentificationMethod: "tag",
 			customPriorities: [
 				{ value: "high", label: "High", weight: 0 },
@@ -51,6 +52,34 @@ describe("defaultBasesFiles", () => {
 		expect(template).toContain('name: "Kanban Board"');
 		expect(template).toContain("sort:\n      - column: tasknotes_manual_order\n        direction: DESC");
 		expect(template).toContain("groupBy:\n      property: status");
+	});
+
+	it("generates an agent roster base template", () => {
+		const template = generateBasesFileTemplate(
+			"open-agent-roster-view",
+			createMockPlugin() as any
+		);
+
+		expect(template).toContain('name: "Agent Roster"');
+		expect(template).toContain("type: tasknotesAgentRoster");
+		expect(template).toContain("agentProperty: assignee");
+		expect(template).toContain("boardProperty: projects");
+		expect(template).toContain("submitTag: hermes-submit");
+	});
+
+	it("generates a dedicated Hermes boards base template", () => {
+		const template = generateBasesFileTemplate(
+			"open-hermes-boards-view",
+			createMockPlugin() as any
+		);
+
+		expect(template).toContain('name: "Hermes Boards"');
+		expect(template).toContain("type: tasknotesHermesBoards");
+		expect(template).toContain("boardProperty: projects");
+		expect(template).toContain("agentProperty: contexts");
+		expect(template).toContain("doneStatuses: done,completed");
+		expect(template).toContain('file.inFolder("TaskNotes/Tasks")');
+		expect(template).not.toContain("file.hasTag");
 	});
 
 	it("adds a dedicated manual-order task list view while preserving urgency views", () => {
@@ -155,7 +184,7 @@ describe("defaultBasesFiles", () => {
 		expect(template).not.toContain("note.Task Type");
 	});
 
-	it("uses tag membership when property-based task identification targets tags (#1156)", () => {
+	it("uses task-folder discovery when property-based task identification targets tags (#1156)", () => {
 		const template = generateBasesFileTemplate(
 			"open-tasks-view",
 			createMockPlugin({
@@ -165,7 +194,8 @@ describe("defaultBasesFiles", () => {
 			}) as any
 		);
 
-		expect(template).toContain('file.hasTag("task")');
+		expect(template).toContain('file.inFolder("TaskNotes/Tasks")');
+		expect(template).not.toContain('file.hasTag("task")');
 		expect(template).not.toContain('note["tags"] == "task"');
 	});
 
@@ -212,7 +242,7 @@ describe("defaultBasesFiles", () => {
 			[
 				"filters:",
 				"  and:",
-				'    - file.hasTag("task")',
+				'    - file.inFolder("TaskNotes/Tasks")',
 				'    - file.inFolder("Templates") != true',
 				'    - file.inFolder("8 PKM organization/83 PKM templates/831 Full templates") != true',
 				'    - file.inFolder("Folder \\"Quoted\\"") != true',
@@ -234,9 +264,9 @@ describe("defaultBasesFiles", () => {
 				'name: "Subtasks"',
 				"    filters:",
 				"      and:",
-				'        - file.hasTag("task")',
+				'        - file.inFolder("TaskNotes/Tasks")',
 				'        - file.inFolder("Templates") != true',
-				"        - file.hasLink(this.file)",
+				"        - file.hasLink(this.file) && list(note.projects)",
 			].join("\n")
 		);
 		expect(template).toContain(
@@ -253,9 +283,9 @@ describe("defaultBasesFiles", () => {
 				'name: "Occurrences"',
 				"    filters:",
 				"      and:",
-				'        - file.hasTag("task")',
+				'        - file.inFolder("TaskNotes/Tasks")',
 				'        - file.inFolder("Templates") != true',
-				"        - file.hasLink(this.file)",
+				"        - file.hasLink(this.file) && note.recurrence_parent",
 			].join("\n")
 		);
 		expect((template.match(/file\.inFolder\("Templates"\) != true/g) ?? []).length).toBe(5);

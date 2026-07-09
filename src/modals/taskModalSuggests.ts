@@ -13,6 +13,10 @@ interface ContextSuggestion {
 	toString(): string;
 }
 
+export interface ContextSuggestOptions {
+	getValues?: () => string[] | Promise<string[]>;
+}
+
 function openSuggestionsOnFieldSelection(
 	input: HTMLInputElement,
 	openSuggestions: () => void
@@ -24,11 +28,18 @@ function openSuggestionsOnFieldSelection(
 export class ContextSuggest extends AbstractInputSuggest<ContextSuggestion> {
 	private plugin: TaskNotesPlugin;
 	private input: HTMLInputElement;
+	private options: ContextSuggestOptions;
 
-	constructor(app: App, inputEl: HTMLInputElement, plugin: TaskNotesPlugin) {
+	constructor(
+		app: App,
+		inputEl: HTMLInputElement,
+		plugin: TaskNotesPlugin,
+		options: ContextSuggestOptions = {}
+	) {
 		super(app, inputEl);
 		this.plugin = plugin;
 		this.input = inputEl;
+		this.options = options;
 		openSuggestionsOnFieldSelection(this.input, () => this.open());
 	}
 
@@ -36,7 +47,9 @@ export class ContextSuggest extends AbstractInputSuggest<ContextSuggestion> {
 		const currentValues = this.input.value.split(",").map((value: string) => value.trim());
 		const currentQuery = currentValues[currentValues.length - 1];
 
-		const contexts = this.plugin.cacheManager.getAllContexts();
+		const contexts = this.options.getValues
+			? await this.options.getValues()
+			: this.plugin.cacheManager.getAllContexts();
 		const alreadySelected = currentValues.slice(0, -1);
 		return contexts
 			.filter((context) => context && typeof context === "string")
@@ -191,7 +204,8 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 			.filter((value) => value && typeof value === "string")
 			.filter(
 				(value) =>
-					value.toLowerCase().includes(currentQuery.toLowerCase()) &&
+					(!currentQuery ||
+						value.toLowerCase().includes(currentQuery.toLowerCase())) &&
 					(!isListField || !currentValues.slice(0, -1).includes(value))
 			)
 			.slice(0, 10)
@@ -211,6 +225,7 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 			try {
 				const allFiles = this.plugin.app.vault.getMarkdownFiles();
 				const values = new Set<string>();
+				this.addConfiguredDefaultValues(values);
 
 				for (const file of allFiles) {
 					try {
@@ -268,6 +283,28 @@ export class UserFieldSuggest extends AbstractInputSuggest<UserFieldSuggestion> 
 				})();
 			}, debounceMs);
 		});
+	}
+
+	private addConfiguredDefaultValues(values: Set<string>): void {
+		const add = (item: unknown) => {
+			if (Array.isArray(item)) {
+				item.forEach(add);
+				return;
+			}
+			if (typeof item !== "string" && typeof item !== "number" && typeof item !== "boolean") {
+				return;
+			}
+
+			const candidates =
+				typeof item === "string" ? item.split(",").map((part) => part.trim()) : [String(item)];
+			for (const candidate of candidates) {
+				if (candidate) {
+					values.add(candidate);
+				}
+			}
+		};
+
+		add(this.fieldConfig.defaultValue);
 	}
 
 	public renderSuggestion(suggestion: UserFieldSuggestion, el: HTMLElement): void {

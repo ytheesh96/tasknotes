@@ -5,12 +5,23 @@
  * Jest interference issues and provide robust, reliable tests.
  */
 
-import { TaskCreationModal } from "../../../src/modals/TaskCreationModal";
+import {
+	addCommaListValue,
+	removeCommaListValues,
+	TaskCreationModal,
+	withHermesBoardProject,
+	withoutHermesBoardProject,
+} from "../../../src/modals/TaskCreationModal";
 import { TaskConversionOptions } from "../../../src/types/taskConversion";
 import { TaskInfo } from "../../../src/types";
 import { ParsedTaskData } from "../../../src/utils/TasksPluginParser";
 import { MockObsidian, Notice, TFile } from "../../helpers/obsidian-runtime";
 import type { App } from "obsidian";
+import {
+	HERMES_DASHBOARD_START_COMMAND,
+	HermesAvailabilityService,
+	type HermesAvailabilityHealth,
+} from "../../../src/hermes/hermesAvailabilityService";
 
 // Type helper to safely cast mock App to real App type
 // @ts-ignore: Mock App type is compatible at runtime despite TypeScript warnings
@@ -28,7 +39,7 @@ import * as yaml from "yaml";
 // Keeping behavior aligned with src/utils/helpers.sanitizeTags to avoid false negatives.
 jest.mock("../../../src/utils/helpers", () => ({
 	calculateDefaultDate: jest.fn((option) => {
-		const today = new Date("2025-01-15");
+		const today = new Date(2025, 0, 15);
 		if (option === "today") return format(today, "yyyy-MM-dd");
 		if (option === "tomorrow") {
 			const tomorrow = new Date(today);
@@ -38,7 +49,7 @@ jest.mock("../../../src/utils/helpers", () => ({
 		return "";
 	}),
 	calculateDefaultDateTime: jest.fn((option, time = "none") => {
-		const today = new Date("2025-01-15");
+		const today = new Date(2025, 0, 15);
 		let date = "";
 		if (option === "today") date = format(today, "yyyy-MM-dd");
 		if (option === "tomorrow") {
@@ -118,6 +129,69 @@ jest.mock("../../../src/services/NaturalLanguageParser", () => {
 	};
 });
 
+class TestTaskCreationModal extends TaskCreationModal {
+	renderActionBarForTest(container: HTMLElement): void {
+		this.createActionBar(container);
+	}
+
+	getPrimaryActionTextForTest(): string | undefined {
+		return this.getPrimaryActionText();
+	}
+
+	renderRoutingFieldsForTest(container: HTMLElement): void {
+		this.createProjectsField(container);
+		this.createContextsField(container);
+	}
+
+	setRoutingState(options: { contexts?: string }): void {
+		if (options.contexts !== undefined) {
+			this.contexts = options.contexts;
+		}
+	}
+}
+
+describe("withHermesBoardProject", () => {
+	it("replaces the previous board and removes ordinary projects", () => {
+		expect(
+			withHermesBoardProject(
+				"Hermes/obsidian-os, Research, Review",
+				["obsidian-os", "hhmi"],
+				"hhmi"
+			)
+		).toBe("Hermes/hhmi");
+	});
+
+	it("uses only the board when the project field has ordinary projects", () => {
+		expect(withHermesBoardProject("Research", ["default", "job-hunt"], "default")).toBe(
+			"Hermes/default"
+		);
+	});
+
+	it("removes board projects from a comma list", () => {
+		expect(
+			withoutHermesBoardProject(
+				"Hermes/hhmi, Research, Hermes/obsidian-os",
+				["hhmi", "obsidian-os"]
+			)
+		).toBe("Research");
+	});
+});
+
+describe("TaskCreationModal comma-list helpers", () => {
+	it("adds a value only once", () => {
+		expect(addCommaListValue("task, hermes-kanban", "hermes-kanban")).toBe(
+			"task, hermes-kanban"
+		);
+		expect(addCommaListValue("task", "hermes-kanban")).toBe("task, hermes-kanban");
+	});
+
+	it("removes selected values", () => {
+		expect(removeCommaListValues("task, hermes-kanban, review", ["hermes-kanban"])).toBe(
+			"task, review"
+		);
+	});
+});
+
 describe("TaskCreationModal - Fixed Implementation", () => {
 	let mockApp: App;
 	let mockPlugin: any;
@@ -131,10 +205,13 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 		mockApp = createMockApp(MockObsidian.createMockApp());
 
 		// Mock plugin with all required properties
-		mockPlugin = {
-			app: mockApp,
-			selectedDate: new Date("2025-01-15"),
-			settings: {
+			mockPlugin = {
+				app: mockApp,
+				selectedDate: new Date("2025-01-15"),
+				startHermesDashboard: jest.fn(async () =>
+					new HermesAvailabilityService().startDashboard()
+				),
+				settings: {
 				defaultTaskPriority: "normal",
 				defaultTaskStatus: "open",
 				taskTag: "task",
@@ -266,6 +343,64 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 			expect((modal as any).priority).toBe("normal");
 			expect((modal as any).status).toBe("open");
 			expect((modal as any).scheduledDate).toBe("2025-01-15");
+		});
+
+		it("defaults generic Hermes-board creation to the live Hermes target", async () => {
+			modal = new TaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				prePopulatedValues: {
+					title: "Kanban toolbar task",
+					projects: ["Hermes/default"],
+					tags: ["review"],
+				},
+			});
+
+			await (modal as any).initializeFormData();
+
+			expect((modal as any).selectedCreationTarget).toBe("hermes:default");
+			expect((modal as any).selectedHermesBoard).toBe("default");
+			expect((modal as any).projects).toBe("Hermes/default");
+			expect((modal as any).tags).toBe("review");
+		});
+
+		it("uses Hermes-specific title and primary action for Hermes targets", () => {
+			const hermesModal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				creationTargetPicker: {
+					boards: ["developer"],
+					selectedTarget: "hermes:developer",
+				},
+			});
+
+			expect(hermesModal.getModalTitle()).toBe("Submit to Hermes");
+			expect(hermesModal.getPrimaryActionTextForTest()).toBe("Submit to Hermes");
+			hermesModal.close();
+		});
+
+		it("lets explicit modal title and primary action text override Hermes defaults", () => {
+			const hermesModal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				modalTitle: "Submit to Hermes smoke",
+				saveButtonText: "Submit to Hermes",
+				creationTargetPicker: {
+					boards: ["developer"],
+					selectedTarget: "hermes:developer",
+				},
+			});
+
+			expect(hermesModal.getModalTitle()).toBe("Submit to Hermes smoke");
+			expect(hermesModal.getPrimaryActionTextForTest()).toBe("Submit to Hermes");
+			hermesModal.close();
+		});
+
+		it("keeps local creation copy for non-Hermes targets", () => {
+			const localModal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				creationTargetPicker: {
+					boards: ["developer"],
+					selectedTarget: "default",
+				},
+			});
+
+			expect(localModal.getModalTitle()).toBe("modals.taskCreation.title");
+			expect(localModal.getPrimaryActionTextForTest()).toBeUndefined();
+			localModal.close();
 		});
 
 		it("should apply task creation defaults", async () => {
@@ -407,6 +542,68 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 			expect(Notice).toHaveBeenCalledWith('Task "Test Task" created successfully');
 		});
 
+		it("routes Hermes board prefilled tasks through Hermes even when the modal target is local", async () => {
+			(modal as any).title = "Kanban toolbar task";
+			(modal as any).status = "triage";
+			(modal as any).priority = "normal";
+			(modal as any).projects = "Hermes/default";
+			(modal as any).tags = "review";
+			(modal as any).frequencyMode = "NONE";
+			const hermesCreate = jest
+				.spyOn(modal as any, "handleHermesApiCreate")
+				.mockResolvedValue(undefined);
+
+			await modal.handleSave();
+
+			expect(hermesCreate).toHaveBeenCalledWith(
+				{},
+				expect.objectContaining({
+					board: "default",
+					taskData: expect.objectContaining({
+						title: "Kanban toolbar task",
+						projects: ["Hermes/default"],
+						tags: expect.not.arrayContaining(["hermes-kanban"]),
+					}),
+				})
+			);
+			expect(mockPlugin.taskService.createTask).not.toHaveBeenCalled();
+		});
+
+		it("should ignore duplicate submits while creation is in flight", async () => {
+			let resolveCreateTask!: (value: {
+				file: TFile;
+				content: string;
+				taskInfo: Partial<TaskInfo>;
+			}) => void;
+			mockPlugin.taskService.createTask.mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						resolveCreateTask = resolve;
+					})
+			);
+			(modal as any).title = "Double-click guarded task";
+			(modal as any).frequencyMode = "NONE";
+
+			const firstSubmit = modal.handleSave();
+			const secondSubmit = modal.handleSave();
+
+			await Promise.resolve();
+
+			expect(mockPlugin.taskService.createTask).toHaveBeenCalledTimes(1);
+			resolveCreateTask({
+				file: new TFile("double-click-guarded-task.md"),
+				content: "# Double-click guarded task",
+				taskInfo: {
+					title: "Double-click guarded task",
+					status: "open",
+					priority: "normal",
+				},
+			});
+			await Promise.all([firstSubmit, secondSubmit]);
+
+			expect(mockPlugin.taskService.createTask).toHaveBeenCalledTimes(1);
+		});
+
 		it("should handle task creation errors", async () => {
 			(modal as any).title = "Test Task";
 			mockPlugin.taskService.createTask.mockRejectedValue(new Error("Creation failed"));
@@ -541,6 +738,113 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 		});
 	});
 
+	describe("Hermes availability controls", () => {
+			it("adds Hermes board and assignee icons before the standard create action icons", () => {
+				modal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+					hermesBoardPicker: { boards: ["job-hunt-team"], selectedBoard: "job-hunt-team" },
+				});
+			(modal as TestTaskCreationModal).setRoutingState({ contexts: "orchestrator" });
+			const container = document.createElement("div");
+
+			(modal as TestTaskCreationModal).renderActionBarForTest(container);
+
+			const types = Array.from(container.querySelectorAll<HTMLElement>(".action-icon"))
+				.map((icon) => icon.dataset.type)
+				.filter((type): type is string => Boolean(type));
+			expect(types).toEqual([
+				"hermes-board",
+				"hermes-assignee",
+				"status",
+				"priority",
+				"due-date",
+				"scheduled-date",
+				"recurrence",
+				"reminders",
+			]);
+			const boardIcon = container.querySelector<HTMLElement>('[data-type="hermes-board"]')!;
+			const assigneeIcon = container.querySelector<HTMLElement>(
+				'[data-type="hermes-assignee"]'
+			)!;
+			expect(boardIcon.classList.contains("has-value")).toBe(true);
+			expect(boardIcon.getAttribute("data-tooltip")).toBe("Board: job-hunt-team");
+				expect(assigneeIcon.classList.contains("has-value")).toBe(true);
+				expect(assigneeIcon.getAttribute("data-tooltip")).toBe("Assignee: orchestrator");
+			});
+
+			it("does not render duplicate Hermes board and assignee fields below the title area", () => {
+				modal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin, {
+					hermesBoardPicker: { boards: ["job-hunt-team"], selectedBoard: "job-hunt-team" },
+				});
+				const container = document.createElement("div");
+
+				(modal as TestTaskCreationModal).renderRoutingFieldsForTest(container);
+
+				expect(container.textContent).not.toContain("Board");
+				expect(container.textContent).not.toContain("Assignee");
+				expect(container.querySelector("select")).toBeNull();
+				expect(container.querySelector("input")).toBeNull();
+			});
+
+			it("keeps ordinary create modals on the standard action icon set", () => {
+				modal = new TestTaskCreationModal(createMockApp(mockApp), mockPlugin);
+				const container = document.createElement("div");
+
+			(modal as TestTaskCreationModal).renderActionBarForTest(container);
+
+			const types = Array.from(container.querySelectorAll<HTMLElement>(".action-icon"))
+				.map((icon) => icon.dataset.type)
+				.filter((type): type is string => Boolean(type));
+			expect(types).toEqual([
+				"status",
+				"priority",
+				"due-date",
+				"scheduled-date",
+				"recurrence",
+				"reminders",
+			]);
+			expect(container.querySelector('[data-type="hermes-board"]')).toBeNull();
+			expect(container.querySelector('[data-type="hermes-assignee"]')).toBeNull();
+		});
+
+		it("refreshes live board and assignee options after desktop startup succeeds", async () => {
+			const startDashboard = jest
+				.spyOn(HermesAvailabilityService.prototype, "startDashboard")
+				.mockResolvedValue({
+					started: true,
+					pid: 9119,
+					command: HERMES_DASHBOARD_START_COMMAND,
+					health: hermesHealth({ status: "connected", mode: "live", canStart: true }),
+				});
+			const getOptions = jest.spyOn(HermesAvailabilityService.prototype, "getOptions").mockResolvedValue({
+				boards: ["live-board", "ops"],
+				assignees: ["orchestrator", "peacock"],
+				statuses: ["triage", "todo", "running", "blocked", "done"],
+				health: hermesHealth({ status: "connected", mode: "live", canStart: true }),
+			});
+			modal = new TaskCreationModal(createMockApp(mockApp), mockPlugin, {
+				hermesBoardPicker: { boards: ["cached-board"], selectedBoard: "cached-board" },
+			});
+			const selectEl = document.createElement("select");
+			(modal as any).hermesBoardSelectEl = selectEl;
+
+			const result = await modal.startHermesDashboardAndRefreshOptions();
+
+			expect(startDashboard).toHaveBeenCalledTimes(1);
+			expect(getOptions).toHaveBeenCalledTimes(1);
+			const [refreshedBoard, refreshOptions] = getOptions.mock.calls[0];
+			expect(refreshedBoard).toBe("cached-board");
+			expect(refreshOptions?.transport).toBeUndefined();
+			expect(result.health.status).toBe("connected");
+			expect((modal as any).hermesBoardOptions).toEqual(["live-board", "ops"]);
+			expect((modal as any).hermesAssigneeOptions).toEqual(["orchestrator", "peacock"]);
+			expect(Array.from(selectEl.options).map((option) => option.value)).toEqual([
+				"live-board",
+				"ops",
+			]);
+			expect(selectEl.value).toBe("live-board");
+		});
+	});
+
 	describe("Real Library Integration", () => {
 		it("should use real date-fns for date operations", () => {
 			const testDate = new Date(2025, 0, 15, 15, 30, 0);
@@ -609,3 +913,14 @@ describe("TaskCreationModal - Fixed Implementation", () => {
 		});
 	});
 });
+
+function hermesHealth(overrides: Partial<HermesAvailabilityHealth>): HermesAvailabilityHealth {
+	return {
+		status: "connected",
+		mode: "live",
+		rootUrl: "http://127.0.0.1:9119/",
+		apiUrl: "http://127.0.0.1:9119/api/plugins/kanban",
+		canStart: true,
+		...overrides,
+	};
+}

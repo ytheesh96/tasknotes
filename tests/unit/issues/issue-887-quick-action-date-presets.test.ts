@@ -26,6 +26,7 @@ function createPlugin(): TaskNotesPlugin {
 		},
 		cacheManager: {
 			getTaskInfo: jest.fn(),
+			getTaskInfoFromFrontmatter: jest.fn(),
 		},
 		updateTaskProperty: jest.fn(),
 		getActiveTimeSession: jest.fn(() => null),
@@ -44,14 +45,14 @@ function createModal(task: TaskInfo, plugin: TaskNotesPlugin): TaskActionPalette
 		new App() as never,
 		task,
 		plugin,
-		new Date("2026-05-18T12:00:00+10:00")
+		new Date("2026-05-18T12:00:00")
 	);
 }
 
 describe("Issue #887: quick-action date presets", () => {
 	beforeEach(() => {
 		jest.useFakeTimers();
-		jest.setSystemTime(new Date("2026-05-18T12:00:00+10:00"));
+		jest.setSystemTime(new Date("2026-05-18T12:00:00"));
 	});
 
 	afterEach(() => {
@@ -119,6 +120,44 @@ describe("Issue #887: quick-action date presets", () => {
 
 		expect(plugin.updateTaskProperty).toHaveBeenCalledWith(task, "scheduled", "2026-05-19");
 		expect(plugin.openScheduledDateModal).not.toHaveBeenCalled();
+	});
+
+	it("executes actions with note frontmatter task data before pending cache data", async () => {
+		const staleTask = createTask({ title: "Stale pending title", status: "open" });
+		const frontmatterTask = createTask({ title: "Fresh frontmatter title", status: "done" });
+		const plugin = createPlugin();
+		(plugin.cacheManager.getTaskInfoFromFrontmatter as jest.Mock).mockResolvedValue(
+			frontmatterTask
+		);
+		(plugin.cacheManager.getTaskInfo as jest.Mock).mockResolvedValue(staleTask);
+		const modal = createModal(staleTask, plugin);
+		const execute = jest.fn(async () => undefined);
+
+		await (modal as unknown as {
+			executeAction: (action: { id: string; title: string; description: string; icon: string; category: "other"; keywords: string[]; isApplicable: () => boolean; execute: typeof execute }, event: MouseEvent) => Promise<void>;
+		}).executeAction(
+			{
+				id: "test-action",
+				title: "Test action",
+				description: "Test action",
+				icon: "check",
+				category: "other",
+				keywords: [],
+				isApplicable: () => true,
+				execute,
+			},
+			new MouseEvent("click")
+		);
+
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			staleTask.path
+		);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+		expect(execute).toHaveBeenCalledWith(
+			frontmatterTask,
+			plugin,
+			new Date("2026-05-18T12:00:00")
+		);
 	});
 
 	it("omits a preset when the task already has that date", () => {

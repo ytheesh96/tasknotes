@@ -7,6 +7,8 @@ import {
 	loadPluginSettingsDataWithRetry,
 	pluginDataFileExists,
 } from "../../../src/settings/settingsPersistence";
+import { HERMES_ACTIVITY_USER_FIELDS } from "../../../src/hermes/hermesActivityFrontmatter";
+import { createDefaultFieldConfig } from "../../../src/utils/fieldConfigDefaults";
 import type { TaskNotesSettings } from "../../../src/types/settings";
 
 function createHost(options: {
@@ -131,6 +133,183 @@ describe("settings persistence helpers", () => {
 		expect(shouldPersistMigratedSettings).toBe(true);
 	});
 
+	it("defaults Hermes Kanban transport to CLI unless dashboard API is explicitly selected", () => {
+		expect(buildSettingsFromLoadedData({}).settings.hermesKanbanTransport).toBe("kanban-cli");
+		expect(
+			buildSettingsFromLoadedData({ hermesKanbanTransport: "invalid" }).settings
+				.hermesKanbanTransport
+		).toBe("kanban-cli");
+		expect(
+			buildSettingsFromLoadedData({ hermesKanbanTransport: "dashboard-api" }).settings
+				.hermesKanbanTransport
+		).toBe("dashboard-api");
+	});
+
+	it("normalizes persisted statuses to the Hermes Kanban vocabulary", () => {
+		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData({
+			defaultTaskStatus: "open",
+			customStatuses: [
+				{
+					id: "none",
+					value: "none",
+					label: "None",
+					color: "#cccccc",
+					isCompleted: false,
+					order: 0,
+					autoArchive: false,
+					autoArchiveDelay: 5,
+				},
+				{
+					id: "open",
+					value: "open",
+					label: "Open",
+					color: "#808080",
+					isCompleted: false,
+					order: 1,
+					autoArchive: false,
+					autoArchiveDelay: 5,
+				},
+				{
+					id: "triage",
+					value: "triage",
+					label: "Triage",
+					color: "#9ca3af",
+					isCompleted: false,
+					order: 2,
+					autoArchive: false,
+					autoArchiveDelay: 5,
+				},
+				{
+					id: "done",
+					value: "done",
+					label: "Done",
+					color: "#16a34a",
+					isCompleted: true,
+					order: 3,
+					autoArchive: false,
+					autoArchiveDelay: 5,
+				},
+			],
+		});
+
+		expect(settings.defaultTaskStatus).toBe("triage");
+		expect(settings.customStatuses.map((status) => status.value)).toEqual([
+			"triage",
+			"todo",
+			"ready",
+			"running",
+			"blocked",
+			"done",
+		]);
+		expect(shouldPersistMigratedSettings).toBe(true);
+	});
+
+	it("preserves a supported persisted default status", () => {
+		const { settings } = buildSettingsFromLoadedData({
+			defaultTaskStatus: "ready",
+			customStatuses: [...DEFAULT_SETTINGS.customStatuses],
+		});
+
+		expect(settings.defaultTaskStatus).toBe("ready");
+	});
+
+	it("removes legacy Hermes assignee settings on load", () => {
+		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData({
+			userFields: [
+				{ id: "assignee", key: "assignee", displayName: "Assignee", type: "list" },
+				{ id: "review", key: "review", displayName: "Review", type: "text" },
+			],
+			modalFieldsConfig: {
+				version: 1,
+				groups: [],
+				fields: [
+					{
+						id: "assignee",
+						fieldType: "user",
+						group: "routing",
+						displayName: "Assignee",
+						visibleInCreation: false,
+						visibleInEdit: true,
+						order: 0,
+						enabled: true,
+					},
+					{
+						id: "contexts",
+						fieldType: "core",
+						group: "routing",
+						displayName: "Contexts",
+						visibleInCreation: true,
+						visibleInEdit: true,
+						order: 1,
+						enabled: true,
+					},
+				],
+			},
+			nlpTriggers: {
+				triggers: [
+					{ propertyId: "assignee", trigger: "-", enabled: true },
+					{ propertyId: "contexts", trigger: "@", enabled: true },
+				],
+			},
+			defaultVisibleProperties: ["status", "user:assignee", "contexts"],
+			inlineVisibleProperties: ["status", "user:assignee"],
+		});
+
+		expect(settings.userFields.map((field) => field.id)).toEqual([
+			"review",
+			...HERMES_ACTIVITY_USER_FIELDS.map((field) => field.id),
+		]);
+		expect(settings.modalFieldsConfig?.fields.map((field) => field.id)).toEqual([
+			"contexts",
+			...HERMES_ACTIVITY_USER_FIELDS.map((field) => field.id),
+		]);
+		expect(settings.nlpTriggers.triggers.map((trigger) => trigger.propertyId)).toEqual([
+			"contexts",
+		]);
+		expect(settings.defaultVisibleProperties).toEqual(["status", "contexts"]);
+		expect(settings.inlineVisibleProperties).toEqual(["status"]);
+		expect(shouldPersistMigratedSettings).toBe(true);
+	});
+
+	it("deduplicates persisted Hermes activity modal and user fields on load", () => {
+		const activityField = HERMES_ACTIVITY_USER_FIELDS[0];
+		const modalFieldsConfig = createDefaultFieldConfig();
+		const firstActivityModalField = modalFieldsConfig.fields.find(
+			(field) => field.id === activityField.id
+		);
+
+		expect(firstActivityModalField).toBeDefined();
+
+		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData({
+			userFields: [
+				{ ...activityField, displayName: "Activity Feed" },
+				{ ...activityField, displayName: "Duplicate Activity Feed" },
+			],
+			modalFieldsConfig: {
+				...modalFieldsConfig,
+				fields: [
+					...modalFieldsConfig.fields,
+					{
+						...firstActivityModalField!,
+						displayName: "Duplicate Activity Feed",
+						order: 99,
+					},
+				],
+			},
+		});
+
+		expect(
+			settings.userFields.filter((field) => field.id === activityField.id)
+		).toHaveLength(1);
+		expect(
+			settings.modalFieldsConfig?.fields.filter((field) => field.id === activityField.id)
+		).toHaveLength(1);
+		expect(settings.modalFieldsConfig?.fields.map((field) => field.id)).toEqual(
+			Array.from(new Set(settings.modalFieldsConfig?.fields.map((field) => field.id)))
+		);
+		expect(shouldPersistMigratedSettings).toBe(true);
+	});
+
 	it("derives the normal task creation parent-note project setting from the legacy shared setting", () => {
 		const legacyTaskCreationDefaults: Partial<TaskNotesSettings["taskCreationDefaults"]> = {
 			...DEFAULT_SETTINGS.taskCreationDefaults,
@@ -138,6 +317,7 @@ describe("settings persistence helpers", () => {
 		};
 		delete legacyTaskCreationDefaults.useParentNoteForTaskCreation;
 		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData({
+			...DEFAULT_SETTINGS,
 			fieldMapping: DEFAULT_SETTINGS.fieldMapping,
 			calendarViewSettings: DEFAULT_SETTINGS.calendarViewSettings,
 			commandFileMapping: DEFAULT_SETTINGS.commandFileMapping,
@@ -152,9 +332,12 @@ describe("settings persistence helpers", () => {
 
 	it("preserves an explicit normal task creation parent-note project setting", () => {
 		const { settings, shouldPersistMigratedSettings } = buildSettingsFromLoadedData({
+			...DEFAULT_SETTINGS,
 			fieldMapping: DEFAULT_SETTINGS.fieldMapping,
 			calendarViewSettings: DEFAULT_SETTINGS.calendarViewSettings,
 			commandFileMapping: DEFAULT_SETTINGS.commandFileMapping,
+			userFields: HERMES_ACTIVITY_USER_FIELDS,
+			modalFieldsConfig: createDefaultFieldConfig(),
 			taskCreationDefaults: {
 				...DEFAULT_SETTINGS.taskCreationDefaults,
 				useParentNoteAsProject: true,
@@ -164,7 +347,9 @@ describe("settings persistence helpers", () => {
 
 		expect(settings.taskCreationDefaults.useParentNoteAsProject).toBe(true);
 		expect(settings.taskCreationDefaults.useParentNoteForTaskCreation).toBe(false);
-		expect(shouldPersistMigratedSettings).toBe(false);
+		// The explicit split setting is preserved; this fixture still persists once
+		// because Hermes normalizers canonicalize activity field defaults on load.
+		expect(shouldPersistMigratedSettings).toBe(true);
 	});
 
 	it("merges only known settings keys into saved data while preserving other persisted data", () => {

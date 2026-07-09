@@ -756,9 +756,9 @@ export const en: TranslationTree = {
 					description: "Default priority for new tasks",
 				},
 				defaultContexts: {
-					name: "Default contexts",
-					description: "Comma-separated list of default contexts (e.g., @home, @work)",
-					placeholder: "@home, @work",
+					name: "Default assignee",
+					description: "Default profile for new tasks",
+					placeholder: "orchestrator",
 				},
 				defaultTags: {
 					name: "Default tags",
@@ -766,11 +766,11 @@ export const en: TranslationTree = {
 					placeholder: "important, urgent",
 				},
 				defaultProjects: {
-					name: "Default projects",
-					description: "Default project links for new tasks",
-					selectButton: "Select projects",
-					selectTooltip: "Choose project notes to link by default",
-					removeTooltip: "Remove {name} from default projects",
+					name: "Default board",
+					description: "Default board for new tasks",
+					selectButton: "Select board",
+					selectTooltip: "Choose a board",
+					removeTooltip: "Remove {name} from default boards",
 				},
 				useParentNoteForTaskCreation: {
 					name: "Use active note as project for new tasks",
@@ -1026,7 +1026,8 @@ export const en: TranslationTree = {
 				dateProperties: "Date properties",
 				datePropertiesDesc: "Configure when tasks are due and scheduled.",
 				organizationProperties: "Organization properties",
-				organizationPropertiesDesc: "Organize tasks with contexts, projects, and tags.",
+				organizationPropertiesDesc:
+					"Route tasks with assignees, boards, and tags.",
 				taskDetails: "Task details",
 				taskDetailsDesc:
 					"Additional details like time estimates, recurrence, and reminders.",
@@ -1050,7 +1051,7 @@ export const en: TranslationTree = {
 				status: {
 					name: "Status",
 					description:
-						"Tracks the current state of a task (e.g., todo, in-progress, done). Status determines whether a task appears as completed and can trigger auto-archiving.",
+						"Tracks the current state of a task (e.g., triage, running, done). Status determines whether a task appears as completed and can trigger auto-archiving.",
 				},
 				priority: {
 					name: "Priority",
@@ -1068,19 +1069,24 @@ export const en: TranslationTree = {
 						"When you plan to work on a task. Unlike due date, this represents your intended start time. Tasks appear on the calendar at their scheduled date/time.",
 				},
 				contexts: {
-					name: "Contexts",
+					name: "Assignee",
 					description:
-						"Locations or conditions where a task can be done (e.g., @home, @office, @phone). Useful for filtering tasks by your current situation. Stored as a list.",
+						"Hermes profile responsible for the task. Stored in the native contexts property.",
 				},
 				projects: {
-					name: "Projects",
+					name: "Board",
 					description:
-						"Links to project notes this task belongs to. Stored as wikilinks (e.g., [[Project Name]]). Tasks can belong to multiple projects.",
+						"Hermes board that owns the task. Stored in the native projects property as Hermes/<board>.",
 				},
 				tags: {
 					name: "Tags",
 					description:
 						"Native Obsidian tags for categorizing tasks. These are stored in the tags frontmatter property and work with Obsidian's tag features.",
+				},
+				assignee: {
+					name: "Assignee",
+					description:
+						"Person or worker responsible for the task. Used for filtering, sorting, and grouping tasks across TaskNotes and Bases-powered views.",
 				},
 				timeEstimate: {
 					name: "Time estimate",
@@ -1123,9 +1129,9 @@ export const en: TranslationTree = {
 						"Timestamp when the task was marked complete. Set automatically when status changes to a completed state.",
 				},
 				archiveTag: {
-					name: "Archive tag",
+					name: "Archived field",
 					description:
-						"Tag added to tasks when archived. Used to identify archived tasks and can trigger file movement to archive folder.",
+						"Frontmatter field used to store whether a task is archived. Archived tasks can move to the archive folder.",
 				},
 				timeEntries: {
 					name: "Time entries",
@@ -1176,12 +1182,12 @@ export const en: TranslationTree = {
 				valuesHeader: "Priority values",
 			},
 			projectsCard: {
-				defaultProjects: "Default projects:",
+				defaultProjects: "Default board:",
 				useParentNoteForTaskCreation: "Use active note for new tasks:",
 				useParentNoteForInlineTasks: "Use parent note for inline/instant conversion:",
 				useParentHeader: "Use parent heading as project:",
 				inheritParentTaskProperties: "Inherit parent task properties for subtasks:",
-				noDefaultProjects: "No default projects selected",
+				noDefaultProjects: "No default board selected",
 				autosuggestFilters: "Autosuggest filters",
 				customizeDisplay: "Customize display",
 				filtersOn: "Filters on",
@@ -1208,8 +1214,8 @@ export const en: TranslationTree = {
 					"Customize the status options available for your tasks. These statuses control the task lifecycle and determine when tasks are considered complete.",
 				howTheyWork: {
 					title: "How statuses work:",
-					value: 'Value: The internal identifier stored in your task files (e.g., "in-progress")',
-					label: 'Label: The display name shown in the interface (e.g., "In Progress")',
+					value: 'Value: The internal identifier stored in your task files (e.g., "running")',
+					label: 'Label: The display name shown in the interface (e.g., "Running")',
 					color: "Color: Visual indicator color for the status dot and badges",
 					icon: 'Icon: Optional Lucide icon name to display instead of colored dot (e.g., "check", "circle", "clock"). Browse icons at lucide.dev',
 					completed:
@@ -1240,8 +1246,8 @@ export const en: TranslationTree = {
 					delayMinutes: "Delay (minutes):",
 				},
 				placeholders: {
-					value: "in-progress",
-					label: "In progress",
+					value: "running",
+					label: "Running",
 					icon: "check, circle, clock",
 					nextStatusDefault: "Use status order",
 				},
@@ -1310,14 +1316,14 @@ export const en: TranslationTree = {
 					priority: "Priority",
 					due: "Due date",
 					scheduled: "Scheduled date",
-					contexts: "Contexts",
-					projects: "Projects",
+					contexts: "Assignee",
+					projects: "Board",
 					timeEstimate: "Time estimate",
 					recurrence: "Recurrence",
 					dateCreated: "Created date",
 					completedDate: "Completed date",
 					dateModified: "Modified date",
-					archiveTag: "Archive tag",
+					archiveTag: "Archived field",
 					timeEntries: "Time entries",
 					completeInstances: "Complete instances",
 					blockedBy: "Blocked by",
@@ -1396,8 +1402,8 @@ export const en: TranslationTree = {
 					completedDate: "Completed date",
 					createdDate: "Created date",
 					modifiedDate: "Modified date",
-					projects: "Projects",
-					contexts: "Contexts",
+					projects: "Board",
+					contexts: "Assignee",
 					tags: "Tags",
 					blocked: "Blocked",
 					blocking: "Blocking",
@@ -1708,6 +1714,36 @@ export const en: TranslationTree = {
 			},
 		},
 		integrations: {
+			hermes: {
+				header: "Hermes",
+				description:
+					"Configure the local hermes launcher used by review activity and sync helpers. Task notes still save normally when hermes is offline.",
+				startCommand: {
+					name: "Start command",
+					description:
+						"Command or helper run by this plugin when you use the start command.",
+				},
+				autoStart: {
+					name: "Start hermes after task changes",
+					description:
+						"When enabled, editing a hermes-linked task note can quietly start hermes if it is offline.",
+				},
+				kanbanTransport: {
+					name: "Kanban task creation transport",
+					description:
+						"Choose whether TaskNotes creates hermes Kanban cards through the dashboard API or by invoking the local hermes CLI.",
+					options: {
+						dashboardApi: "Dashboard API",
+						kanbanCli: "Local hermes CLI",
+					},
+				},
+				startNow: {
+					name: "Start hermes",
+					description:
+						"Run the configured command now. This is optional and only affects hermes activity features.",
+					buttonText: "Start",
+				},
+			},
 			mobileCalendar: {
 				disable: {
 					name: "Disable calendar integrations on mobile",
@@ -1742,6 +1778,8 @@ export const en: TranslationTree = {
 					commands: {
 						miniCalendar: "Open mini calendar view",
 						kanban: "Open Kanban view",
+						agentRoster: "Open agent roster view",
+						hermesBoards: "Open hermes boards view",
 						tasks: "Open tasks view",
 						advancedCalendar: "Open advanced calendar view",
 						agenda: "Open agenda view",
@@ -2087,8 +2125,8 @@ export const en: TranslationTree = {
 					scheduled: "Scheduled: {value}",
 					timeEstimate: "Time Estimate: {value}",
 					tags: "Tags: {value}",
-					contexts: "Contexts: {value}",
-					projects: "Projects: {value}",
+					contexts: "Assignee: {value}",
+					projects: "Board: {value}",
 					openInObsidian: "Open in Obsidian",
 				},
 			},
@@ -2389,10 +2427,14 @@ export const en: TranslationTree = {
 		openAgendaView: "Open agenda view",
 		openPomodoroView: "Open Pomodoro timer",
 		openKanbanView: "Open Kanban board",
+		openAgentRosterView: "Open agent roster",
+		openHermesBoardsView: "Open hermes boards",
 		updateDefaultBaseFiles: "Update default base files",
 		openPomodoroStats: "Open Pomodoro statistics",
 		openStatisticsView: "Open task & project statistics",
 		createNewTask: "Create new task",
+		createHermesGoalModeCard: "Create goal task",
+		startHermes: "Start hermes",
 		convertCurrentNoteToTask: {
 			name: "Convert current note to task",
 			noActiveFile: "No active file to convert",
@@ -2607,12 +2649,12 @@ export const en: TranslationTree = {
 			titleDetailedPlaceholder: "Task title...",
 			detailsLabel: "Details",
 			detailsPlaceholder: "Add more details...",
-			projectsLabel: "Projects",
-			projectsAdd: "Add project",
-			projectsTooltip: "Select a project note using fuzzy search",
-			projectsRemoveTooltip: "Remove project",
-			contextsLabel: "Contexts",
-			contextsPlaceholder: "context1, context2",
+			projectsLabel: "Board",
+			projectsAdd: "Add board",
+			projectsTooltip: "Select a board",
+			projectsRemoveTooltip: "Remove board",
+			contextsLabel: "Assignee",
+			contextsPlaceholder: "orchestrator",
 			tagsLabel: "Tags",
 			tagsPlaceholder: "tag1, tag2",
 			timeEstimateLabel: "Time estimate (minutes)",
@@ -2633,10 +2675,10 @@ export const en: TranslationTree = {
 				removeTaskTooltip: "Remove task",
 			},
 			organization: {
-				projects: "Projects",
+				projects: "Board",
 				subtasks: "Subtasks",
-				addToProject: "Add to project",
-				addToProjectButton: "Add to project",
+				addToProject: "Add to board",
+				addToProjectButton: "Add to board",
 				addSubtasks: "Add subtasks",
 				addSubtasksButton: "Add subtask",
 				addSubtasksTooltip: "Select tasks to make them subtasks of this task",
@@ -3006,13 +3048,13 @@ export const en: TranslationTree = {
 			},
 			organization: {
 				title: "Organization",
-				contexts: "Contexts",
-				addContext: "Add context…",
-				contextPlaceholder: "context",
+				contexts: "Assignee",
+				addContext: "Set assignee...",
+				contextPlaceholder: "orchestrator",
 				contextSelected: "✓ {context}",
-				clearContexts: "Clear contexts",
-				projects: "Projects",
-				addToProject: "Add to project…",
+				clearContexts: "Clear assignee",
+				projects: "Board",
+				addToProject: "Add to board...",
 				subtasks: "Subtasks",
 				addSubtasks: "Add subtasks…",
 				notices: {
@@ -3022,8 +3064,8 @@ export const en: TranslationTree = {
 					addedAsSubtask: "Added {subtask} as subtask of {parent}",
 					addToProjectFailed: "Failed to add task to project",
 					addAsSubtaskFailed: "Failed to add task as subtask",
-					updateContextsFailed: "Failed to update contexts",
-					projectSelectFailed: "Failed to open project selector",
+					updateContextsFailed: "Failed to update assignee",
+					projectSelectFailed: "Failed to open board selector",
 					subtaskSelectFailed: "Failed to open subtask selector",
 					noEligibleSubtasks: "No eligible tasks available to assign as subtasks",
 					currentTaskNotFound: "Current task file not found",
@@ -3439,8 +3481,8 @@ export const en: TranslationTree = {
 				completedDate: "Completed date",
 				createdDate: "Created date",
 				modifiedDate: "Modified date",
-				projects: "Projects",
-				contexts: "Contexts",
+				projects: "Board",
+				contexts: "Assignee",
 				tags: "Tags",
 				blocked: "Blocked",
 				blocking: "Blocking",

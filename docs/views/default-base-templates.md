@@ -17,7 +17,8 @@ Generated `.base` files are regular vault files. When you change task identifica
 
 The examples below assume:
 
-- **Task identification**: Tag-based using `#task`
+- **Task scope**: Notes under the default task folder, `TaskNotes/Tasks`
+- **Task identification setting**: Default tag mode may still add/hide `#task` on individual tasks, but generated Bases templates use the task folder for scope so unrelated `#task` labels outside the folder are preserved
 - **Field mapping**: Default property names (e.g., `status`, `due`, `scheduled`, `projects`, `contexts`)
 - **Statuses**: `none`, `open`, `in-progress`, `done` (only `done` is completed)
 - **Priorities**: `none`, `low`, `normal`, `high` (sorted by weight)
@@ -120,7 +121,7 @@ YAML examples in this document are complete snapshots. In custom files, targeted
 
 filters:
   and:
-    - file.hasTag("task")
+    - file.inFolder("TaskNotes/Tasks")
 
 formulas:
   # Sorting
@@ -211,7 +212,7 @@ Used by the **Kanban** command to display tasks organized by status.
 
 filters:
   and:
-    - file.hasTag("task")
+    - file.inFolder("TaskNotes/Tasks")
 
 formulas:
   # ... same formulas as Mini Calendar above ...
@@ -255,7 +256,7 @@ The default views cover common review horizons and can be kept, removed, or clon
 
 filters:
   and:
-    - file.hasTag("task")
+    - file.inFolder("TaskNotes/Tasks")
 
 formulas:
   # ... same formulas as Mini Calendar above ...
@@ -496,7 +497,7 @@ Used by the **Calendar** command to display tasks in a full calendar view with t
 
 filters:
   and:
-    - file.hasTag("task")
+    - file.inFolder("TaskNotes/Tasks")
 
 formulas:
   # ... same formulas as Mini Calendar above ...
@@ -557,7 +558,7 @@ To build an Agenda variant for completed tasks that do not have due or scheduled
 
 filters:
   and:
-    - file.hasTag("task")
+    - file.inFolder("TaskNotes/Tasks")
 
 formulas:
   # ... same formulas as Mini Calendar above ...
@@ -712,7 +713,7 @@ views:
     name: "Subtasks"
     filters:
       and:
-        - file.hasTag("task")
+        - file.inFolder("TaskNotes/Tasks")
         - file.hasLink(this.file) && list(note.projects).map(file(value.replace(/^\[[^\]]+\]\((.*)\)$/, "$1").replace(/%20/g, " ")).asLink()).contains(this.file.asLink())
     order:
       - status
@@ -778,7 +779,7 @@ views:
     name: "Blocked By"
     filters:
       and:
-        - file.hasTag("task")
+        - file.inFolder("TaskNotes/Tasks")
         - list(this.note.blockedBy).map(file(if(value.isType("object"), value.uid, value)).asLink()).contains(file.asLink())
     order:
       - status
@@ -800,7 +801,7 @@ views:
     name: "Blocking"
     filters:
       and:
-        - file.hasTag("task")
+        - file.inFolder("TaskNotes/Tasks")
         - list(note.blockedBy).map(file(if(value.isType("object"), value.uid, value)).asLink()).contains(this.file.asLink())
     order:
       - status

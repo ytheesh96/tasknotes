@@ -9,6 +9,7 @@ import { isPathInExcludedFolder, parseExcludedFolders } from "./pathExclusions";
 import { buildTaskInfoFromMappedTask } from "./taskInfoAssembly";
 import { isTaskFrontmatter } from "./taskIdentification";
 import { createTaskNotesLogger } from "./tasknotesLogger";
+import { getHermesTaskIdentity } from "../hermes/hermesApiClient";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Utils/TaskManager" });
 
@@ -288,6 +289,26 @@ export class TaskManager extends Events {
 		return metadataTaskInfo;
 	}
 
+	/**
+	 * Read task info directly from the note frontmatter, bypassing pending write-through state.
+	 * Use this when the note is the source of truth and a just-written fallback must not win.
+	 */
+	async getTaskInfoFromFrontmatter(path: string): Promise<TaskInfo | null> {
+		if (!this.isValidFile(path)) return null;
+
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return null;
+
+		const frontmatter = await this.readFrontmatterFromFile(file);
+		if (!frontmatter || !this.isTaskFile(frontmatter)) return null;
+
+		const taskInfo = this.extractTaskInfoFromNative(path, frontmatter);
+		if (taskInfo) {
+			this.pendingTaskInfoByPath.delete(path);
+		}
+		return taskInfo;
+	}
+
 	private getPendingTaskInfo(path: string): TaskInfo | null {
 		const taskInfo = this.pendingTaskInfoByPath.get(path);
 		if (!taskInfo) return null;
@@ -337,7 +358,11 @@ export class TaskManager extends Events {
 			if (this._dependencyCache) {
 				// Use DependencyCache for status-aware blocking check
 				isBlocked = this._dependencyCache.isTaskBlocked(path);
-				blockingTasks = this._dependencyCache.getBlockedTaskPaths(path);
+				blockingTasks = this._dependencyCache.getBlockedTaskPaths(path, {
+					includeCompletedSource:
+						getHermesTaskIdentity({ ...mappedTask, path } as TaskInfo) !== null ||
+						path.startsWith("TaskNotes/"),
+				});
 			} else {
 				// Fallback when dependency cache not available: use simple existence check
 				isBlocked = Array.isArray(mappedTask.blockedBy) && mappedTask.blockedBy.length > 0;
@@ -1031,7 +1056,10 @@ export class TaskManager extends Events {
 		return this._dependencyCache.getBlockingTaskPaths(taskPath);
 	}
 
-	getBlockedTaskPaths(taskPath: string): string[] {
+	getBlockedTaskPaths(
+		taskPath: string,
+		options?: { includeCompletedSource?: boolean }
+	): string[] {
 		if (!this._dependencyCache) {
 			tasknotesLogger.warn("DependencyCache not set in TaskManager", {
 				category: "stale-data",
@@ -1039,7 +1067,7 @@ export class TaskManager extends Events {
 			});
 			return [];
 		}
-		return this._dependencyCache.getBlockedTaskPaths(taskPath);
+		return this._dependencyCache.getBlockedTaskPaths(taskPath, options);
 	}
 
 	isTaskBlocked(taskPath: string): boolean {

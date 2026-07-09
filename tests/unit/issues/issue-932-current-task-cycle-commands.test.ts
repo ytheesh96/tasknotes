@@ -18,11 +18,13 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 
 function createPlugin(
 	task: TaskInfo | null,
-	activeFile: TFile | null = new TFile(task?.path ?? "Tasks/review.md")
+	activeFile: TFile | null = new TFile(task?.path ?? "Tasks/review.md"),
+	frontmatterTask: TaskInfo | null = null
 ): TaskNotesPlugin {
 	const plugin = new TaskNotesPlugin(new App() as never, {} as never);
 	plugin.app.workspace.getActiveFile = jest.fn(() => activeFile) as never;
 	plugin.cacheManager = {
+		getTaskInfoFromFrontmatter: jest.fn(async () => frontmatterTask),
 		getTaskInfo: jest.fn(async () => task),
 	} as never;
 	plugin.statusManager = {
@@ -78,6 +80,7 @@ describe("Issue #932: current task status and priority cycle commands", () => {
 		await plugin.cycleCurrentTaskStatus();
 
 		expect(plugin.app.workspace.getActiveFile).toHaveBeenCalledTimes(1);
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(task.path);
 		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith(task.path);
 		expect(plugin.statusManager.getNextStatus).toHaveBeenCalledWith("open");
 		expect(plugin.updateTaskProperty).toHaveBeenCalledWith(
@@ -94,9 +97,29 @@ describe("Issue #932: current task status and priority cycle commands", () => {
 		await plugin.cycleCurrentTaskPriority();
 
 		expect(plugin.app.workspace.getActiveFile).toHaveBeenCalledTimes(1);
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(task.path);
 		expect(plugin.cacheManager.getTaskInfo).toHaveBeenCalledWith(task.path);
 		expect(plugin.priorityManager.getNextPriority).toHaveBeenCalledWith("normal");
 		expect(plugin.updateTaskProperty).toHaveBeenCalledWith(task, "priority", "high");
+	});
+
+	it("cycles active task status from note frontmatter before pending cache data", async () => {
+		const pendingTask = createTask({ status: "open" });
+		const frontmatterTask = createTask({ status: "waiting" });
+		const plugin = createPlugin(pendingTask, new TFile(pendingTask.path), frontmatterTask);
+
+		await plugin.cycleCurrentTaskStatus();
+
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			pendingTask.path
+		);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+		expect(plugin.statusManager.getNextStatus).toHaveBeenCalledWith("waiting");
+		expect(plugin.updateTaskProperty).toHaveBeenCalledWith(
+			frontmatterTask,
+			"status",
+			"in-progress"
+		);
 	});
 
 	it("does not update a task when no file is active", async () => {

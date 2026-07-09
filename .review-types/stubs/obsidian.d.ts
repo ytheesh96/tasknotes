@@ -1,5 +1,11 @@
 export const AbstractInputSuggest: any;
-export const App: any;
+export class App {
+	vault: Vault;
+	metadataCache: MetadataCache;
+	workspace?: {
+		getActiveFile?(): TFile | null;
+	};
+}
 export const BasesAllOptions: any;
 export const BasesEntry: any;
 export const BasesEntryGroup: any;
@@ -10,7 +16,9 @@ export const BasesView: any;
 export const BasesViewConfig: any;
 export const BasesViewFactory: any;
 export const BasesViewRegistration: any;
-export const CachedMetadata: any;
+export interface CachedMetadata {
+	frontmatter?: Record<string, unknown>;
+}
 export const CliData: any;
 export const CliFlags: any;
 export const Command: any;
@@ -36,7 +44,10 @@ export const MenuItem: any;
 export const Modal: any;
 export const Notice: any;
 export const Platform: any;
-export const Plugin: any;
+export class Plugin {
+	app: App;
+	manifest: { dir?: string; id?: string };
+}
 export const PluginSettingTab: any;
 export const RenderContext: any;
 export const RequestUrlParam: any;
@@ -45,11 +56,31 @@ export const SearchResult: any;
 export const Setting: any;
 export const SettingGroup: any;
 export const SuggestModal: any;
-export const TAbstractFile: any;
-export const TFile: any;
+export class TAbstractFile {
+	path: string;
+	name: string;
+	vault: Vault;
+	parent: TFolder | null;
+}
+export class TFile extends TAbstractFile {
+	basename: string;
+	extension: string;
+	stat: unknown;
+}
+export class TFolder extends TAbstractFile {
+	children: TAbstractFile[];
+}
 export const TextComponent: any;
 export const ToggleComponent: any;
-export const Vault: any;
+export class Vault {
+	adapter: {
+		exists?(path: string): Promise<boolean>;
+		read?(path: string): Promise<string>;
+		write?(path: string, data: string): Promise<void>;
+	};
+	getAbstractFileByPath(path: string): TAbstractFile | null;
+	getMarkdownFiles?(): TFile[];
+}
 export const WorkspaceLeaf: any;
 export const addIcon: any;
 export const editorInfoField: any;
@@ -79,7 +110,7 @@ export type BasesView = any;
 export type BasesViewConfig = any;
 export type BasesViewFactory = any;
 export type BasesViewRegistration = any;
-export type CachedMetadata = any;
+
 export type CliData = any;
 export type CliFlags = any;
 export type Command = any;
@@ -102,7 +133,7 @@ export type MenuItem = any;
 export type Modal = any;
 export type Notice = any;
 export type Platform = any;
-export type Plugin = any;
+
 export type PluginSettingTab = any;
 export type RenderContext = any;
 export type RequestUrlParam = any;
@@ -111,8 +142,13 @@ export type SearchResult = any;
 export type Setting = any;
 export type SettingGroup = any;
 export type SuggestModal = any;
-export type TAbstractFile = any;
+
 export type TextComponent = any;
 export type ToggleComponent = any;
-export type Vault = any;
 export type WorkspaceLeaf = any;
+
+export interface MetadataCache {
+	getFileCache(file: TFile): CachedMetadata | null;
+	getCache?(path: string): CachedMetadata | null;
+	getFirstLinkpathDest?(linkPath: string, sourcePath: string): TFile | null;
+}

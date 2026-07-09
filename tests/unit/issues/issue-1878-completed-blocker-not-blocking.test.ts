@@ -1,6 +1,7 @@
 import { FieldMapper } from "../../../src/services/FieldMapper";
-import { DEFAULT_FIELD_MAPPING } from "../../../src/settings/defaults";
+import { DEFAULT_FIELD_MAPPING, DEFAULT_SETTINGS } from "../../../src/settings/defaults";
 import { DependencyCache } from "../../../src/utils/DependencyCache";
+import { TaskManager } from "../../../src/utils/TaskManager";
 import { MockObsidian } from "../../helpers/obsidian-runtime";
 
 describe("Issue #1878: completed blockers should not appear as active blockers", () => {
@@ -50,5 +51,78 @@ describe("Issue #1878: completed blockers should not appear as active blockers",
 
 		expect(dependencyCache.isTaskBlocked("Tasks/dependent.md")).toBe(false);
 		expect(dependencyCache.getBlockedTaskPaths("Tasks/blocker.md")).toEqual([]);
+	});
+
+	it("keeps completed board-task blocking relationships visible for faded related cards", async () => {
+		const app = MockObsidian.createMockApp();
+		MockObsidian.createTestFile(
+			"TaskNotes/default/t_done.md",
+			"---\ntitle: Done Hermes blocker\nstatus: done\ntags:\n  - task\n  - hermes-kanban\n---\n"
+		);
+		MockObsidian.createTestFile(
+			"TaskNotes/default/t_child.md",
+			"---\ntitle: Done Hermes child\nstatus: done\ntags:\n  - task\n  - hermes-kanban\nblockedBy:\n  - uid: '[[TaskNotes/default/t_done|Done Hermes blocker]]'\n    reltype: FINISHTOSTART\n---\n"
+		);
+
+		const blockerFile = app.vault.getAbstractFileByPath("TaskNotes/default/t_done.md");
+		const childFile = app.vault.getAbstractFileByPath("TaskNotes/default/t_child.md");
+		app.metadataCache.setCache("TaskNotes/default/t_done.md", {
+			frontmatter: {
+				title: "Done Hermes blocker",
+				status: "done",
+				tags: ["task", "hermes-kanban"],
+			},
+		});
+		app.metadataCache.setCache("TaskNotes/default/t_child.md", {
+			frontmatter: {
+				title: "Done Hermes child",
+				status: "done",
+				tags: ["task", "hermes-kanban"],
+				blockedBy: [
+					{
+						uid: "[[TaskNotes/default/t_done|Done Hermes blocker]]",
+						reltype: "FINISHTOSTART",
+					},
+				],
+			},
+		});
+		app.metadataCache.getFirstLinkpathDest = jest.fn((linkpath: string) => {
+			if (linkpath === "TaskNotes/default/t_done") return blockerFile;
+			if (linkpath === "TaskNotes/default/t_child") return childFile;
+			return null;
+		});
+
+		const fieldMapper = new FieldMapper(DEFAULT_FIELD_MAPPING);
+		const dependencyCache = new DependencyCache(
+			app,
+			{
+				...DEFAULT_SETTINGS,
+				taskIdentificationMethod: "tag",
+				taskTag: "task",
+			},
+			fieldMapper,
+			{ isCompletedStatus: jest.fn((status: string) => status === "done") } as never,
+			(frontmatter) => Array.isArray((frontmatter as { tags?: unknown }).tags)
+		);
+		await dependencyCache.buildIndexes();
+
+		const taskManager = new TaskManager(
+			app,
+			{
+				...DEFAULT_SETTINGS,
+				taskIdentificationMethod: "tag",
+				taskTag: "task",
+				storeTitleInFilename: false,
+			},
+			fieldMapper
+		);
+		taskManager.setDependencyCache(dependencyCache);
+
+		expect(dependencyCache.getBlockedTaskPaths("TaskNotes/default/t_done.md")).toEqual([]);
+
+		await expect(taskManager.getTaskInfo("TaskNotes/default/t_done.md")).resolves.toMatchObject({
+			blocking: ["TaskNotes/default/t_child.md"],
+			isBlocking: true,
+		});
 	});
 });

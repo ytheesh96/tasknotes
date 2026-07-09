@@ -1,7 +1,7 @@
 import { App, Setting } from "obsidian";
 import TaskNotesPlugin from "../main";
 import { sanitizeTags } from "../utils/helpers";
-import { ContextSuggest, TagSuggest } from "./taskModalSuggests";
+import { ContextSuggest, TagSuggest, type ContextSuggestOptions } from "./taskModalSuggests";
 
 export interface TaskModalMetadataFieldContext {
 	app: App;
@@ -14,6 +14,9 @@ export interface CreateTaskModalTextFieldOptions {
 	container: HTMLElement;
 	value: string;
 	onChange: (value: string) => void;
+	label?: string;
+	placeholder?: string;
+	contextSuggestOptions?: ContextSuggestOptions;
 }
 
 export interface CreateTaskModalTimeEstimateFieldOptions {
@@ -33,14 +36,18 @@ export function createTaskModalContextsField(
 	let inputEl: HTMLInputElement | null = null;
 	const setting = new Setting(options.container);
 	setting.settingEl.addClass("tn-task-modal__wide-text-setting");
-	setting.setName(context.translate("modals.task.contextsLabel")).addText((text) => {
-		text.setPlaceholder(context.translate("modals.task.contextsPlaceholder"))
+	setting.setName(options.label ?? context.translate("modals.task.contextsLabel")).addText((text) => {
+		text.setPlaceholder(options.placeholder ?? context.translate("modals.task.contextsPlaceholder"))
 			.setValue(options.value)
 			.onChange(options.onChange);
 
 		inputEl = text.inputEl;
 		context.attachMobileKeyboardScrollGuard(text.inputEl);
-		new ContextSuggest(context.app, text.inputEl, context.plugin);
+		if (options.contextSuggestOptions) {
+			new ContextSuggest(context.app, text.inputEl, context.plugin, options.contextSuggestOptions);
+		} else {
+			new ContextSuggest(context.app, text.inputEl, context.plugin);
+		}
 	});
 
 	if (!inputEl) {

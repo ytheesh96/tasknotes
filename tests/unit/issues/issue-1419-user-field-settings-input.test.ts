@@ -113,4 +113,20 @@ describe("Issue #1419: custom user field settings save while typing", () => {
 		expect(plugin.settings.userFields[2].defaultValue).toBe(7.5);
 		expect(save).toHaveBeenCalledTimes(3);
 	});
+
+	it("keeps assignee as an ordinary custom field if it exists before normalization", () => {
+		const save = jest.fn();
+		const plugin = createPlugin({
+			userFields: [
+				{ id: "assignee", displayName: "Assignee", key: "assignee", type: "text" },
+				{ id: "effort", displayName: "Effort", key: "effort", type: "number" },
+			],
+		});
+		const container = document.createElement("div");
+
+		renderUserFieldsSection(container, plugin, save, translate as never);
+
+		expect(container.querySelector('[data-card-id="assignee"]')).not.toBeNull();
+		expect(container.querySelector('[data-card-id="effort"]')).not.toBeNull();
+	});
 });

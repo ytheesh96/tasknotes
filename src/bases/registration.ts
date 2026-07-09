@@ -2,6 +2,8 @@ import type TaskNotesPlugin from "../main";
 import { requireApiVersion } from "obsidian";
 import { buildTaskListViewFactory } from "./TaskListView";
 import { buildKanbanViewFactory } from "./KanbanView";
+import { buildAgentRosterViewFactory } from "./AgentRosterView";
+import { buildHermesBoardsViewFactory } from "./HermesBoardsView";
 import { buildCalendarViewFactory } from "./CalendarView";
 import { buildMiniCalendarViewFactory } from "./MiniCalendarView";
 import { registerBasesView, unregisterBasesView } from "./api";
@@ -22,6 +24,10 @@ const EXPANDED_RELATIONSHIP_FILTER_MODE_OPTIONS: Record<string, string> = {
 	inherit: "Inherit",
 	"show-all": "Show all",
 };
+
+function isNoteTaskOrFormulaProperty(prop: string): boolean {
+	return prop.startsWith("note.") || prop.startsWith("task.") || prop.startsWith("formula.");
+}
 
 /**
  * Register TaskNotes views with Bases plugin
@@ -117,18 +123,15 @@ export async function registerBasesTaskList(plugin: TaskNotesPlugin): Promise<vo
 						step: 20,
 					},
 					{
-						type: "slider",
-						key: "maxSwimlaneHeight",
-						displayName: "Max Swimlane Height",
-						default: 600,
-						min: 300,
-						max: 1200,
-						step: 50,
-					},
-					{
 						type: "toggle",
 						key: "hideEmptyColumns",
 						displayName: "Hide Empty Columns",
+						default: false,
+					},
+					{
+						type: "toggle",
+						key: "showHermesArchivedTasks",
+						displayName: "Show Hermes archived tasks",
 						default: false,
 					},
 					{
@@ -201,6 +204,163 @@ export async function registerBasesTaskList(plugin: TaskNotesPlugin): Promise<vo
 				logger
 			);
 
+			const agentRosterSuccess = registerBasesView(
+				plugin,
+				"tasknotesAgentRoster",
+				{
+					name: "TaskNotes Agent Roster",
+					icon: "users",
+					factory: buildAgentRosterViewFactory(plugin),
+					options: () => [
+						{
+							type: "property",
+							key: "agentProperty",
+							displayName: "Agent property",
+							placeholder: "Property used for agent names",
+							default: "assignee",
+							filter: isNoteTaskOrFormulaProperty,
+						},
+						{
+							type: "property",
+							key: "agentFallbackProperty",
+							displayName: "Fallback agent property",
+							placeholder: "Property used when the agent property is empty",
+							default: "contexts",
+							filter: isNoteTaskOrFormulaProperty,
+						},
+						{
+							type: "property",
+							key: "boardProperty",
+							displayName: "Board property",
+							placeholder: "Property used for Hermes board names",
+							default: "projects",
+							filter: isNoteTaskOrFormulaProperty,
+						},
+						{
+							type: "property",
+							key: "statusProperty",
+							displayName: "Status property",
+							placeholder: "Property used for task status",
+							default: "status",
+							filter: isNoteTaskOrFormulaProperty,
+						},
+						{
+							type: "text",
+							key: "defaultBoard",
+							displayName: "Default board",
+							default: "default",
+						},
+						{
+							type: "text",
+							key: "submitStatus",
+							displayName: "Submit status",
+							default: "triage",
+						},
+						{
+							type: "text",
+							key: "submitTag",
+							displayName: "Submit tag",
+							default: "hermes-submit",
+						},
+						{
+							type: "slider",
+							key: "maxTasksPerAgent",
+							displayName: "Tasks per agent",
+							default: 4,
+							min: 1,
+							max: 12,
+							step: 1,
+						},
+						{
+							type: "text",
+							key: "readyStatuses",
+							displayName: "Ready statuses",
+							default: "triage,todo,scheduled,ready",
+						},
+						{
+							type: "text",
+							key: "busyStatuses",
+							displayName: "Busy statuses",
+							default: "running",
+						},
+						{
+							type: "text",
+							key: "reviewStatuses",
+							displayName: "Review statuses",
+							default: "review",
+						},
+						{
+							type: "text",
+							key: "ignoredAgentValues",
+							displayName: "Ignored agent values",
+							default: "hermes-kanban",
+						},
+					],
+				},
+				logger
+			);
+
+			const hermesBoardsSuccess = registerBasesView(
+				plugin,
+				"tasknotesHermesBoards",
+				{
+					name: "TaskNotes Hermes Boards",
+					icon: "columns-3",
+					factory: buildHermesBoardsViewFactory(plugin),
+					options: () => [
+						{
+							type: "property",
+							key: "boardProperty",
+							displayName: "Board property",
+							placeholder: "Property used for Hermes board names",
+							default: "projects",
+							filter: isNoteTaskOrFormulaProperty,
+						},
+						{
+							type: "property",
+							key: "statusProperty",
+							displayName: "Status property",
+							placeholder: "Property used for task status",
+							default: "status",
+							filter: isNoteTaskOrFormulaProperty,
+						},
+						{
+							type: "property",
+							key: "agentProperty",
+							displayName: "Agent property",
+							placeholder: "Property used for agent names",
+							default: "contexts",
+							filter: isNoteTaskOrFormulaProperty,
+						},
+						{
+							type: "text",
+							key: "defaultBoard",
+							displayName: "Default board",
+							default: "default",
+						},
+						{
+							type: "text",
+							key: "doneStatuses",
+							displayName: "Done statuses",
+							default: "done,completed",
+						},
+						{
+							type: "text",
+							key: "busyStatuses",
+							displayName: "Busy statuses",
+							default: "running",
+						},
+						{
+							type: "text",
+							key: "reviewStatuses",
+							displayName: "Review statuses",
+							default: "review",
+						},
+					],
+				},
+				logger
+			);
+
 			// Register Calendar view using public API
 			const calendarSuccess = registerBasesView(
 				plugin,
@@ -228,7 +388,14 @@ export async function registerBasesTaskList(plugin: TaskNotesPlugin): Promise<vo
 			);
 
 			// Consider it successful if any view registered successfully
-			if (!taskListSuccess && !kanbanSuccess && !calendarSuccess && !miniCalendarSuccess) {
+			if (
+				!taskListSuccess &&
+				!kanbanSuccess &&
+				!agentRosterSuccess &&
+				!hermesBoardsSuccess &&
+				!calendarSuccess &&
+				!miniCalendarSuccess
+			) {
 				logger.debug("Bases plugin not available for registration", {
 					category: "configuration",
 					operation: "register-views",
@@ -296,6 +463,8 @@ export function unregisterBasesViews(plugin: TaskNotesPlugin): void {
 		// Unregister views using wrapper (uses internal API as public API doesn't provide unregister)
 		unregisterBasesView(plugin, "tasknotesTaskList", logger);
 		unregisterBasesView(plugin, "tasknotesKanban", logger);
+		unregisterBasesView(plugin, "tasknotesAgentRoster", logger);
+		unregisterBasesView(plugin, "tasknotesHermesBoards", logger);
 		unregisterBasesView(plugin, "tasknotesCalendar", logger);
 		unregisterBasesView(plugin, "tasknotesMiniCalendar", logger);
 	} catch (error) {

@@ -1,6 +1,7 @@
 import type TaskNotesPlugin from "../main";
 import type { TaskInfo } from "../types";
 import { createTaskNotesLogger } from "../utils/tasknotesLogger";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 
 const tasknotesLogger = createTaskNotesLogger({ tag: "Services/TaskSelectionService" });
 
@@ -128,10 +129,72 @@ export class TaskSelectionService {
 	}
 
 	/**
+	 * Add multiple tasks to the current selection.
+	 */
+	selectPaths(taskPaths: string[]): void {
+		if (taskPaths.length === 0) return;
+
+		let changed = false;
+		for (const taskPath of taskPaths) {
+			if (this.selectedTaskPaths.has(taskPath)) {
+				continue;
+			}
+			if (this.selectedTaskPaths.size === 0) {
+				this.primarySelectedPath = taskPath;
+			}
+			this.selectedTaskPaths.add(taskPath);
+			changed = true;
+		}
+
+		if (!changed) return;
+
+		this.lastSelectedPath = taskPaths[taskPaths.length - 1];
+		if (!this.selectionModeActive) {
+			this.enterSelectionMode();
+		}
+		this.notifySelectionChange();
+	}
+
+	/**
 	 * Remove a task from selection.
 	 */
 	removeFromSelection(taskPath: string): void {
 		this.selectedTaskPaths.delete(taskPath);
+		this.notifySelectionChange();
+	}
+
+	/**
+	 * Remove multiple tasks from the current selection.
+	 */
+	deselectPaths(taskPaths: string[]): void {
+		if (taskPaths.length === 0) return;
+
+		let changed = false;
+		for (const taskPath of taskPaths) {
+			if (this.selectedTaskPaths.delete(taskPath)) {
+				changed = true;
+			}
+		}
+
+		if (!changed) return;
+
+		if (this.primarySelectedPath && !this.selectedTaskPaths.has(this.primarySelectedPath)) {
+			this.primarySelectedPath =
+				this.selectedTaskPaths.size > 0 ? Array.from(this.selectedTaskPaths)[0] : null;
+		}
+		if (this.lastSelectedPath && !this.selectedTaskPaths.has(this.lastSelectedPath)) {
+			this.lastSelectedPath = this.primarySelectedPath;
+		}
+
+		if (this.selectedTaskPaths.size === 0) {
+			this.primarySelectedPath = null;
+			this.lastSelectedPath = null;
+			if (this.selectionModeActive) {
+				this.selectionModeActive = false;
+				this.notifySelectionModeChange(false);
+			}
+		}
+
 		this.notifySelectionChange();
 	}
 
@@ -253,7 +316,7 @@ export class TaskSelectionService {
 	async getSelectedTasks(): Promise<TaskInfo[]> {
 		const tasks: TaskInfo[] = [];
 		for (const path of this.selectedTaskPaths) {
-			const task = await this.plugin.cacheManager.getTaskInfo(path);
+			const task = await getTaskInfoFromNoteFirst(this.plugin, path);
 			if (task) {
 				tasks.push(task);
 			}

@@ -409,4 +409,3 @@ Important boundaries:
 - Workflow/event triggers should only filter event payloads; vault-wide task selection belongs in explicit query calls.
 - The normalized query should be visible in query result or explain output so dry runs can be debugged.
 ```
-

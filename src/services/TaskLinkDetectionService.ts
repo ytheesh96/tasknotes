@@ -2,6 +2,7 @@ import { TFile, parseLinktext } from "obsidian";
 import { TaskInfo } from "../types";
 import TaskNotesPlugin from "../main";
 import { createTaskNotesLogger, type TaskNotesLogger } from "../utils/tasknotesLogger";
+import { getTaskInfoFromNoteFirst } from "../utils/taskInfoRead";
 import {
 	formatTaskLinkSubpathDisplayText,
 	resolveTaskLinkDisplayText,
@@ -83,7 +84,7 @@ export class TaskLinkDetectionService {
 
 		// Check if file contains task metadata
 		try {
-			const taskInfo = await this.plugin.cacheManager.getTaskInfo(resolvedPath);
+			const taskInfo = await getTaskInfoFromNoteFirst(this.plugin, resolvedPath);
 			if (taskInfo) {
 				const displayText = this.resolveDisplayText(
 					parsed,

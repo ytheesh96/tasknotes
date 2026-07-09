@@ -21,12 +21,19 @@ export interface UserMappedField {
 /**
  * Field types for task modal configuration
  */
-export type FieldType = "core" | "user" | "dependency" | "organization";
+export type FieldType = "core" | "user" | "dependency" | "organization" | "integration";
 
 /**
  * Field groups for organizing fields in the modal
  */
-export type FieldGroup = "basic" | "metadata" | "organization" | "dependencies" | "custom";
+export type FieldGroup =
+	| "basic"
+	| "routing"
+	| "metadata"
+	| "organization"
+	| "dependencies"
+	| "activity"
+	| "custom";
 
 /**
  * Configuration for a single field in task modals
@@ -105,6 +112,11 @@ export interface TaskNotesSettings {
 	defaultTaskPriority: string; // Changed to string to support custom priorities
 	defaultTaskStatus: string; // Changed to string to support custom statuses
 	taskOrgFiltersCollapsed: boolean; // Save collapse state of task organization filters
+	// Hermes integration settings
+	hermesStartCommand: string;
+	hermesKanbanTransport: "dashboard-api" | "kanban-cli";
+	hermesAutoStartOnTaskChange: boolean;
+	hermesTaskNotesWebhookSecret: string;
 	// Task filename settings
 	taskFilenameFormat: "title" | "zettel" | "timestamp" | "uuid" | "custom";
 	storeTitleInFilename: boolean;
@@ -226,6 +238,8 @@ export interface TaskNotesSettings {
 	commandFileMapping: {
 		"open-calendar-view": string;
 		"open-kanban-view": string;
+		"open-agent-roster-view": string;
+		"open-hermes-boards-view": string;
 		"open-tasks-view": string;
 		"open-advanced-calendar-view": string;
 		"open-agenda-view": string;

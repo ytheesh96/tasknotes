@@ -83,7 +83,7 @@ describe("taskCardContextMenu", () => {
 		expect(button.getAttribute("role")).toBe("button");
 
 		button.dispatchEvent(click);
-		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
 
 		expect(click.defaultPrevented).toBe(true);
 		expect(stopPropagation).toHaveBeenCalled();
@@ -112,6 +112,24 @@ describe("taskCardContextMenu", () => {
 
 		options.onUpdate();
 		expect(plugin.app.workspace.trigger).toHaveBeenCalledWith("tasknotes:refresh-views");
+	});
+
+	it("uses note frontmatter task data before pending cache data", async () => {
+		const staleTask = createTask({ title: "Stale pending title", status: "open" });
+		const frontmatterTask = createTask({ title: "Frontmatter title", status: "done" });
+		const plugin = createPlugin(staleTask);
+		plugin.cacheManager.getTaskInfoFromFrontmatter = jest.fn(async () => frontmatterTask);
+		const event = new MouseEvent("contextmenu");
+
+		await showTaskContextMenu(event, frontmatterTask.path, plugin, new Date("2026-05-19"));
+
+		expect(plugin.cacheManager.getTaskInfoFromFrontmatter).toHaveBeenCalledWith(
+			frontmatterTask.path
+		);
+		expect(plugin.cacheManager.getTaskInfo).not.toHaveBeenCalled();
+		expect(TaskContextMenu).toHaveBeenCalledWith(
+			expect.objectContaining({ task: frontmatterTask })
+		);
 	});
 
 	it("falls back to the native file menu when task data is unavailable", async () => {
