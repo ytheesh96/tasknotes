@@ -1,141 +1,99 @@
-# <img src="tasknotes-gradient.svg" width="32" height="32" style="vertical-align: middle;"> TaskNotes for Obsidian
+# TaskNotes × Hermes Integration Fork
 
-A task management plugin where each task is a separate Markdown note, and all views are powered by [Obsidian Bases](https://help.obsidian.md/bases).
+This fork of [TaskNotes for Obsidian](https://github.com/callumalpass/tasknotes) is focused on making TaskNotes the native Obsidian control surface for **Hermes Loop/Kanban work**.
 
-<img src="https://github.com/callumalpass/tasknotes/blob/main/media/2025-12-07T15-43-26.png?raw=true" />
+The upstream plugin is a Markdown-note task manager powered by [Obsidian Bases](https://help.obsidian.md/bases). This branch keeps that foundation, but adds the local Hermes integration work needed for agents, reviewers, and operators to use TaskNotes as a durable task board, review surface, and synchronization layer.
 
-## Overview
+> This repository is not a replacement for upstream TaskNotes documentation. For general TaskNotes installation and usage, see [tasknotes.dev](https://tasknotes.dev/) and the upstream project.
 
-Each task is a Markdown note with YAML frontmatter. Every view is a [Bases](https://help.obsidian.md/bases) query.
+## What this fork is for
 
-Bases is Obsidian's core plugin for turning notes into databases—it reads properties from your notes and lets you filter, sort, and group them without writing code. TaskNotes stores tasks as notes with structured frontmatter, then uses Bases to query and display them. The Task List, Kanban, Calendar, and Agenda views are all `.base` files.
+The goal is to let Hermes-managed work appear and behave like ordinary TaskNotes tasks while still preserving Hermes execution evidence.
 
-This keeps your data portable. Tasks are just Markdown files with YAML, so you can read them with any tool, transform them with scripts, or migrate them elsewhere. There's no plugin-specific database.
+This includes:
 
-The frontmatter is extensible—add fields like `energy-level` or `client` and they're immediately available in Bases for filtering and grouping. The `.base` files are plain text too, so you can edit filters and sorting directly or duplicate them to create new views.
+- **TaskNotes-native Hermes boards** — Hermes boards are represented as TaskNotes board records and Bases/Kanban views, so boards remain visible in Obsidian even when the dashboard is unavailable.
+- **Board-qualified task mirrors** — Hermes tasks are mirrored into stable TaskNotes paths such as `TaskNotes/Tasks/<board>--<task-id>.md`, avoiding collisions when multiple boards contain the same task id.
+- **Local-first review surface** — Hermes-managed task notes open with a review-oriented split surface: task brief, changed files, compact comment composer, decision actions, verification rows, activity timeline, run history, and dependency chips.
+- **TaskNotes-owned state** — normal task properties such as status, priority, assignee, dependencies, archive state, and board routing are represented with TaskNotes frontmatter and Bases affordances.
+- **Hermes execution evidence** — comments, runs, events, artifacts, changed files, worker sessions, reviewer handoffs, and audit/action links are cached as reusable TaskNote activity fields and linked activity notes.
+- **Dashboardless sync path** — TaskNotes can use its HTTP API and webhook flow as the source of task state while Hermes consumes updates through API/webhook sync.
+- **Safe degraded modes** — Hermes controls show availability, cache-only/read-only states, and local startup actions instead of silently writing through a missing dashboard.
 
-![Screenshot of TaskNotes plugin](https://github.com/callumalpass/tasknotes/blob/main/media/175266750_comp.gif)
+## Current PR focus
 
-**[Full Documentation](https://tasknotes.dev/)**
+The active PR branch publishes the local Hermes TaskNotes integration work that was not present in the public repository. It merges the local Hermes stack against current upstream `main` and includes conflict-resolution work to keep the PR mergeable.
 
-## Quick start
+Key areas touched by this branch:
 
-Create a task with **TaskNotes: Create new task**. The plugin parses natural language—type "Buy groceries tomorrow #errands" and it extracts the due date and context automatically.
+- Hermes board registry and board provisioning.
+- Hermes Boards Bases view behavior.
+- Hermes task mirror canonicalization and activity sync.
+- TaskNotes Kanban archive and refresh behavior for Hermes-managed tasks.
+- Task creation/edit routing through Hermes transports.
+- Project/property settings persistence for Hermes metadata.
+- Native Hermes-managed TaskNote review surface and mockup/PRD documentation.
+- Unit coverage for Hermes boards, provisioning, settings, archive planning, and related Bases behavior.
 
-Tasks are stored as Markdown files in your vault. Open them directly, edit the frontmatter, or use the plugin's views to manage them.
+See also:
 
-Open a view with commands like **TaskNotes: Open tasks view** or **TaskNotes: Open kanban board**. These open the corresponding `.base` files from `TaskNotes/Views/`.
+- [`docs/hermes-task-note-review-surface-prd.md`](docs/hermes-task-note-review-surface-prd.md)
+- [`docs/releases/unreleased.md`](docs/releases/unreleased.md)
+- [`docs/mdbase-tasknotes-cli.md`](docs/mdbase-tasknotes-cli.md)
 
-## How it works with Bases
+## How Hermes uses TaskNotes
 
-TaskNotes registers as a Bases data source and provides custom view types: `tasknotesTaskList`, `tasknotesKanban`, `tasknotesCalendar`, and `tasknotesMiniCalendar`. The default Agenda file is a preconfigured `tasknotesCalendar` list view (`listWeek`). Your task notes become rows; frontmatter properties become columns.
+At a high level:
 
-The default `.base` files include formula properties for computed values:
+1. Hermes owns the execution runtime: Loop rows, Kanban state, worker runs, reviewer handoffs, artifacts, and audit events.
+2. TaskNotes owns the Obsidian task surface: Markdown task notes, frontmatter fields, Bases/Kanban views, and the edit/review UI.
+3. Sync code bridges the two by writing canonical Hermes identifiers and cached activity summaries into TaskNotes notes.
+4. Reviewers can inspect and act on Hermes work from Obsidian without opening raw JSON, terminal logs, or a separate dashboard for every decision.
 
-```yaml
-formulas:
-  daysUntilDue: if(due, ((number(date(due)) - number(today())) / 86400000).floor(), null)
-  isOverdue: due && date(due) < today() && status != "done"
-  urgencyScore: formula.priorityWeight + max(0, 10 - formula.daysUntilDue)
-  efficiencyRatio: (timeTracked / timeEstimate * 100).round()
+The intended UX is **show the work where the user already reviews tasks**: inside Obsidian notes and TaskNotes views.
+
+## Development
+
+This is still an Obsidian plugin. The plugin id remains:
+
+```text
+tasknotes
 ```
 
-You can sort by `urgencyScore`, filter to show only `isOverdue` tasks, or add these as columns. Edit the `.base` files directly or use the Bases UI. See [default base templates](./docs/views/default-base-templates.md) for the full list of included formulas.
+Install dependencies and run the normal project checks from the repository root:
 
-## Task structure
-
-```yaml
-title: "Complete documentation"
-status: "in-progress"
-due: "2024-01-20"
-priority: "high"
-contexts: ["work"]
-projects: ["[[Website Redesign]]"]
-timeEstimate: 120
-timeEntries:
-  - startTime: "2024-01-15T10:30:00Z"
-    endTime: "2024-01-15T11:15:00Z"
+```bash
+npm install
+npm run typecheck
+npm run lint
+npm test -- --runInBand
+npm run build:test
 ```
 
-Recurring tasks use RRULE format with per-instance completion tracking:
+For live Obsidian verification, follow `AGENTS.md` and use the configured running vault/plugin path:
 
-```yaml
-title: "Weekly meeting"
-recurrence: "FREQ=WEEKLY;BYDAY=MO"
-complete_instances: ["2024-01-08"]
+```bash
+npm run verify:obsidian
 ```
 
-When an individual recurrence needs its own note, TaskNotes can materialize that occurrence as a normal task. Calendar views show the note-backed occurrence in place of the matching virtual recurrence instance:
+The live-vault scripts default to the running vault named `Obsidian` and plugin path `~/Documents/Obsidian/.obsidian/plugins/tasknotes`.
 
-```yaml
-title: "Weekly meeting"
-recurrence_parent: "[[Tasks/Weekly meeting]]"
-occurrence_date: "2024-01-15"
-scheduled: "2024-01-15T09:30"
-timeEstimate: 60
-```
+## Relationship to upstream TaskNotes
 
-Occurrence notes inherit planning metadata from the recurring parent, such as scheduled time, due offset, tags, contexts, projects, reminders, details, and time estimate. They do not copy the parent's recurrence rule, completion history, or time entries.
+This fork inherits TaskNotes' core model:
 
-All property names are configurable. If you already use `deadline` instead of `due`, remap it in settings.
+- each task is a Markdown note;
+- task metadata lives in YAML frontmatter;
+- views are powered by Obsidian Bases;
+- task data remains portable and scriptable.
 
-## Other features
+The fork-specific work is the Hermes integration layer on top of that model. General TaskNotes features such as recurring tasks, calendar views, time tracking, natural language task creation, dependencies, custom fields, localization, HTTP API, and webhooks come from upstream TaskNotes.
 
-Calendar sync with Google and Microsoft (OAuth) or any ICS feed. Time tracking with start/stop per task, Pomodoro timer, and session history. Recurring tasks with fixed or flexible schedules, per-instance completion tracking, and optional materialized occurrence notes. Dependencies between tasks. Natural language parsing for task creation. Custom statuses, priorities, and user-defined fields.
+For the upstream product README, docs, screenshots, and user-facing installation guide, use:
 
-## Integrations
-
-TaskNotes has an optional HTTP API. There's a [browser extension](https://github.com/callumalpass/tasknotes-browser-extension) and a [CLI](https://github.com/callumalpass/tasknotes-cli). Webhooks can notify external services on task changes. See [HTTP API docs](./docs/HTTP_API.md) and [Webhooks docs](./docs/webhooks.md).
-
-## Language support
-
-UI: English, German, Spanish, French, Japanese, Russian, Chinese, Portuguese, Korean.
-
-Natural language parsing: English, German, Spanish, French, Italian, Japanese, Dutch, Portuguese, Russian, Swedish, Ukrainian, Chinese.
-
-## Screenshots
-
-<details>
-<summary>View screenshots</summary>
-
-Screenshots are generated from the Playwright documentation suite (`npm run e2e:docs`).
-
-### Calendar
-
-![Month](media/docs/views-calendar-month.png)
-
-![Week](media/docs/views-calendar-week.png)
-
-![Day](media/docs/views-calendar-day.png)
-
-![Year](media/docs/views-calendar-year.png)
-
-### Task views
-
-![Tasks](media/docs/views-tasks-list.png)
-
-![Kanban](media/docs/views-kanban.png)
-
-![Agenda](media/docs/views-agenda.png)
-
-![Mini Calendar](media/docs/views-mini-calendar.png)
-
-### Features
-
-![Task Modal](media/docs/modal-task-create.png)
-
-![Pomodoro](media/docs/feature-pomodoro-timer.png)
-
-![Stats](media/docs/feature-task-statistics.png)
-
-![Settings](media/docs/ui-settings-panel.png)
-
-</details>
-
-## Credits
-
-Calendar components by [FullCalendar.io](https://fullcalendar.io/).
+- Upstream repository: https://github.com/callumalpass/tasknotes
+- Documentation: https://tasknotes.dev/
 
 ## License
 
-MIT—see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Upstream TaskNotes is © its original contributors; this fork preserves that license while adding Hermes integration work.
